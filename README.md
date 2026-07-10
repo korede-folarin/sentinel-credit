@@ -76,6 +76,7 @@ the three-dimension framework defined by the FCA, ICO, and Alan Turing Institute
 | Time series forecasting | Prophet · LSTM · stress scenarios · IFRS 9 aligned | 🔄 In progress |
 | Streamlit dashboard | Risk officer interface · audit export | 🔄 In progress |
 | Deployment infrastructure | S3 · RDS · EC2/Lambda · CI/CD | 🔄 In progress |
+| Power BI dashboard | Portfolio, model performance, and risk profile views | 🔄 In progress |
 
 ---
 
@@ -127,6 +128,7 @@ Pipeline      Apache Airflow · GitHub Actions
 Serving       BentoML · Docker · AWS Lambda/EC2
 Dashboard     Streamlit · Plotly
 LLM           Anthropic Claude API
+Dashboard     Streamlit · Plotly · Power BI
 ```
 
 ---
