@@ -1,0 +1,125 @@
+project:
+  name: "Sentinel Credit — BNPL Risk Intelligence Platform"
+  version: "1.0.0"
+  fca_reference: "Consumer Duty PS22/9 | CONC 5.2A"
+  fca_supporting_evidence: "CRA Multi-Firm Review May 2026"
+  world_bank_reference: "Alternative Data in Creditworthiness Assessment March 2025"
+
+data_generator:
+  n_customers: 50000
+  start_date: "2022-01-01"
+  end_date: "2024-12-31"
+  random_seed: 42
+  output_dir: "data_generator/output"
+
+  # Source: Klarna Wikipink UK 2024 (0.4% UK default rate)
+  # Population uplift applied for higher-risk composition.
+  # Design assumption. See Appendix A — engineering_decision_log.md
+  base_default_rate: 0.010
+
+  # Source: FCA Financial Lives Survey May 2022
+  # Measures resilience driver only — conservative lower bound.
+  vulnerability_prevalence: 0.24
+
+  # Source: PwC and TotallyMoney YouGov Feb 2022
+  # Represents limited or near-prime credit history.
+  thin_file_prevalence: 0.31
+
+  # Source: NHS Digital Adult Psychiatric Morbidity Survey
+  # Used ONLY for Consumer Duty vulnerability flagging (Driver 1)
+  # Must NEVER be used as direct model input — Equality Act 2010
+  mental_health_prevalence: 0.17
+
+  # Source: Klarna Wikipink UK 2024 — age bracket chart
+  # UK Pay in 3 customers. Read directly from published chart.
+  age_distribution:
+    "18-25": 0.19
+    "26-35": 0.33
+    "36-45": 0.23
+    "46-55": 0.15
+    "56+":   0.10
+
+  # Source: ONS Household Income Inequality UK FYE 2023 (baseline)
+  # Shifted downward for BNPL lower-income skew per Woolard Review
+  # FCA Feb 2021 and PwC/TotallyMoney 2022. Design assumption.
+  income_bands:
+    "Under £15k":  0.17
+    "£15k-£25k":   0.26
+    "£25k-£35k":   0.24
+    "£35k-£50k":   0.18
+    "£50k-£75k":   0.10
+    "Over £75k":   0.05
+
+  # Source: Klarna UK Store Directory July 2026
+  # Luxury and Marketplaces excluded — see engineering_decision_log.md
+  # Percentages are design assumptions. No published UK BNPL
+  # category breakdown exists publicly.
+  merchant_categories:
+    "Fashion & Clothing": 0.30
+    "Electronics":        0.17
+    "Home":               0.15
+    "Health & Beauty":    0.12
+    "Sports":             0.10
+    "Travel":             0.07
+    "Food & Grocery":     0.06
+    "Other":              0.03
+
+  # Source: Klarna Q2 2025 Investor Report
+  # Standard BNPL delinquency 0.88% / Fair Financing 2.18%
+  # Ratio 2.47x anchors the multiplier range 0.50 to 2.50
+  merchant_risk:
+    "Food & Grocery":     0.50
+    "Health & Beauty":    0.65
+    "Sports":             0.80
+    "Other":              1.00
+    "Home":               1.20
+    "Fashion & Clothing": 1.50
+    "Electronics":        2.00
+    "Travel":             2.50
+
+  # Group A: FCA CONC 5.2A threshold (0.45)
+  # Group B: relaxed threshold — design assumption (0.60)
+  # Uplift 0.004: calculated for 80% power at 5% significance
+  # with 25,000 customers per group at 1.0% base rate.
+  # Design assumption. See engineering_decision_log.md
+  ab_test:
+    group_A_size:           0.50
+    group_B_size:           0.50
+    group_B_default_uplift: 0.004
+    strict_threshold:       0.45
+    relaxed_threshold:      0.60
+
+validation:
+  n_runs: 5
+  ks_threshold: 0.05
+  gini_tolerance: 0.05
+  privacy_threshold: 0.05
+  reports_dir: "validation/reports"
+
+database:
+  host: "localhost"
+  port: 5432
+  name: "sentinel_credit"
+  schema: "feature_store"
+
+model:
+  test_size: 0.2
+  random_seed: 42
+  psi_threshold: 0.25
+  drift_alert_threshold: 0.10
+
+aws:
+  region: "eu-west-2"
+  s3_bucket: "sentinel-credit-data"
+  rds_instance: "sentinel-credit-db"
+
+ab_testing:
+  group_a: "strict_affordability"
+  group_b: "relaxed_affordability"
+  significance_level: 0.05
+  min_sample_size: 1000
+
+llm:
+  model: "claude-sonnet-4-6"
+  max_tokens: 1000
+  temperature: 0.1
