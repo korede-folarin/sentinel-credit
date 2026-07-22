@@ -65,7 +65,7 @@ the three-dimension framework defined by the FCA, ICO, and Alan Turing Institute
 
 | Component | Description | Status |
 |---|---|---|
-| Synthetic data generator | 50k customers · 211k transactions · 894k repayments | ✅ Complete |
+| Synthetic data generator | 50k customers · 175k transactions · 907k repayments | ✅ Complete |
 | Validation module | Fidelity · utility · privacy per FCA/ICO/Turing framework | 🔄 In progress |
 | PostgreSQL feature store | 30+ SQL-engineered features on AWS RDS | 🔄 In progress |
 | Three-model comparison | Logistic regression · decision tree · XGBoost | 🔄 In progress |

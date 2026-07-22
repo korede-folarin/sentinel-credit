@@ -143,7 +143,7 @@ purpose.*
 
 ---
 
-## Decision 2 — Synthetic Data Validation Framework
+## Decision 2:  Synthetic Data Validation Framework
 
 ### Challenge
 Generating synthetic data is not sufficient.
@@ -177,12 +177,12 @@ acknowledged and handled transparently.
 Implement a validation module in
 validate_synthetic.py covering:
 
-Fidelity — KS tests, Hellinger distance, and
+Fidelity:  KS tests, Hellinger distance, and
 Jensen-Shannon divergence against published
 regulatory statistics used as calibration ground
 truth.
 
-Utility — Train-on-Synthetic Test-on-Real (TSTR)
+Utility: Train-on-Synthetic Test-on-Real (TSTR)
 Gini comparison using Home Credit Default Risk as
 an imperfect proxy. Limitation explicitly
 documented: PCA-transformed, different market.
@@ -736,15 +736,43 @@ Detailed calibration parameters for the synthetic
 data generator. These are documented design
 assumptions informed by published statistics.
 
-**Base default rate 1.0%**
-Klarna Wikipink UK 2024: UK default rate 0.4%.
-Population uplift applied for higher-risk
-composition:
-thin-file (31%) x 2.0 + vulnerable (24%) x 1.5
-+ standard (45%) x 1.0 = 1.43x weighted uplift.
-0.4% x 1.43 = 0.57%, rounded to 1.0%.
-Uplift factors are design assumptions tested in
-validate_synthetic.py sensitivity analysis.
+**Base default rate**
+base_default_rate in config.yaml = 0.004 (0.4%)
+Source: Klarna Wikipink UK 2024 published UK default rate.
+
+This is the RAW Klarna rate. The population uplift for
+higher-risk segments is applied by the default probability
+engine multipliers — it is NOT baked into the base rate.
+
+The default probability engine applies these multipliers
+per transaction (mean multiplier across the population
+shown in brackets):
+
+  merchant_risk_multiplier   range 0.50 to 2.50   (mean 1.363) (varies by product)
+  thin file       x 2.0      applied to 31%        (mean 1.312)  (only 31% affected)
+  vulnerable      x 1.5      applied to ~59%*       (mean 1.285)   (only 59% affected)
+  affordability   x 1.3      when ratio > 0.35      (mean 1.103)   (only stretched customers)
+  credit score    x 1.4      when score < 550       (mean 1.140)   (only poor credit)
+
+
+
+  Compound mean multiplier = 2.89x
+  A/B uplift for Group B = +0.004 flat (added last, post-cap)
+  Cap = 0.15 maximum per transaction
+
+Realised portfolio default rate = 1.47% per approved
+transaction. This emergent rate is the OUTPUT of the engine,
+not a target. It is defensible: above Klarna's published
+0.4% because our population is 31% thin-file and 24%
+low-resilience, and below the Woolard Review FCA 2021
+finding of roughly 1 in 10 BNPL customers in arrears at a
+major bank.
+
+*Note: is_vulnerable fires if ANY of the four Consumer Duty
+drivers is present, so composite prevalence (~59%) is higher
+than the single resilience-driver figure of 24%. This is
+correct and intended — 24% calibrates the resilience driver
+only, not overall vulnerability.
 
 **Age distribution**
 Read directly from Klarna Wikipink UK 2024

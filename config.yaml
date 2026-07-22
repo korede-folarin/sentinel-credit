@@ -12,11 +12,13 @@ data_generator:
   random_seed: 42
   output_dir: "data_generator/output"
 
-  # Source: Klarna Wikipink UK 2024 (0.4% UK default rate)
-  # Population uplift applied for higher-risk composition.
-  # Design assumption. See Appendix A — engineering_decision_log.md
-  base_default_rate: 0.010
+  # Source: Klarna Wikipink UK 2024 — raw published UK
+  # default rate 0.4%. Population and merchant uplifts are
+  # applied by the default probability engine, NOT baked
+  # into the base. See Appendix A — engineering_decision_log.md
+  base_default_rate: 0.004
 
+  
   # Source: FCA Financial Lives Survey May 2022
   # Measures resilience driver only — conservative lower bound.
   vulnerability_prevalence: 0.24
@@ -38,6 +40,13 @@ data_generator:
     "36-45": 0.23
     "46-55": 0.15
     "56+":   0.10
+
+  age_ranges:
+    "18-25": [18, 25]
+    "26-35": [26, 35]
+    "36-45": [36, 45]
+    "46-55": [46, 55]
+    "56+":   [56, 80]
 
   # Source: ONS Household Income Inequality UK FYE 2023 (baseline)
   # Shifted downward for BNPL lower-income skew per Woolard Review
@@ -90,10 +99,15 @@ data_generator:
     relaxed_threshold:      0.60
 
 validation:
+
   n_runs: 5
   ks_threshold: 0.05
   gini_tolerance: 0.05
   privacy_threshold: 0.05
+  hellinger_threshold: 0.05
+  prevalence_tolerance: 0.01
+  singling_out_threshold: 0.20
+  near_duplicate_threshold: 0.01
   reports_dir: "validation/reports"
 
 database:
