@@ -60,20 +60,13 @@ np.random.seed(RANDOM_SEED)
 # ── HELPER FUNCTIONS ──────────────────────────────────────
 def generate_customer_id(index: int) -> str:
     """
-    Generates a pseudonymised customer ID using MD5 hashing.
-
-    Why: GDPR requires that personal data is pseudonymised
-    where possible. Real customer IDs are never stored.
-    Instead we hash a number to produce an untraceable ID.
-
-    Args:
-        index: The customer's position in the generation loop
-
-    Returns:
-        A pseudonymised ID string e.g. 'C3F2A1B4E9'
+    Pseudonymised customer ID. Hashing serves GDPR
+    pseudonymisation; the index guarantees uniqueness.
+    Widened to 16 hex chars so the truncated digest cannot
+    collide across the population.
     """
     raw = f"BNPL-CUST-{index:06d}-{RANDOM_SEED}"
-    return "C" + hashlib.md5(raw.encode()).hexdigest()[:10].upper()
+    return "C" + hashlib.md5(raw.encode()).hexdigest()[:16].upper()
 
 
 def income_band_to_numeric(band: str) -> tuple:
@@ -444,12 +437,12 @@ def generate_transactions(customers: pd.DataFrame) -> pd.DataFrame:
             # Declined if affordability flag fired
             application_approved = int(fca_flag == 0)
 
-            # Transaction ID
-            raw   = f"TX-{customer['customer_id']}-{t}-{RANDOM_SEED}"
-            tx_id = "T" + hashlib.md5(
-                raw.encode()
-            ).hexdigest()[:10].upper()
+            # Transaction ID — natural key, no hash needed (no personal
+            # data to pseudonymise). Unique by construction.
+            tx_id = f"T-{customer['customer_id']}-{t}"
 
+
+    
             records.append({
                 "transaction_id":           tx_id,
                 "customer_id":              customer["customer_id"],
@@ -589,12 +582,9 @@ def generate_repayments(
                 amount_paid    = inst_amount
                 outstanding    = 0.0
                 default_flag   = 0
-
-            # Repayment ID
-            raw   = f"RP-{tx['transaction_id']}-{inst_num}-{RANDOM_SEED}"
-            rp_id = "R" + hashlib.md5(
-                raw.encode()
-            ).hexdigest()[:10].upper()
+                
+            # Repayment ID — natural key, unique by construction.
+            rp_id = f"R-{tx['transaction_id']}-{inst_num}"
 
             records.append({
                 "repayment_id":            rp_id,

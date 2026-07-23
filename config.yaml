@@ -128,8 +128,15 @@ aws:
   rds_instance: "sentinel-credit-db"
 
 ab_testing:
-  group_a: "strict_affordability"
-  group_b: "relaxed_affordability"
+  # Experiment: does stricter CONC 5.2A affordability
+  # assessment reduce BNPL default rates?
+  # Group A applies the strict 0.45 affordability threshold.
+  # Group B applies the relaxed 0.60 threshold.
+  # Stored ab_test_group values in the data: A_strict, B_relaxed
+  group_a_label: "A_strict"
+  group_b_label: "B_relaxed"
+  group_a_hypothesis: "strict_affordability"
+  group_b_hypothesis: "relaxed_affordability"
   significance_level: 0.05
   min_sample_size: 1000
 

@@ -1,180 +1,184 @@
 # Sentinel Credit
-## Research-Informed Credit Risk Intelligence Architecture for BNPL Lending
 
-This project explores how monitoring, explainability, governance, and audit evidence
-can be connected into a closed-loop machine learning workflow for regulated lending
-environments.
+**A research-informed production architecture demonstrating how synthetic data, explainability, monitoring, and governance can be connected into a closed-loop credit risk workflow for Buy Now, Pay Later (BNPL) lending.**
 
-Every design decision traces to a published research finding or regulatory document.
-See the [Engineering Decision Log](docs/engineering_decision_log.md).
+Every major engineering decision is linked to published research or regulatory guidance and documented in the accompanying Engineering Decision Log.
 
 ---
 
 ## Architecture
 
-![Sentinel Credit Architecture](docs/sentinel_architecture_v2.svg)
+![Sentinel Credit Architecture](docs/sentinel_architecture.png)
 
 ---
 
-## Motivation
+## Why
 
-Reading FCA publications on model governance and AI explainability in financial
-services raised a practical engineering question:
+Sentinel Credit explores how a modern credit risk system can be designed for regulated lending environments.
 
-*If continuous monitoring, governance, documentation, and oversight are all
-necessary — what does a system that connects them automatically look like?*
+Rather than treating machine learning as a modelling exercise alone, the project treats **governance, explainability, monitoring, auditability, and deployment** as first-class engineering problems.
 
-BNPL was chosen as the application context because it commonly serves customers
-with limited traditional credit histories, making model governance, explainability,
-and fairness particularly important.
+BNPL was chosen as the application context because it commonly serves customers with limited traditional credit histories, making **governance, explainability, and responsible model deployment** particularly important.
 
-Synthetic data was chosen because no widely available public dataset was identified
-that adequately represents UK BNPL customer behaviour. Generating synthetic data
-introduced its own challenges around privacy, fidelity, and utility — requiring a
-structured validation approach informed by published guidance.
+Read more in the [Project Rationale](docs/project_rationale.md).
 
 ---
 
-## Three Research Problems This Project Addresses
+## Repository Philosophy
 
-**Problem 1 — Governance tools are disconnected**
+Sentinel Credit is built as a production-oriented engineering project rather than a collection of disconnected machine learning experiments.
 
-The FCA Credit Rating Agencies multi-firm review (May 2026) highlights that
-governance weaknesses can persist even where firms have sophisticated tooling,
-particularly when monitoring, governance, and audit activities are insufficiently
-integrated.
+Each completed component solves a specific engineering problem, with the reasoning, implementation, and lessons documented alongside the code.
 
-**Problem 2 — Explainability is applied uniformly**
-
-The FCA AI explainability research note (Belton et al., February 2025) found that
-providing more detailed explanations decreased participants' ability to identify
-model errors by up to 20 percentage points. These findings suggest that explanation
-approaches may need to be tailored to the error type and intended audience rather
-than applied uniformly.
-
-**Problem 3 — No validated synthetic data exists for UK BNPL**
-
-No widely available public dataset was identified that adequately represents UK
-BNPL customer behaviour. This project generates and validates synthetic data using
-the three-dimension framework defined by the FCA, ICO, and Alan Turing Institute
-— utility, fidelity, and privacy.
+The goal is not simply to build accurate models, but to demonstrate how modern credit risk systems can be designed, governed, monitored, explained, and deployed as connected workflows.
 
 ---
 
-## Platform Components
+## Implementation Progress
 
 | Component | Description | Status |
 |---|---|---|
 | Synthetic data generator | 50k customers · 175k transactions · 907k repayments | ✅ Complete |
-| Validation module | Fidelity · utility · privacy per FCA/ICO/Turing framework | 🔄 In progress |
-| PostgreSQL feature store | 30+ SQL-engineered features on AWS RDS | 🔄 In progress |
-| Three-model comparison | Logistic regression · decision tree · XGBoost | 🔄 In progress |
-| A/B testing and causal inference | Z-test · chi-squared · difference-in-differences | 🔄 In progress |
-| Drift monitoring | PSI-based Airflow surveillance DAG | 🔄 In progress |
-| Adaptive explanation engine | Error-type-aware LLM explanation layer | 🔄 In progress |
-| Governance and approval workflow | MLflow champion/challenger · human approval gate | 🔄 In progress |
-| Time series forecasting | Prophet · LSTM · stress scenarios · IFRS 9 aligned | 🔄 In progress |
-| Streamlit dashboard | Risk officer interface · audit export | 🔄 In progress |
-| Deployment infrastructure | S3 · RDS · EC2/Lambda · CI/CD | 🔄 In progress |
-| Power BI dashboard | Portfolio, model performance, and risk profile views | 🔄 In progress |
+| Validation module | Fidelity 8/8 · Utility · Privacy 2/2 | ✅ Complete |
+| Database schema | Constrained raw schema · Foreign keys · ERD · Third Normal Form | ✅ Complete |
+| Raw data load | Three source tables loaded and integrity verified | ✅ Complete |
+| Feature store: customer spine | Customer-level table and repayment target | ✅ Complete |
+| Feature store: engineered features | 30+ SQL features | 🔄 In Progress |
+| Feature store: AWS RDS migration | Local PostgreSQL → Amazon RDS | 🔄 In Progress |
+| Three-model benchmarking | Logistic Regression · Decision Tree · XGBoost | 🔄 In Progress |
+| Champion / Challenger workflow | MLflow model registry | 🔄 In Progress |
+| A/B testing & causal inference | Z-test · Chi-squared · Difference-in-Differences | 🔄 In Progress |
+| Drift monitoring | PSI-based Airflow monitoring | 🔄 In Progress |
+| Adaptive explanation engine | Audience-aware LLM explanations | 🔄 In Progress |
+| Governance workflow | Human approval gate | 🔄 In Progress |
+| Time-series forecasting | Prophet · LSTM · IFRS 9 scenarios | 🔄 In Progress |
+| Streamlit dashboard | Risk officer interface | 🔄 In Progress |
+| Deployment | BentoML · Docker · AWS | 🔄 In Progress |
+| Power BI dashboard | Portfolio and model monitoring | 🔄 In Progress |
+
+---
+
+## Data Foundation
+
+The synthetic dataset was built specifically for this project because no publicly available dataset was identified that adequately represents UK BNPL customer behaviour.
+
+Generation separates three distinct concepts:
+
+- Published evidence
+- Calibrated values
+- Documented engineering assumptions
+
+so the origin and justification of every generated value remain explicit.
+
+Validation follows the **FCA, ICO and Alan Turing Institute** framework across:
+
+- Fidelity
+- Utility
+- Privacy
+
+Loading the data into PostgreSQL exposed an identifier collision that Python validation had not detected, leading to a redesign of the identifier strategy and reinforcing the importance of database-level integrity constraints.
+
+Generator-only variables remain in the raw layer for auditability but are excluded from the feature store to prevent label leakage.
+
+Read more in [Database Design](docs/database_design.md).
+
+---
+
+## Engineering Lessons
+
+Several engineering decisions proved more valuable than expected during the project.
+
+- Generating synthetic data is easier than demonstrating that it is fit for purpose.
+- Well-designed database constraints uncovered an integrity issue that notebook validation missed.
+- Feature engineering is more reliable when performed close to the data.
+- Governance is easier to maintain when it is designed into the architecture from the beginning rather than added afterwards.
 
 ---
 
 ## Research Foundation
 
-| Publication | How It Shaped The Design |
+The architecture is informed by published research including:
+
+- FCA Credit Rating Agencies Multi-Firm Review (May 2026)
+- Belton et al., FCA AI Explainability Research Note (February 2025)
+- FCA / ICO / Alan Turing Institute Synthetic Data Framework (2023)
+- PRA SS1/23 Model Risk Management
+
+Further documentation:
+
+- [Project Rationale](docs/project_rationale.md)
+- [Engineering Decision Log](docs/engineering_decision_log.md)
+- [Database Design](docs/database_design.md)
+- [References](docs/references.md)
+
+---
+
+## Technology Stack
+
+| Layer | Technologies |
 |---|---|
-| FCA CRA Multi-Firm Review, May 2026 | Governance integration failures — motivated closed-loop architecture |
-| Belton et al., FCA Research Note, February 2025 | Explanation genre affects outcomes — motivated adaptive explanation engine |
-| FCA/ICO/Alan Turing Institute, June 2023 | Validation framework for utility, fidelity, and privacy |
-| PRA SS1/23, April 2023 | Model risk management principles informing governance layer |
-| Kurian and Allali, 2024 | PSI thresholds for drift detection — 0.10 and 0.25 |
-| Demajo et al., 2020 | XGBoost on credit scoring · multi-audience explainability |
-| Khalili et al., 2026 | BNPL thin-file customer characteristics |
-| Kurshan et al., 2020 — JP Morgan AI Research | AI governance challenges · self-regulating framework |
-| Brahmandam, 2025 | MLOps automation in financial services |
-| Kiran and Saravana Kumar, 2024 | Synthetic data generator evaluation methodology |
-
-Full reasoning: [Engineering Decision Log](docs/engineering_decision_log.md)
+| Data | Python · PostgreSQL · AWS S3 · AWS RDS |
+| Machine Learning | Scikit-learn · XGBoost · SHAP |
+| MLOps | MLflow · Apache Airflow · GitHub Actions |
+| Serving | BentoML · Docker · AWS Lambda · EC2 |
+| Visualisation | Streamlit · Plotly · Power BI |
+| AI | Anthropic Claude API |
 
 ---
 
-## Closed Loop — Eight Steps
+## Getting Started
 
-```
-① Drift detected     — PSI breach triggers Airflow
-② Airflow DAG runs   — daily, weekly, monthly cadence
-③ Error classifier   — data input / overreliance / missing feature
-④ Adaptive LLM       — audience-specific explanations generated
-⑤ Human gate         — deployment blocked until authorised sign-off
-⑥ MLflow log         — approver, timestamp, version recorded
-⑦ Audit export       — structured documentation for review
-⑧ Model deployed     — BentoML REST API, Docker, AWS
-         ↓
-Loop repeats daily → back to ①
+Generate the synthetic dataset.
+
+```bash
+python data_generator/bnpl_data_generator.py
 ```
 
-Steps 1 to 4 automated. Step 5 mandatory human-in-the-loop.
-Steps 6 to 8 complete automatically after approval.
+Validate the generated dataset.
 
----
-
-## Stack
-
+```bash
+python validation/validation.py
 ```
-Data          Python · PostgreSQL · AWS S3 · AWS RDS
-Modelling     Scikit-learn · XGBoost · SHAP · MLflow
-Pipeline      Apache Airflow · GitHub Actions
-Serving       BentoML · Docker · AWS Lambda/EC2
-Dashboard     Streamlit · Plotly
-LLM           Anthropic Claude API
-Dashboard     Streamlit · Plotly · Power BI
+
+Create the PostgreSQL schema.
+
+```bash
+psql -U postgres -d sentinel_credit -f sql/01_create_schema.sql
+```
+
+Project configuration is centralised in:
+
+```text
+config.yaml
 ```
 
 ---
 
-## File Structure
+## Documentation
 
-```
-Sentinel_Credit/
-├── data_generator/          # Synthetic BNPL data generator
-│   └── output/              # Generated CSV files
-├── validation/              # Synthetic data validation module
-│   └── reports/             # Validation output reports
-├── sql/                     # PostgreSQL feature engineering
-├── models/                  # Model training and comparison
-├── explainability/          # Adaptive explanation engine
-│   └── prompts/             # LLM prompt templates
-├── pipeline/                # Airflow DAGs
-│   └── dags/
-├── forecasting/             # Time series models
-├── serving/                 # BentoML API and approval gate
-├── dashboard/               # Streamlit risk officer interface
-│   └── pages/
-├── infra/                   # AWS infrastructure
-│   └── terraform/
-├── docs/                    # Architecture diagram and decision log
-│   └── engineering_decision_log.md
-├── tests/                   # Test suite
-├── config.yaml              # Centralised configuration
-└── requirements.txt         # Dependencies
-```
+| Document | Purpose |
+|---|---|
+| [Project Rationale](docs/project_rationale.md) | Why the project exists and the engineering questions it explores |
+| [Engineering Decision Log](docs/engineering_decision_log.md) | Engineering decisions and the evidence supporting them |
+| [Database Design](docs/database_design.md) | Schema, integrity constraints, and feature engineering |
+| [References](docs/references.md) | Regulatory publications, academic research, and calibration sources |
 
 ---
 
-## Project Status
+## Current Status
 
-Active development. Core architecture defined and implementation in progress.
+The data foundation is complete and validated.
+
+Feature engineering is currently in progress, followed by model benchmarking, monitoring, explainability, governance, deployment, and forecasting.
 
 Follow the build on LinkedIn:
-[Folarin Korede](https://www.linkedin.com/in/folarinkorede)
+
+**Folarin Korede**
 
 ---
 
-## Important Note
+## Disclaimer
 
-This project is a personal portfolio exploration informed by publicly available
-research and regulatory publications. It is not affiliated with any financial
-institution. Regulatory publications are referenced as research inputs that
-informed design decisions and should not be interpreted as evidence of regulatory
-approval, certification, or compliance.
+Sentinel Credit is an independent portfolio project informed by publicly available research and regulatory publications.
+
+References to the FCA, PRA, ICO, Alan Turing Institute, and other organisations indicate publications that informed engineering decisions. They should not be interpreted as evidence of regulatory approval, certification, endorsement, or affiliation with the project.
