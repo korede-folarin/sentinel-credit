@@ -38,11 +38,11 @@ The goal is not simply to build accurate models, but to demonstrate how modern c
 
 | Component | Description | Status |
 |---|---|---|
-| Synthetic data generator | 50k customers · 175k transactions · 907k repayments | ✅ Complete |
-| Validation module | Fidelity 8/8 · Utility · Privacy 2/2 | ✅ Complete |
+| Synthetic data generator | 50k customers · 174k transactions · 484k repayments · hazard-based, emergent default | ✅ Complete |
+| Validation module | Fidelity 8/8 · Utility · Privacy 2/2 | 🔄 Re-running against rebuilt data |
 | Database schema | Constrained raw schema · Foreign keys · ERD · Third Normal Form | ✅ Complete |
 | Raw data load | Three source tables loaded and integrity verified | ✅ Complete |
-| Feature store: customer spine | Customer-level table and repayment target | ✅ Complete |
+| Feature store: customer spine | Customer-level table and repayment target | 🔄 In Progress |
 | Feature store: engineered features | 30+ SQL features | 🔄 In Progress |
 | Feature store: AWS RDS migration | Local PostgreSQL → Amazon RDS | 🔄 In Progress |
 | Three-model benchmarking | Logistic Regression · Decision Tree · XGBoost | 🔄 In Progress |
@@ -62,6 +62,8 @@ The goal is not simply to build accurate models, but to demonstrate how modern c
 
 The synthetic dataset was built specifically for this project because no publicly available dataset was identified that adequately represents UK BNPL customer behaviour.
 
+Default is modelled as an emergent outcome of a repayment hazard process, reaching the CRR/EBA 90-days-past-due definition through actual delinquency behaviour, rather than being assigned to a transaction in advance. This keeps repayment history usable as a genuine predictive signal rather than a byproduct of the label.
+
 Generation separates three distinct concepts:
 
 - Published evidence
@@ -80,7 +82,7 @@ Loading the data into PostgreSQL exposed an identifier collision that Python val
 
 Generator-only variables remain in the raw layer for auditability but are excluded from the feature store to prevent label leakage.
 
-Read more in [Database Design](docs/database_design.md).
+Read more in [Database Design](docs/database_design.md) and [Engineering Decision Log](docs/engineering_decision_log.md).
 
 ---
 
@@ -91,6 +93,7 @@ Several engineering decisions proved more valuable than expected during the proj
 - Generating synthetic data is easier than demonstrating that it is fit for purpose.
 - Well-designed database constraints uncovered an integrity issue that notebook validation missed.
 - Feature engineering is more reliable when performed close to the data.
+- A label assigned before the behaviour that should predict it produces features that cannot be trusted, however plausible the individual values look.
 - Governance is easier to maintain when it is designed into the architecture from the beginning rather than added afterwards.
 
 ---
@@ -103,6 +106,7 @@ The architecture is informed by published research including:
 - Belton et al., FCA AI Explainability Research Note (February 2025)
 - FCA / ICO / Alan Turing Institute Synthetic Data Framework (2023)
 - PRA SS1/23 Model Risk Management
+- CRR/EBA Default Definition and IFRS 9 Significant Increase in Credit Risk
 
 Further documentation:
 
@@ -167,9 +171,7 @@ config.yaml
 
 ## Current Status
 
-The data foundation is complete and validated.
-
-Feature engineering is currently in progress, followed by model benchmarking, monitoring, explainability, governance, deployment, and forecasting.
+The data foundation has been rebuilt around an emergent, hazard-based default definition and reloaded into PostgreSQL. Validation is being re-run against the rebuilt data, followed by feature store reconstruction, model benchmarking, monitoring, explainability, governance, deployment, and forecasting.
 
 Follow the build on LinkedIn:
 

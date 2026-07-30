@@ -1,13 +1,15 @@
 -- ============================================================
--- SENTINEL CREDIT — RAW SCHEMA
--- Raw source tables loaded from generator output. Constraints
--- encode business rules at the database level; foreign keys
--- guarantee every instalment traces to a real order and
--- customer. Raw and feature_store schemas kept separate for
--- data lineage.
+-- SENTINEL CREDIT — RAW SCHEMA (v2, hazard-based data)
+-- Rebuilt for the emergent-default repayment model.
+-- Default is no longer a drawn probability; it emerges at
+-- 90 DPD. New columns carry the delinquency ladder and
+-- outcome observability. default_probability is removed.
+-- Constraints encode business rules; foreign keys guarantee
+-- every instalment traces to a real order and customer.
 -- ============================================================
 
-CREATE SCHEMA IF NOT EXISTS raw;
+DROP SCHEMA IF EXISTS raw CASCADE;
+CREATE SCHEMA raw;
 CREATE SCHEMA IF NOT EXISTS feature_store;
 
 -- ---- CUSTOMERS -------------------------------------------
@@ -37,7 +39,7 @@ CREATE TABLE raw.customers (
     is_vulnerable                     INTEGER NOT NULL CHECK (is_vulnerable IN (0,1)),
     device_type                       TEXT,
     acquisition_channel               TEXT,
-    ab_test_group                     TEXT
+    ab_test_group                     TEXT CHECK (ab_test_group IN ('A_strict','B_relaxed'))
 );
 
 -- ---- TRANSACTIONS ----------------------------------------
@@ -48,13 +50,14 @@ CREATE TABLE raw.transactions (
     merchant_category         TEXT NOT NULL,
     order_value_gbp           NUMERIC(12,2) NOT NULL CHECK (order_value_gbp >= 0),
     n_instalments             INTEGER NOT NULL CHECK (n_instalments > 0),
-    instalment_frequency      TEXT,
+    instalment_frequency      TEXT CHECK (instalment_frequency IN ('monthly')),
     instalment_amount_gbp     NUMERIC(12,2) CHECK (instalment_amount_gbp >= 0),
     affordability_ratio       NUMERIC(8,4)  CHECK (affordability_ratio >= 0),
     fca_affordability_flag    INTEGER CHECK (fca_affordability_flag IN (0,1)),
     application_approved      INTEGER NOT NULL CHECK (application_approved IN (0,1)),
+    -- Generator-internal. Excluded from features (leakage).
     merchant_risk_multiplier  NUMERIC(6,3) CHECK (merchant_risk_multiplier >= 0),
-    ab_test_group             TEXT
+    ab_test_group             TEXT CHECK (ab_test_group IN ('A_strict','B_relaxed'))
 );
 
 -- ---- REPAYMENTS ------------------------------------------
@@ -65,13 +68,24 @@ CREATE TABLE raw.repayments (
     instalment_number        INTEGER NOT NULL CHECK (instalment_number > 0),
     instalment_amount_gbp    NUMERIC(12,2) CHECK (instalment_amount_gbp >= 0),
     due_date                 DATE NOT NULL,
-    payment_status           TEXT NOT NULL,
+    payment_status           TEXT NOT NULL CHECK (
+                                 payment_status IN
+                                 ('Paid','Late','Missed','Defaulted')),
     days_late                INTEGER CHECK (days_late >= 0),
+    days_past_due            INTEGER CHECK (days_past_due >= 0),
+    arrears_depth            INTEGER CHECK (arrears_depth >= 0),
     amount_paid_gbp          NUMERIC(12,2) CHECK (amount_paid_gbp >= 0),
-    outstanding_balance_gbp  NUMERIC(12,2),
+    outstanding_balance_gbp  NUMERIC(12,2) CHECK (outstanding_balance_gbp >= 0),
+    -- ---- OUTCOME (emergent) ----
     default_flag             INTEGER NOT NULL CHECK (default_flag IN (0,1)),
-    default_probability      NUMERIC(6,4) CHECK (default_probability BETWEEN 0 AND 1),
-    ab_test_group            TEXT,
+    outcome_observed         INTEGER NOT NULL CHECK (outcome_observed IN (0,1)),
+    max_dpd                  INTEGER CHECK (max_dpd >= 0),
+    reached_sicr             INTEGER CHECK (reached_sicr IN (0,1)),
+    cycles_delinquent        INTEGER CHECK (cycles_delinquent >= 0),
+    terminal_state           TEXT CHECK (
+                                 terminal_state IN
+                                 ('CURRENT','DELINQUENT','DEFAULT')),
+    ab_test_group            TEXT CHECK (ab_test_group IN ('A_strict','B_relaxed')),
     merchant_category        TEXT
 );
 
@@ -79,3 +93,6 @@ CREATE TABLE raw.repayments (
 CREATE INDEX idx_transactions_customer  ON raw.transactions(customer_id);
 CREATE INDEX idx_repayments_transaction ON raw.repayments(transaction_id);
 CREATE INDEX idx_repayments_customer    ON raw.repayments(customer_id);
+-- Outcome observability is filtered on constantly when
+-- building the modelling population.
+CREATE INDEX idx_repayments_observed    ON raw.repayments(outcome_observed);

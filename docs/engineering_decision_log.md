@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.0
-**Last Updated:** 7th July 2026
+**Version:** 3.2
+**Last Updated:** 30th July 2026
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -30,50 +30,31 @@ prescribe this architecture. Reading FCA publications
 helped clarify what a well-governed credit system
 should look like in practice.
 
----
-
-## Origin Story
-
-The project began with a question: what does a
-production-grade credit risk system actually look
-like in regulated environments?
-
-Reading the FCA's Credit Rating Agencies multi-firm
-review (May 2026) provided a detailed picture of
-where production credit model governance breaks down
-in practic,disconnected tool and surverlance gaps
-exceeding a year. First line teams validating their
-own work.
-
-That raised an engineering question:
-
-If continuous monitoring, governance, documentation,
-and oversight are all necessary, what does a system
-that connects them automatically look like?
-
-That question became Sentinel Credit.
-
-BNPL was chosen as the application context for two
-reasons. First, BNPL disproportionately serves
-thin-file customers who cannot be scored with
-traditional bureau data, making it a genuinely hard
-credit scoring problem. Second, errors in thin-file
-scoring fall hardest on people who are already
-financially excluded, making fairness a core concern
-alongside accuracy. BNPL is where the governance
-question and the fairness question meet.
-
-Synthetic data was chosen because public credit
-datasets have significant limitations for this use
-case. Many are PCA-transformed, which destroys
-feature correlations. None represent UK BNPL
-customers specifically. Generating synthetic data
-introduced its own challenges around privacy,
-fidelity, and utility — requiring a structured
-validation approach informed by published guidance.
+This document should be read alongside the
+[Project Rationale](project_rationale.md). The Project
+Rationale explains why Sentinel Credit exists, the
+engineering questions it explores, and the research
+that informed its overall design. This Engineering
+Decision Log records how those questions were
+translated into specific technical and architectural
+decisions.
 
 ---
 
+## Relationship to the Project Rationale
+
+The Project Rationale provides the high-level
+motivation for choosing BNPL, using synthetic data,
+and building a connected CreditOps architecture.
+
+To avoid repeating that material, this document
+begins with the individual engineering decisions.
+Each entry focuses on the implementation challenge,
+the evidence consulted, the engineering implication,
+the resulting design decision, and its regulatory
+context.
+
+---
 ## Decision 1 — Synthetic Data Generation
 
 ### Challenge
@@ -110,7 +91,7 @@ vulnerability signals, and alternative data signals.
 Develop a synthetic BNPL dataset using a parametric
 domain-expert generator calibrated against published
 regulatory and industry statistics. This is a
-deliberate methodological choice — usin`=    zg a learned
+deliberate methodological choice using a learned
 generator trained on a PCA-transformed proxy dataset
 would import correlations from a different market,
 not UK BNPL customer behaviour.
@@ -143,7 +124,7 @@ purpose.*
 
 ---
 
-## Decision 2:  Synthetic Data Validation Framework
+## Decision 2 — Synthetic Data Validation Framework
 
 ### Challenge
 Generating synthetic data is not sufficient.
@@ -177,7 +158,7 @@ acknowledged and handled transparently.
 Implement a validation module in
 validate_synthetic.py covering:
 
-Fidelity:  KS tests, Hellinger distance, and
+Fidelity: KS tests, Hellinger distance, and
 Jensen-Shannon divergence against published
 regulatory statistics used as calibration ground
 truth.
@@ -187,7 +168,11 @@ Gini comparison using Home Credit Default Risk as
 an imperfect proxy. Limitation explicitly
 documented: PCA-transformed, different market.
 Tests directional signal preservation not exact
-fidelity.
+fidelity. Where no real reference file is present,
+an internal held-out check runs instead, and the
+result explicitly records that real TSTR was not
+performed — see Decision 10 for how this branch
+was completed.
 
 Privacy — singling-out and nearest-neighbour
 distance analysis for spontaneous re-identification
@@ -209,7 +194,7 @@ Detailed methodology provided in Appendix B.
 Directly implements the three dimensions defined
 in the FCA/ICO/Alan Turing Institute guidance.
 Privacy assessment follows the FCA risk-based
-model — acknowledging that zero risk equals zero
+model, acknowledging that zero risk equals zero
 utility and documenting the trade-off explicitly.
 
 *With validated data available, the next decision
@@ -223,7 +208,7 @@ training and production.*
 ### Challenge
 Feature engineering implemented differently in
 training and scoring environments produces
-inconsistent predictions — a failure mode known
+inconsistent predictions,  a failure mode known
 as training-serving skew. Notebook-based feature
 engineering cannot solve this at production scale.
 
@@ -249,7 +234,7 @@ Features include affordability ratios, payment
 velocity, Weight of Evidence binnings,
 vulnerability composite scores, and merchant
 risk signals. SQL-based features run identically
-in training and production — eliminating
+in training and production; eliminating
 training-serving skew by design.
 
 ### Regulatory Context
@@ -618,7 +603,7 @@ registry is that inventory. Principle 6 requires
 internal audit evidence — MLflow logs and audit
 export provide that evidence.
 
-*With governance records in place, the final
+*With governance records in place, the next
 decision was how to ensure no model reaches
 production without explicit human review.*
 
@@ -696,8 +681,254 @@ ownership. Principle 4 requires the approving
 body to ensure validation recommendations are
 actioned before deployment.
 
+*With every deployment gated on human review,
+the final open question was whether the
+underlying data itself represented default
+correctly — a gap that surfaced once the
+database was rebuilt against real repayment
+behaviour.*
+
 ---
 
+## Decision 10 — Hazard-Based Default Modelling
+
+### Challenge
+The original generator inverted causality. It drew a
+`default_probability` per transaction first, then wrote
+"missed payment" and "defaulted" statuses into the
+repayments table to match that pre-decided outcome. In
+real BNPL lending, causality runs the other way: a customer
+takes credit, hits difficulty, misses a payment, misses
+more, and only then defaults. Missed payments are the early
+warning signal that precedes and predicts default. With
+default assigned first, every repayment status was
+downstream of the answer rather than a genuine predictor of
+it — a structural leakage problem, not a data quality one.
+This also left `run_utility`, the TSTR validation function,
+incomplete: it handled the case where a real reference file
+is present but had no `else` branch for its absence, so it
+silently returned `None` in every run rather than recording
+that real TSTR had been skipped.
+
+### Engineering Observation
+A value assigned in advance cannot be distinguished, by any
+downstream model, from a signal that genuinely preceded the
+outcome in time. For repayment behaviour to be usable as a
+feature at all, default had to become the emergent result of
+that behaviour, not an input fixed before it.
+
+### Engineering Implication
+Default needed rebuilding as a process, not a label, and the
+schema, generator, calibration, and validation logic all had
+to change together: the repayments table needed to carry the
+process itself — arrears opening, deepening, and resolving
+over time — not just its endpoint.
+
+### Design Decision
+
+**The state machine.** `default_probability` was removed
+entirely, from both the generator and the schema. Every
+transaction now moves through an explicit state machine:
+`CURRENT` (no unpaid instalments), `DELINQUENT` (one or more
+unpaid, oldest under 90 days past due), `DEFAULT` (oldest
+unpaid has reached 90 DPD — absorbing, no return). At each
+due date the customer pays, pays late, or misses; a miss
+moves `CURRENT` to `DELINQUENT`. Each subsequent cycle a
+delinquent customer either fully cures (clears all arrears,
+returns to `CURRENT`), partially cures (clears the oldest
+arrear only, stays delinquent), or cures nothing (arrears
+deepen). Payments always clear the oldest unpaid instalment
+first, so days-past-due tracks the age of the next-oldest
+outstanding item rather than resetting to zero on any
+payment — a chronically-behind customer can stay
+persistently delinquent without necessarily defaulting,
+which matches real repayment behaviour.
+
+**Two separate hazards, not one.** `miss_hazard()` — the
+per-instalment probability of missing — is driven by credit
+risk factors: thin-file (×2.0), vulnerability (×1.5),
+affordability ratio above 0.35 (×1.3), credit score below
+550 (×1.4), and the merchant risk multiplier, capped at
+0.60. `financial_resilience()` is a separate latent
+variable measuring capacity to recover once behind, built
+from savings buffer, disposable income buffer, and
+employment stability. The two are deliberately not inverses
+of each other: a customer can be likely to miss yet able to
+recover, or unlikely to miss yet unable to recover if they
+do. `resolve_arrears()` combines resilience with an
+arrears-depth cure table (full/partial/no-payment
+probabilities that shrink as depth increases) and a DPD
+decay factor, so cure chances halve every
+`dpd_decay_halflife` days the oldest arrear ages.
+
+**The default and SICR thresholds, with their limits stated
+honestly.** `default_dpd_threshold: 90` follows the CRR/EBA
+90-days-past-due framework in principle; the config
+explicitly notes that full regulatory implementation also
+considers materiality and unlikeliness-to-pay, which are out
+of scope here. `sicr_dpd_threshold: 30` is retained as an
+IFRS 9-style delinquency indicator, not as default — IFRS 9
+treats 30 DPD as a rebuttable presumption rather than an
+automatic trigger, and this generator uses it as a fixed
+threshold, a simplification the config documents rather than
+hides.
+
+**The calibration investigation.** Once default became
+emergent, the portfolio default rate had to be tuned rather
+than set. It initially hit a hard floor near 1.2% that no
+amount of hazard or cure-generosity adjustment could break.
+`diagnose_default_timing()` traced the cause: 42% of all
+defaults were customers who missed their *final* instalment,
+leaving zero remaining due dates at which to cure before the
+schedule simply ended. Real BNPL collections continue past
+the contractual schedule; this generator hadn't modelled
+that. The fix was post-schedule collection cycles, arrears
+continue accumulating cure opportunities every 30 days past
+the final due date, until default or the observation window
+closes. The floor disappeared once this was in place.
+
+Calibration then proceeded as a two-stage sweep using
+`calibrate_grid()`: a wide sweep across `base_miss_hazard`,
+`cure_scale`, and `dpd_decay_halflife` to locate a plausible
+region, followed by a narrower sweep within it
+(`calibrate.py`). Each cell was judged on two competing
+constraints, not one — the delinquency and default rate
+against published references, and the number of positive
+(defaulted) cases retained, since a calibration that hits
+the target rate but leaves too few defaults to train on has
+failed at the dataset's actual purpose; under roughly 300
+positives was treated as making evaluation unstable. The
+landed values: `base_miss_hazard: 0.005`,
+`cure_scale: 1.30`, `dpd_decay_halflife: 45`, producing a
+0.93% observed default rate, ~5% ever-missed (matching
+Klarna's published ~5% late-fee figure), and 796 defaulted
+customers.
+
+**The default rate was never a target.** `base_default_rate`
+(the raw 0.4% Klarna figure) is not read anywhere in the
+current generator — every function that used to consume it
+was replaced when the hazard engine was built. It is kept in
+config only as a documented calibration reference, not a
+value the code depends on. This distinction matters: every
+other parameter in the population and repayment process was
+chosen independently from published UK statistics, so the
+emergent default rate is what falls out of those
+independently-reasoned parts, not a number the system was
+fitted to hit. It sits defensibly between Klarna's 0.4% (a
+different market segment, different metric — a value-weighted
+loss rate, not a transaction-count default rate) and the
+Woolard Review's finding of roughly one in ten BNPL customers
+in arrears.
+
+**The delinquency spectrum is coarse by product design.**
+Roughly 80% of delinquent transactions sit in the 30-44 DPD
+band, with a mean episode length of 1.23 cycles — most
+customers who miss either cure immediately or head to
+default, with little in between. This is structural, not a
+flaw: payments are monthly, so DPD only advances in 30-day
+steps at each due date, and the dominant instalment plan
+(Pay in 3) gives a customer who misses only two remaining due
+dates to cure before hitting 90 DPD. A longer-tenor product
+would produce a smoother ladder; this one produces a coarse
+one because that is what a short, monthly product genuinely
+does. `max_dpd` and `reached_sicr` remain real signal, but
+carry less variation than they would on a 12-month loan, and
+that limit is worth stating alongside the feature, not
+discovering later.
+
+**The A/B mechanism silently broke, and was fixed at the
+causal layer.** `group_B_default_uplift` had been designed to
+add flat to the old `default_probability` draw; once that
+draw was removed, the key had nothing to attach to and Group
+B showed no measurable difference from Group A. It was
+replaced with `group_B_hazard_multiplier: 1.60`, applied
+multiplicatively inside `miss_hazard()` rather than to any
+default value — the correct place for it, since Group B's
+looser affordability threshold means its customers are more
+financially stretched, and that effect should enter through
+repayment behaviour rather than being asserted directly on
+the outcome. Result: A_strict 0.65% default, B_relaxed 1.15%,
+a +0.50pp difference in the expected direction, comfortably
+above the powered minimum detectable effect.
+
+**Reject inference — considered, deliberately not
+implemented.** Customers declined on every application never
+generate repayments, so labelling them "did not default"
+would be false; their outcome is genuinely unknown, not
+negative. Reject inference (statistically inferring outcomes
+for declined applicants from similar approved ones) requires
+overlap between the approved and rejected populations. This
+generator's approval rule is a deterministic affordability
+cutoff, so no such overlap exists — attempting reject
+inference here would only reconstruct the approval rule
+itself, not add information. The `has_outcome` /
+`outcome_observed` flag was used instead: the feature store
+retains every customer, but the modelling layer trains only
+where an outcome is genuinely observable.
+
+**Right-censoring.** Transactions originated late in the
+window may not have completed the 90-day performance period
+needed to observe an outcome. The generator splits the
+observation period into an origination window (when
+applications can be made) and a performance window (how long
+repayment behaviour is then watched); a transaction is mature
+only if its final instalment plus the 90-day default window
+falls within the performance window. Roughly a third of
+transactions were censored at the calibration point described
+above. `outcome_observed` governs modelling eligibility;
+`default_flag` remains `NOT NULL DEFAULT 0` as a storage
+convention only, so a 0/0 pair must always be read as "not
+yet known," never as "did not default."
+
+**Config structure was cleaned up alongside the logic.**
+`arrears_resolution` and `dpd_decay_halflife` had been
+misplaced under the `ab_test` block while the code read them
+from `repayment_process`; both were moved to the correct
+block. A duplicated `start_date` key was removed. A stale
+`end_date` key was removed once the code moved to
+`origination_end_date` / `data_end_date`, along with
+`base_cure_probability`, `min_cure_probability`,
+`max_cure_probability`, and `persistence_penalties` — all
+dead once the arrears-depth cure table replaced the earlier
+continuous-resilience cure formula.
+
+**`run_utility` was completed to match.** The missing `else`
+branch now runs an internal held-out check when no real
+reference file is present, and returns a result dict with an
+explicit `mode` (`"TSTR"` or `"INTERNAL"`) and
+`tstr_performed` flag, so the absence of real TSTR is
+recorded rather than silently producing `None`. Verified
+result on the internal held-out path: Gini 0.2142, AUC
+0.6071, n 8,607.
+
+**The database was rebuilt from scratch, not migrated.**
+Because the ID format changed to natural composite keys and
+columns were both added and dropped, a clean drop-and-rebuild
+of the raw schema was judged simpler and lower-risk than
+altering the existing tables in place — the source CSVs meant
+nothing was lost in doing so. Rebuilding also surfaced a
+load-order lesson: `\copy` maps CSV columns to table columns
+by position, not by header name, and the repayments CSV order
+had diverged from the schema's logical order because the
+generator appends outcome columns in a second pass. The fix
+is to always name columns explicitly in `\copy` statements.
+Post-fix, all three tables verified clean: 50,000 customers /
+174,421 transactions / 483,579 repayments, with `default_flag`
+confirmed as holding 0/1 integers (480,108 non-default /
+3,471 default instalment rows) rather than text.
+
+### Regulatory Context
+The 90-DPD default definition aligns the schema with the
+CRR/EBA regulatory definition of default, with the config
+itself documenting where this implementation is a
+simplification (materiality and unlikeliness-to-pay are out
+of scope). The `reached_sicr` field aligns the delinquency
+ladder with IFRS 9's significant-increase-in-credit-risk
+concept, again documenting that 30 DPD is used here as a
+fixed threshold rather than IFRS 9's rebuttable presumption.
+Together these mean the schema's central label — default —
+is now defensible against external regulatory standards, with
+its simplifications stated rather than implied.
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
@@ -711,6 +942,7 @@ actioned before deployment.
 | 7 | Explainability | Wrong genre harms consumers | Belton 2025, Demajo 2020 | explainability/ |
 | 8 | Model registry | Version traceability required | Kurshan 2020, Immaneni 2022 | MLflow |
 | 9 | Approval gate | Automated deployment insufficient | Adari 2021, PRA SS1/23 | approval_gate.py |
+| 10 | Hazard-based default | Default assigned before repayment behaviour inverted causality, making repayment features leakage | CRR/EBA default definition, IFRS 9, Klarna Wikipink 2024, Woolard Review 2021 | bnpl_data_generator.py, raw.repayments, validate_synthetic.py, config.yaml |
 
 ---
 
@@ -726,6 +958,8 @@ actioned before deployment.
 | FCA CRA Review May 2026 | Governance weakness examples | 5, 6 |
 | FCA/ICO/Turing Synthetic Data 2023 | Synthetic data validation | 2 |
 | Woolard Review FCA February 2021 | BNPL consumer harm | 1 |
+| CRR/EBA default definition | 90-DPD regulatory default threshold | 10 |
+| IFRS 9 (SICR) | Significant increase in credit risk threshold | 10 |
 
 ---
 
@@ -773,6 +1007,14 @@ drivers is present, so composite prevalence (~59%) is higher
 than the single resilience-driver figure of 24%. This is
 correct and intended — 24% calibrates the resilience driver
 only, not overall vulnerability.
+
+**Note on Decision 10 (v3.1):** The multiplier structure
+above still governs which customers are exposed to higher
+arrears risk. What changed is that `default_probability`
+is no longer stored or drawn directly — these multipliers
+now feed into the hazard/arrears process described in
+Decision 10, and default emerges from that process at
+90 DPD rather than being assigned in advance.
 
 **Age distribution**
 Read directly from Klarna Wikipink UK 2024
@@ -864,6 +1106,10 @@ Tolerance: within 5 percentage points of
 equivalent real-data trained model.
 Limitation: Home Credit is PCA-transformed and
 from a different market. Explicitly documented.
+Where no real reference file is present, an
+internal held-out check runs instead and the
+result records that real TSTR was not performed
+(see Decision 10).
 
 **Privacy measures**
 Singling-out test — checks whether any synthetic
@@ -1017,6 +1263,23 @@ Implementation: Food and Grocery retained as
 merchant category. Vulnerability scoring
 reflects BNPL population risk profile.
 
+**CRR/EBA Default Definition**
+Requirement: default is defined at 90 days past
+due on a credit obligation.
+Implementation: `days_past_due` accumulates
+against the oldest outstanding instalment;
+default is reached when it crosses 90 days. See
+Decision 10.
+
+**IFRS 9 — Significant Increase in Credit Risk**
+Requirement: a distinct, earlier threshold (30
+DPD is the commonly applied backstop) for
+recognising deteriorating credit risk ahead of
+default.
+Implementation: `reached_sicr` flags this
+threshold separately from `default_flag`. See
+Decision 10.
+
 ---
 
 ## Document Version History
@@ -1028,3 +1291,5 @@ reflects BNPL population risk profile.
 | 2.1 | July 2026 | Technical review corrections — three drift types, additional metrics, gate scope clarified |
 | 2.2 | July 2026 | Targeted wording refinements per reviewer feedback |
 | 3.0 | July 2026 | Restructured for audience — detail moved to appendices, main body condensed to 12-15 pages |
+| 3.1 | 30th July 2026 | Added Decision 10 (hazard-based default modelling, censoring, `run_utility` completion, `\copy` load-order lesson). Updated Summary Table, Regulatory Reference Summary, and Appendix A/B/D cross-references. Reject inference flagged as open pending methodology confirmation. |
+| 3.2 | 30th July 2026 | Full rewrite of Decision 10 against the actual generator code and config.yaml. Added: the state machine (CURRENT/DELINQUENT/DEFAULT), the two-hazard split (miss vs resilience), the post-schedule collections fix (42% final-instalment finding), the two-stage calibration sweep methodology and landed parameters, the coarse-delinquency-spectrum finding, the A/B mechanism repair, reject inference (resolved — deliberately not implemented, reasoning documented), right-censoring, config structural cleanup, and the from-scratch database rebuild decision. Summary Table row 10 updated to match. |

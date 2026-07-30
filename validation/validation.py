@@ -7,7 +7,13 @@ Purpose: Validates generator output on the three dimensions
          defined by the FCA/ICO/Alan Turing Institute
          framework: fidelity, utility, privacy.
 Author:  Folarin Korede
-Version: 1.0.0
+Version: 1.1.0
+
+Change from 1.0.0: privacy thresholds (singling-out,
+near-duplicate) and the utility Gini-retention band are now
+read from config.yaml rather than hardcoded, matching the
+fidelity thresholds. See docs/engineering_decision_log.md —
+Decision 2, "Known Gaps" note.
 
 See docs/engineering_decision_log.md — Decision 2.
 =============================================================
@@ -65,11 +71,12 @@ def load_outputs() -> tuple:
 # of published statistics in config.yaml.
 # See docs/engineering_decision_log.md — Decision 2.
 
-# Thresholds — design assumptions:
+# Thresholds — design assumptions, read from config.yaml.
 # At n=50,000 sampling error is tiny, so a well-calibrated
 # generator should sit far below these.
 HELLINGER_THRESHOLD  = VAL["hellinger_threshold"]
 PREVALENCE_TOLERANCE = VAL["prevalence_tolerance"]
+
 
 def hellinger(p: np.ndarray, q: np.ndarray) -> float:
     """
@@ -211,9 +218,7 @@ def run_fidelity(
         "ab_test group split — engineered 50/50"
     ))
 
-    # Merchant risk rank ordering
-    # The realised default rate per category must follow the
-    # multiplier ordering from Klarna Q2 2025 calibration.
+    # Merchant category structural completeness
     results.append(check_merchant_ordering(transactions))
 
     return results
@@ -227,9 +232,6 @@ def check_merchant_ordering(transactions: pd.DataFrame) -> dict:
     category is present. This guards against typos or
     dropped categories in the generator.
     """
-    # Rank correlation between configured multiplier and
-    # observed category frequency ordering is not meaningful.
-    # Instead check every configured category is present.
     configured = set(GEN["merchant_categories"].keys())
     observed   = set(transactions["merchant_category"].unique())
     missing    = configured - observed
@@ -272,15 +274,6 @@ def print_fidelity(results: list) -> None:
     print(f"{n_pass}/{len(results)} fidelity checks passed")
 
 
-
-
-
-
-
-
-
-
-
 # ── SECTION 3: UTILITY (TSTR) ─────────────────────────────
 # Utility tests whether a model trained on SYNTHETIC data
 # learns real predictive signal. The strongest test is
@@ -299,16 +292,30 @@ def print_fidelity(results: list) -> None:
 # If absent, utility falls back to an internal check (train
 # on synthetic, test on a held-out synthetic slice) and the
 # report records that real TSTR was not run.
- 
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
 from scipy.stats import spearmanr
- 
+
 REFERENCE_PATH = os.path.join(
     PROJECT_ROOT, "validation", "reference", "home_credit.csv"
 )
- 
+
+# Utility acceptance thresholds — read from config.yaml.
+# GINI_MIN: minimum acceptable Gini for either the TSTR real
+# score or the internal held-out score to count as "learned
+# real signal" at all.
+# GINI_RETENTION_TOLERANCE (gini_tolerance): how far the
+# synthetic-vs-real Gini gap is allowed to be, expressed as
+# an absolute Gini-point band, before the TSTR result is
+# flagged as diverging further than expected. This is
+# reported alongside the pass/fail, not the sole gate on it,
+# because a small n or a genuinely harder real dataset can
+# widen the gap without indicating a broken generator.
+GINI_MIN = 0.10
+GINI_RETENTION_TOLERANCE = VAL["gini_tolerance"]
+
 # Features shared between our synthetic schema and a typical
 # real credit dataset. Only numeric, non-identifying,
 # non-protected fields are used for modelling.
@@ -337,13 +344,13 @@ CROSS_MARKET_FEATURES = [
     "existing_monthly_obligations_gbp",
     "credit_score",
 ]
- 
- 
+
+
 def gini_from_auc(auc: float) -> float:
     """Gini = 2 * AUC - 1. Standard credit scoring metric."""
     return 2.0 * auc - 1.0
- 
- 
+
+
 def build_customer_default_label(
     customers: pd.DataFrame,
     repayments: pd.DataFrame
@@ -362,8 +369,8 @@ def build_customer_default_label(
         cust_default, on="customer_id", how="inner"
     )
     return df
- 
- 
+
+
 def train_credit_model(
     X: pd.DataFrame,
     y: pd.Series
@@ -378,8 +385,8 @@ def train_credit_model(
     model = LogisticRegression(max_iter=1000)
     model.fit(X_scaled, y)
     return model, scaler
- 
- 
+
+
 def evaluate_model(
     model,
     scaler,
@@ -395,8 +402,8 @@ def evaluate_model(
         "gini": round(float(gini_from_auc(auc)), 4),
         "n":    int(len(y)),
     }
- 
- 
+
+
 def load_reference() -> pd.DataFrame:
     """
     Loads the real Home Credit reference dataset if present.
@@ -405,15 +412,15 @@ def load_reference() -> pd.DataFrame:
     if not os.path.exists(REFERENCE_PATH):
         return None
     return pd.read_csv(REFERENCE_PATH)
- 
- 
+
+
 def map_reference_features(ref: pd.DataFrame) -> pd.DataFrame:
     """
     Maps Home Credit columns onto our synthetic feature
     schema so a model trained on synthetic data can score
     the real data. Home Credit uses different column names,
     so we map the closest equivalent and document each.
- 
+
     Home Credit -> synthetic equivalent:
       DAYS_BIRTH / -365        -> age
       AMT_INCOME_TOTAL         -> annual_income_gbp
@@ -453,8 +460,8 @@ def map_reference_features(ref: pd.DataFrame) -> pd.DataFrame:
     ).astype(int)
     out["default"] = ref["TARGET"]
     return out.dropna()
- 
- 
+
+
 def feature_direction_agreement(
     model_syn,
     model_real,
@@ -463,7 +470,7 @@ def feature_direction_agreement(
     """
     Compares how each feature drives default risk in a model
     trained on synthetic vs a model trained on real data.
- 
+
     Two genuine measures:
       Sign agreement — fraction of features whose logistic
         coefficient has the SAME sign in both models. Sign is
@@ -471,20 +478,18 @@ def feature_direction_agreement(
       Spearman rho — rank correlation of feature importance
         (|coefficient|) between the two models. Do features
         rank in the same order of importance in both worlds.
- 
+
     Both features are standardised before fitting, so
     coefficient magnitude is a fair importance measure.
     """
     coef_syn  = model_syn.coef_[0]
     coef_real = model_real.coef_[0]
- 
-    # Sign agreement
+
     same_sign = np.sign(coef_syn) == np.sign(coef_real)
     sign_agreement = float(np.mean(same_sign))
- 
-    # Spearman rank correlation on absolute coefficients
+
     rho, _ = spearmanr(np.abs(coef_syn), np.abs(coef_real))
- 
+
     per_feature = {}
     for i, f in enumerate(feature_names):
         per_feature[f] = {
@@ -492,14 +497,14 @@ def feature_direction_agreement(
             "coef_real":      round(float(coef_real[i]), 4),
             "same_direction": bool(same_sign[i]),
         }
- 
+
     return {
         "sign_agreement":  round(sign_agreement, 4),
         "spearman_rho":    round(float(rho), 4),
         "per_feature":     per_feature,
     }
- 
- 
+
+
 def run_utility(
     customers: pd.DataFrame,
     repayments: pd.DataFrame
@@ -513,66 +518,77 @@ def run_utility(
     df = build_customer_default_label(customers, repayments)
     X_syn = df[SYNTHETIC_MODEL_FEATURES]
     y_syn = df["default"]
- 
+
     model, scaler = train_credit_model(X_syn, y_syn)
- 
+
     ref = load_reference()
- 
+
     if ref is not None:
         real = map_reference_features(ref)
         X_real = real[CROSS_MARKET_FEATURES]
         y_real = real["default"]
-        # retrain the synthetic model on the SAME four features
+
         X_syn_cm = df[CROSS_MARKET_FEATURES]
         model_cm, scaler_cm = train_credit_model(X_syn_cm, y_syn)
-        # Test A — TSTR: synthetic-trained model scored on real
+
         real_eval = evaluate_model(model_cm, scaler_cm, X_real, y_real)
- 
-        # Synthetic self-Gini for retention ratio
-        syn_eval  = evaluate_model(model_cm, scaler_cm, X_syn_cm, y_syn)       
+        syn_eval  = evaluate_model(model_cm, scaler_cm, X_syn_cm, y_syn)
+
         retention = (
             round(real_eval["gini"] / syn_eval["gini"], 4)
             if syn_eval["gini"] > 0 else None
         )
- 
-        # Test B — feature direction: train a second model on
-        # REAL data and compare coefficient direction and rank
+
+        # Retention band check — how far apart are the two
+        # Gini scores in absolute terms, against the
+        # config-driven tolerance. Reported, not the sole gate.
+        gini_gap = round(
+            abs(real_eval["gini"] - syn_eval["gini"]), 4
+        )
+        within_tolerance = bool(gini_gap <= GINI_RETENTION_TOLERANCE)
+
         scaler_r = StandardScaler()
         Xr = scaler_r.fit_transform(X_real)
         model_real = LogisticRegression(max_iter=1000)
         model_real.fit(Xr, y_real)
         direction = feature_direction_agreement(
-            model_cm, model_real, CROSS_MARKET_FEATURES   # same four
+            model_cm, model_real, CROSS_MARKET_FEATURES
         )
- 
+
         passed = bool(
-            real_eval["gini"] > 0.10
+            real_eval["gini"] > GINI_MIN
             and direction["sign_agreement"] >= 0.75
         )
         result = {
-            "mode":            "TSTR + feature direction (real Home Credit)",
-            "trained_on":      "synthetic",
-            "tested_on":       "real Home Credit",
-            "synthetic_gini":  syn_eval["gini"],
-            "real_gini":       real_eval["gini"],
-            "gini_retention":  retention,
-            "real_auc":        real_eval["auc"],
-            "real_n":          real_eval["n"],
-            "sign_agreement":  direction["sign_agreement"],
-            "spearman_rho":    direction["spearman_rho"],
-            "per_feature":     direction["per_feature"],
-            "passed":          passed,
+            "mode":               "TSTR + feature direction (real Home Credit)",
+            "trained_on":         "synthetic",
+            "tested_on":          "real Home Credit",
+            "synthetic_gini":     syn_eval["gini"],
+            "real_gini":          real_eval["gini"],
+            "gini_retention":     retention,
+            "gini_gap":           gini_gap,
+            "gini_gap_tolerance": GINI_RETENTION_TOLERANCE,
+            "gini_gap_within_tolerance": within_tolerance,
+            "real_auc":           real_eval["auc"],
+            "real_n":             real_eval["n"],
+            "sign_agreement":     direction["sign_agreement"],
+            "spearman_rho":       direction["spearman_rho"],
+            "per_feature":        direction["per_feature"],
+            "passed":             passed,
             "note": (
                 "Test A: synthetic-trained model scored on real "
                 "data (Gini retention). Test B: feature "
                 "coefficient sign agreement and importance rank "
-                "correlation. Proxy mappings between BNPL and "
-                "Home Credit mean a disagreeing feature may "
+                "correlation. gini_gap is reported against "
+                "gini_tolerance as supporting context, not the "
+                "pass/fail gate, since a genuinely harder real "
+                "dataset can widen the gap without indicating a "
+                "broken generator. Proxy mappings between BNPL "
+                "and Home Credit mean a disagreeing feature may "
                 "reflect market difference, not generator error."
             ),
         }
     else:
-        # Internal fallback — held-out synthetic slice
         split = int(len(df) * 0.8)
         model_h, scaler_h = train_credit_model(
             X_syn.iloc[:split], y_syn.iloc[:split]
@@ -589,7 +605,7 @@ def run_utility(
             "holdout_gini": held["gini"],
             "holdout_auc":  held["auc"],
             "holdout_n":    held["n"],
-            "passed":       bool(held["gini"] > 0.10),
+            "passed":       bool(held["gini"] > GINI_MIN),
             "note": (
                 "Real Home Credit reference not found at "
                 "validation/reference/home_credit.csv. "
@@ -597,10 +613,10 @@ def run_utility(
                 "the real file in to enable full TSTR."
             ),
         }
- 
+
     return result
- 
- 
+
+
 def print_utility(result: dict) -> None:
     """Prints the utility result."""
     print("\n" + "=" * 58)
@@ -613,6 +629,9 @@ def print_utility(result: dict) -> None:
         print(f"         synthetic Gini {result['synthetic_gini']:.4f}  "
               f"real Gini {result['real_gini']:.4f}  "
               f"retention {result['gini_retention']}")
+        tol_status = "within" if result["gini_gap_within_tolerance"] else "outside"
+        print(f"         gini gap {result['gini_gap']:.4f}  "
+              f"({tol_status} tolerance {result['gini_gap_tolerance']:.4f})")
         print(f"       Test B — feature direction")
         print(f"         sign agreement {result['sign_agreement']:.2%}  "
               f"rank rho {result['spearman_rho']:.4f}")
@@ -621,39 +640,40 @@ def print_utility(result: dict) -> None:
               f"AUC {result['holdout_auc']:.4f}  "
               f"n {result['holdout_n']:,}")
     print(f"       {result['note']}")
- 
 
 
-
-
-
-
-
- 
 # ── SECTION 4: PRIVACY ────────────────────────────────────
 # Privacy tests whether individuals could be re-identified
 # from the synthetic data. Because our generator uses only
 # published AGGREGATE statistics as inputs (never real
 # individual records), there is no real person to re-identify
-# by construction. These checks 
-# guard against accidental memorisation-style patterns.
+# by construction. These checks guard against accidental
+# memorisation-style patterns.
 # See docs/engineering_decision_log.md — Decision 2.
- 
+
 from sklearn.neighbors import NearestNeighbors
- 
+
 PRIVACY_QUASI_IDENTIFIERS = [
     "age", "gender", "income_band", "employment_status",
     "age_bracket", "device_type",
 ]
- 
- 
+
+# Privacy thresholds — design assumptions, read from
+# config.yaml rather than hardcoded. These are two distinct
+# checks with two distinct natural ceilings; a single shared
+# threshold cannot correctly govern both, so each gets its
+# own key. See docs/engineering_decision_log.md — Decision 2.
+SINGLING_OUT_THRESHOLD   = VAL["singling_out_threshold"]
+NEAR_DUPLICATE_THRESHOLD = VAL["near_duplicate_threshold"]
+
+
 def singling_out_check(customers: pd.DataFrame) -> dict:
     """
     Singling-out risk: can a combination of quasi-identifiers
     isolate exactly one record? We count how many customers
     are UNIQUE on the quasi-identifier set. A high unique rate
     on low-cardinality attributes would be a concern.
- 
+
     Because our records are synthetic (not real people), a
     unique combination points to no real individual. We still
     report the rate as a standard privacy diagnostic.
@@ -663,24 +683,25 @@ def singling_out_check(customers: pd.DataFrame) -> dict:
     group_sizes = customers.groupby(qi).size()
     n_unique = int((group_sizes == 1).sum())
     unique_rate = float(n_unique / len(customers))
- 
+
     return {
         "check":           "singling-out",
         "quasi_identifiers": qi,
         "n_unique_records": n_unique,
         "unique_rate":     round(unique_rate, 4),
+        "threshold":       SINGLING_OUT_THRESHOLD,
         # Threshold is a design assumption: on 6 low-to-mid
         # cardinality attributes a modest unique rate is
         # expected and acceptable for synthetic data.
-        "passed":          bool(unique_rate < 0.20),
+        "passed":          bool(unique_rate < SINGLING_OUT_THRESHOLD),
         "note": (
             "Records are synthetic; a unique quasi-identifier "
             "combination corresponds to no real individual. "
             "Reported as a standard diagnostic."
         ),
     }
- 
- 
+
+
 def nearest_neighbour_check(
     customers: pd.DataFrame,
     sample_size: int = 5000
@@ -691,7 +712,7 @@ def nearest_neighbour_check(
     numeric features, the generator may be producing near
     duplicates. Healthy synthetic data shows well-separated
     records, not clusters of near-identical rows.
- 
+
     We sample for speed and measure the distance from each
     sampled record to its nearest OTHER record.
     """
@@ -701,51 +722,48 @@ def nearest_neighbour_check(
         "months_credit_history",
     ]
     numeric = [c for c in numeric if c in customers.columns]
- 
+
     data = customers[numeric].copy()
-    # Standardise so no single feature dominates distance
     scaler = StandardScaler()
     scaled = scaler.fit_transform(data)
- 
+
     n = min(sample_size, len(scaled))
     rng = np.random.RandomState(RANDOM_SEED)
     idx = rng.choice(len(scaled), size=n, replace=False)
     sample = scaled[idx]
- 
-    # k=2 because the nearest neighbour of a point in the
-    # fitted set is itself at distance 0; we take the second.
+
     nn = NearestNeighbors(n_neighbors=2).fit(scaled)
     distances, _ = nn.kneighbors(sample)
     nearest = distances[:, 1]
- 
+
     mean_dist = float(np.mean(nearest))
-    # Fraction of records with a near-identical twin
     near_dup_rate = float(np.mean(nearest < 0.01))
- 
+
     return {
         "check":          "nearest-neighbour distance",
         "features":       numeric,
         "sample_size":    n,
         "mean_nn_distance": round(mean_dist, 4),
         "near_duplicate_rate": round(near_dup_rate, 4),
+        "threshold":      NEAR_DUPLICATE_THRESHOLD,
         # Design assumption: under 1% near-duplicates is
         # healthy separation for a generator of this size.
-        "passed":         bool(near_dup_rate < 0.01),
+        "passed":         bool(near_dup_rate < NEAR_DUPLICATE_THRESHOLD),
         "note": (
             "Standardised numeric distance. Low near-duplicate "
             "rate indicates well-separated synthetic records."
         ),
     }
- 
- 
+
+
 def run_privacy(customers: pd.DataFrame) -> list:
     """Runs all privacy checks and returns a list of results."""
     return [
         singling_out_check(customers),
         nearest_neighbour_check(customers),
     ]
- 
- 
+
+
 def print_privacy(results: list) -> None:
     """Prints privacy results."""
     print("\n" + "=" * 58)
@@ -756,36 +774,38 @@ def print_privacy(results: list) -> None:
         if r["check"] == "singling-out":
             print(f"[{status}] singling-out")
             print(f"       unique records {r['n_unique_records']:,}  "
-                  f"rate {r['unique_rate']:.2%}")
+                  f"rate {r['unique_rate']:.2%}  "
+                  f"threshold {r['threshold']:.2%}")
         else:
             print(f"[{status}] nearest-neighbour")
             print(f"       mean distance {r['mean_nn_distance']:.4f}  "
-                  f"near-duplicate rate {r['near_duplicate_rate']:.2%}")
+                  f"near-duplicate rate {r['near_duplicate_rate']:.2%}  "
+                  f"threshold {r['threshold']:.2%}")
     n_pass = sum(r["passed"] for r in results)
     print("-" * 58)
     print(f"{n_pass}/{len(results)} privacy checks passed")
- 
- 
+
+
 # ── ENTRY POINT ───────────────────────────────────────────
 def main() -> None:
     print("=" * 58)
     print("SENTINEL CREDIT — SYNTHETIC DATA VALIDATION")
     print("=" * 58)
- 
+
     customers, transactions, repayments = load_outputs()
     print(f"Loaded: {len(customers):,} customers  "
           f"{len(transactions):,} transactions  "
           f"{len(repayments):,} repayments")
- 
+
     fidelity_results = run_fidelity(customers, transactions)
     print_fidelity(fidelity_results)
- 
+
     utility_result = run_utility(customers, repayments)
     print_utility(utility_result)
- 
+
     privacy_results = run_privacy(customers)
     print_privacy(privacy_results)
- 
- 
+
+
 if __name__ == "__main__":
     main()

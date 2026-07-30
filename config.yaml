@@ -1,39 +1,34 @@
+
 project:
   name: "Sentinel Credit — BNPL Risk Intelligence Platform"
   version: "1.0.0"
-  fca_reference: "Consumer Duty PS22/9 | CONC 5.2A"
-  fca_supporting_evidence: "CRA Multi-Firm Review May 2026"
-  world_bank_reference: "Alternative Data in Creditworthiness Assessment March 2025"
 
 data_generator:
   n_customers: 50000
-  start_date: "2022-01-01"
-  end_date: "2024-12-31"
   random_seed: 42
   output_dir: "data_generator/output"
 
-  # Source: Klarna Wikipink UK 2024 — raw published UK
-  # default rate 0.4%. Population and merchant uplifts are
-  # applied by the default probability engine, NOT baked
-  # into the base. See Appendix A — engineering_decision_log.md
-  base_default_rate: 0.004
+  # ── OBSERVATION WINDOWS ──────────────────────────────
+  # See engineering_decision_log.md — Decision 1a.
+  start_date: "2022-01-01"
+  origination_end_date: "2024-10-31"
+  data_end_date: "2024-12-31"
 
-  
-  # Source: FCA Financial Lives Survey May 2022
-  # Measures resilience driver only — conservative lower bound.
+  # ── DEFAULT DEFINITION ───────────────────────────────
+  # 90 DPD on the oldest unpaid instalment. CRR/EBA aligned
+  # in principle. 30 DPD retained as an IFRS 9 style credit
+  # risk indicator, not as default. See Decision 1a.
+  default_dpd_threshold: 90
+  sicr_dpd_threshold: 30
+
+  # ── POPULATION ───────────────────────────────────────
+  # Prevalences reference published UK figures. Sources and
+  # reasoning in engineering_decision_log.md — Appendix A.
   vulnerability_prevalence: 0.24
-
-  # Source: PwC and TotallyMoney YouGov Feb 2022
-  # Represents limited or near-prime credit history.
   thin_file_prevalence: 0.31
-
-  # Source: NHS Digital Adult Psychiatric Morbidity Survey
-  # Used ONLY for Consumer Duty vulnerability flagging (Driver 1)
-  # Must NEVER be used as direct model input — Equality Act 2010
+  # Consumer Duty flagging only. Never a model input.
   mental_health_prevalence: 0.17
 
-  # Source: Klarna Wikipink UK 2024 — age bracket chart
-  # UK Pay in 3 customers. Read directly from published chart.
   age_distribution:
     "18-25": 0.19
     "26-35": 0.33
@@ -48,9 +43,6 @@ data_generator:
     "46-55": [46, 55]
     "56+":   [56, 80]
 
-  # Source: ONS Household Income Inequality UK FYE 2023 (baseline)
-  # Shifted downward for BNPL lower-income skew per Woolard Review
-  # FCA Feb 2021 and PwC/TotallyMoney 2022. Design assumption.
   income_bands:
     "Under £15k":  0.17
     "£15k-£25k":   0.26
@@ -59,10 +51,6 @@ data_generator:
     "£50k-£75k":   0.10
     "Over £75k":   0.05
 
-  # Source: Klarna UK Store Directory July 2026
-  # Luxury and Marketplaces excluded — see engineering_decision_log.md
-  # Percentages are design assumptions. No published UK BNPL
-  # category breakdown exists publicly.
   merchant_categories:
     "Fashion & Clothing": 0.30
     "Electronics":        0.17
@@ -73,9 +61,7 @@ data_generator:
     "Food & Grocery":     0.06
     "Other":              0.03
 
-  # Source: Klarna Q2 2025 Investor Report
-  # Standard BNPL delinquency 0.88% / Fair Financing 2.18%
-  # Ratio 2.47x anchors the multiplier range 0.50 to 2.50
+  # Range anchored to a published delinquency spread.
   merchant_risk:
     "Food & Grocery":     0.50
     "Health & Beauty":    0.65
@@ -86,61 +72,84 @@ data_generator:
     "Electronics":        2.00
     "Travel":             2.50
 
-  # Group A: FCA CONC 5.2A threshold (0.45)
-  # Group B: relaxed threshold — design assumption (0.60)
-  # Uplift 0.004: calculated for 80% power at 5% significance
-  # with 25,000 customers per group at 1.0% base rate.
-  # Design assumption. See engineering_decision_log.md
+  # ── INSTALMENT PLANS ─────────────────────────────────
+  # Pay in 3 plus 6 and 12 month plans. Category split is a
+  # design assumption, loose not deterministic. Decision 1a.
+  instalment_plans_by_category:
+    "Home":               {3: 0.70, 6: 0.20, 12: 0.10}
+    "Electronics":        {3: 0.75, 6: 0.17, 12: 0.08}
+    "Travel":             {3: 0.80, 6: 0.14, 12: 0.06}
+    "Fashion & Clothing": {3: 0.95, 6: 0.04, 12: 0.01}
+    "Health & Beauty":    {3: 0.96, 6: 0.03, 12: 0.01}
+    "Sports":             {3: 0.94, 6: 0.05, 12: 0.01}
+    "Other":              {3: 0.93, 6: 0.05, 12: 0.02}
+    # Essentials capped at Pay in 3 per Woolard Review.
+    "Food & Grocery":     {3: 1.00}
+
+  # ── REPAYMENT HAZARD PROCESS ─────────────────────────
+  # Default emerges from repayment behaviour, never assigned.
+  # Values calibrated by sweep. See Decision 1a.
+  repayment_process:
+      
+    base_miss_hazard: 0.005
+
+    # Calibration multiplier on the arrears cure probabilities.
+    cure_scale: 1.30
+
+    # Capacity to recover, distinct from likelihood of missing.
+    resilience_weights:
+      savings_buffer:            0.45
+      disposable_income_buffer:  0.40
+      employment_stability:      0.15
+
+    # Arrears depth: [full_cure, partial_cure, no_payment]
+    arrears_resolution:
+      1: [0.75, 0.00, 0.25]
+      2: [0.35, 0.40, 0.25]
+      3: [0.12, 0.55, 0.33]
+      4: [0.04, 0.56, 0.40]
+
+    # Cure chances halve every N days the oldest arrear ages.
+    dpd_decay_halflife: 45
+
+    # Payments clear the oldest unpaid instalment first.
+    payment_allocation: "oldest_due_first"
+
+  # ── A/B TEST ─────────────────────────────────────────
+  # Strict 0.45 vs relaxed 0.60 affordability threshold.
+  # Uplift powered for 80% at 5% significance. Decision 1.
   ab_test:
     group_A_size:           0.50
     group_B_size:           0.50
-    group_B_default_uplift: 0.004
+    # Group B approves at a looser affordability threshold,
+    # so its customers miss payments more often. Applied to
+    # the miss hazard, since default is emergent rather than
+    # assigned. Calibrated to produce a detectable difference.
+    group_B_hazard_multiplier: 1.60
     strict_threshold:       0.45
     relaxed_threshold:      0.60
 
+
 validation:
+  # ── FIDELITY ──────────────────────────────────────────
+ 
+  hellinger_threshold: 0.05
+
+  
+  prevalence_tolerance: 0.01
+
+  # ── UTILITY ───────────────────────────────────────────
+ 
+  gini_tolerance: 0.05
+
+  # ── PRIVACY ───────────────────────────────────────────
+
+  singling_out_threshold: 0.20     # max acceptable unique-record rate
+  near_duplicate_threshold: 0.01   # max acceptable near-duplicate rate
+
+  # ── PLANNED, NOT YET IMPLEMENTED ──────────────────────
 
   n_runs: 5
   ks_threshold: 0.05
-  gini_tolerance: 0.05
-  privacy_threshold: 0.05
-  hellinger_threshold: 0.05
-  prevalence_tolerance: 0.01
-  singling_out_threshold: 0.20
-  near_duplicate_threshold: 0.01
+
   reports_dir: "validation/reports"
-
-database:
-  host: "localhost"
-  port: 5432
-  name: "sentinel_credit"
-  schema: "feature_store"
-
-model:
-  test_size: 0.2
-  random_seed: 42
-  psi_threshold: 0.25
-  drift_alert_threshold: 0.10
-
-aws:
-  region: "eu-west-2"
-  s3_bucket: "sentinel-credit-data"
-  rds_instance: "sentinel-credit-db"
-
-ab_testing:
-  # Experiment: does stricter CONC 5.2A affordability
-  # assessment reduce BNPL default rates?
-  # Group A applies the strict 0.45 affordability threshold.
-  # Group B applies the relaxed 0.60 threshold.
-  # Stored ab_test_group values in the data: A_strict, B_relaxed
-  group_a_label: "A_strict"
-  group_b_label: "B_relaxed"
-  group_a_hypothesis: "strict_affordability"
-  group_b_hypothesis: "relaxed_affordability"
-  significance_level: 0.05
-  min_sample_size: 1000
-
-llm:
-  model: "claude-sonnet-4-6"
-  max_tokens: 1000
-  temperature: 0.1
