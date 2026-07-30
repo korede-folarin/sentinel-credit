@@ -4,7 +4,7 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.2
+**Version:** 3.5
 **Last Updated:** 30th July 2026
 **Status:** Living document — updated as decisions are made
 
@@ -91,7 +91,7 @@ vulnerability signals, and alternative data signals.
 Develop a synthetic BNPL dataset using a parametric
 domain-expert generator calibrated against published
 regulatory and industry statistics. This is a
-deliberate methodological choice using a learned
+deliberate methodological choice — using a learned
 generator trained on a PCA-transformed proxy dataset
 would import correlations from a different market,
 not UK BNPL customer behaviour.
@@ -180,10 +180,15 @@ risk. No differential privacy applied — generator
 uses aggregate published statistics not
 individual-level data.
 
-CTGAN benchmark — parametric generator output
-compared against CTGAN trained on Home Credit.
-Where distributions converge, provides supporting
-evidence of realistic statistical structure.
+CTGAN benchmark — **planned, not yet implemented.**
+The intent is to compare the parametric generator's
+output against CTGAN trained on Home Credit, as
+supporting evidence of realistic statistical
+structure. Descoped for now to avoid spending time
+on a supporting check before the core pipeline is
+complete; revisit once the platform is otherwise
+finished. `validate_synthetic.py` currently
+implements Fidelity, Utility, and Privacy only.
 
 Internal consistency — five generation runs with
 different seeds. KS tests confirm stable output.
@@ -194,8 +199,38 @@ Detailed methodology provided in Appendix B.
 Directly implements the three dimensions defined
 in the FCA/ICO/Alan Turing Institute guidance.
 Privacy assessment follows the FCA risk-based
-model, acknowledging that zero risk equals zero
+model — acknowledging that zero risk equals zero
 utility and documenting the trade-off explicitly.
+
+### Addendum — Validation Config Restructuring (30th July 2026)
+Privacy thresholds were hardcoded directly in
+`singling_out_check()` (0.20) and
+`nearest_neighbour_check()` (0.01) in
+`validate_synthetic.py`, while a single
+`privacy_threshold: 0.05` sat unused in
+`config.yaml` — an ambiguous key that could not
+correctly govern two structurally different checks
+with two different natural ceilings. Replaced with
+two explicit config keys,
+`singling_out_threshold` and
+`near_duplicate_threshold`, read directly by the
+code. This changes only where the acceptance
+criteria are written down, not the underlying data
+or the computed rates — verified by an actual
+validation run producing unchanged results (7.90%
+singling-out, 0.00% near-duplicate, both passing).
+
+`gini_tolerance` was previously declared in config
+but never read by any function. It is now used: the
+absolute gap between the synthetic and real-data
+Gini scores is computed and reported against this
+tolerance in the TSTR utility check, as supporting
+context rather than the sole pass/fail gate, since a
+genuinely harder or easier real-market dataset can
+widen the gap without indicating a broken generator.
+`n_runs` and `ks_threshold` remain declared but
+unimplemented, tied to the internal consistency
+check noted as planned, not done, above.
 
 *With validated data available, the next decision
 was how to engineer features consistently across
@@ -208,7 +243,7 @@ training and production.*
 ### Challenge
 Feature engineering implemented differently in
 training and scoring environments produces
-inconsistent predictions,  a failure mode known
+inconsistent predictions — a failure mode known
 as training-serving skew. Notebook-based feature
 engineering cannot solve this at production scale.
 
@@ -234,7 +269,7 @@ Features include affordability ratios, payment
 velocity, Weight of Evidence binnings,
 vulnerability composite scores, and merchant
 risk signals. SQL-based features run identically
-in training and production; eliminating
+in training and production — eliminating
 training-serving skew by design.
 
 ### Regulatory Context
@@ -782,7 +817,7 @@ defaults were customers who missed their *final* instalment,
 leaving zero remaining due dates at which to cure before the
 schedule simply ended. Real BNPL collections continue past
 the contractual schedule; this generator hadn't modelled
-that. The fix was post-schedule collection cycles, arrears
+that. The fix was post-schedule collection cycles — arrears
 continue accumulating cure opportunities every 30 days past
 the final due date, until default or the observation window
 closes. The floor disappeared once this was in place.
@@ -929,6 +964,151 @@ fixed threshold rather than IFRS 9's rebuttable presumption.
 Together these mean the schema's central label — default —
 is now defensible against external regulatory standards, with
 its simplifications stated rather than implied.
+
+---
+
+## Decision 11 — Automated Audit-Trail Enforcement
+
+### Challenge
+The decision log's audit value depended entirely on human
+memory: nothing prevented a config, generator, or schema
+change from being committed without a corresponding log
+entry. Decision 8 and 9 cite PRA SS1/23 Principle 6 (internal
+audit evidence) as something the architecture provides, but
+the actual mechanism for keeping the log itself accurate was
+"remember to update it" — the same manual, memory-dependent
+process the FCA CRA review (Decision 6's evidence) criticises
+in real firms. This was confirmed as a live problem, not a
+hypothetical one: the CTGAN benchmark had been stated as
+implemented in Decision 2 and Appendix B for some time before
+a direct check against `validate_synthetic.py` showed it
+didn't exist.
+
+### Engineering Observation
+Two different things were being asked of one document: the
+reasoning behind a decision (irreplaceable, must come from a
+person) and the mechanical fact that a change happened
+(replaceable, a tooling problem with a tooling solution).
+Conflating them meant the log could silently drift from the
+codebase with no warning.
+
+### Engineering Implication
+Forgetting needed to become structurally difficult rather
+than merely discouraged. A local git hook was the lowest-cost
+way to enforce this for a solo-maintained repository, without
+requiring CI infrastructure that matters more for multi-
+contributor teams.
+
+### Design Decision
+Two git hooks, installed to `.git/hooks/`:
+
+`pre-commit` — blocks any commit that touches an audit-
+relevant file (`config.yaml`, `bnpl_data_generator.py`,
+`validate_synthetic.py`, any `sql/*.sql`) unless
+`docs/engineering_decision_log.md` is staged in the same
+commit. Bypassable with `git commit --no-verify` for
+genuinely trivial changes (typo, comment-only), by design —
+the hook enforces discipline, it doesn't remove judgement.
+
+`post-commit` — appends a timestamped, append-only record to
+`docs/audit_trail.log` for every commit that touched a
+watched file: commit hash, commit message, whether the
+decision log was updated in the same commit, and which files
+changed. This is the mechanical half — proof that a change
+happened and when — separate from and complementary to the
+log's narrative half.
+
+Verified working: a test commit changing only `config.yaml`
+was correctly blocked with the expected message before a
+corresponding log entry existed.
+
+CI enforcement of the same check (as a required PR check) was
+considered and deliberately deferred — it matters most when
+multiple contributors could each skip installing the local
+hook, which does not apply to a solo-maintained repository at
+this stage.
+
+### Regulatory Context
+This directly strengthens the audit-evidence claim already
+made in Decision 8 and 9. PRA SS1/23 Principle 6 requires
+internal audit evidence; before this decision, that evidence
+depended on the log being remembered to be updated, with no
+mechanism enforcing it. The hooks make the log's own
+completeness auditable, not just its content.
+
+---
+
+## Decision 12 — Feature Store Stage 3: Repayment and Delinquency Features
+
+### Challenge
+Decision 3 committed to 30+ engineered features across
+affordability, payment behaviour, credit history, merchant
+risk exposure, and vulnerability. Under the original
+generator, that target was unreachable honestly. Repayment
+status values of `Missed` and `Defaulted` were assigned only
+after the default outcome was already decided — a customer's
+instalments were backfilled to match a coin-flip result drawn
+in advance. Counting missed or defaulted instalments as
+features would therefore have reconstructed the target
+directly: proxy leakage, not genuine signal. Only the
+independent `Late` payment path (a flat, default-unrelated
+5% per-instalment draw) was safe to use, capping Stage 3 at
+roughly ten features and leaving the 30+ target out of reach
+without either lowering the bar or accepting leakage.
+
+### Engineering Observation
+The constraint blocking Stage 3 was never really about SQL —
+it was downstream of the same causal flaw Decision 10 fixed.
+Repayment history could not be trusted as a feature source
+until it was genuinely produced *before* default, not
+backfilled to match it.
+
+### Engineering Implication
+Once Decision 10 rebuilt default as an emergent outcome of a
+hazard-based state machine, the delinquency ladder columns
+(`max_dpd`, `reached_sicr`, `cycles_delinquent`,
+`arrears_depth`, `terminal_state`) genuinely precede default
+in time by construction — they are the mechanism default
+emerges from, not a label written backwards. Stage 3 could be
+rebuilt honestly, using the same leakage discipline already
+established rather than relaxing it.
+
+### Design Decision
+`sql/02_feature_store.sql` gained a `repayment_behaviour` CTE,
+aggregating `raw.repayments` to customer level and joined into
+`feature_store.customer_features` alongside the existing
+spine, application-behaviour, and exposure features. Two
+families:
+
+Late-payment path (unchanged from the original honest Stage
+3, still leakage-free on its own terms): `n_late_payments`,
+`pct_late_payments`, `avg_days_late`, `max_days_late`,
+`total_days_late`, `n_transactions_with_late_payment`, plus
+structural counts.
+
+Delinquency ladder (newly legitimate under the hazard model):
+`max_dpd_ever`, `avg_max_dpd`, `n_reached_sicr`,
+`pct_reached_sicr`, `max_cycles_delinquent`,
+`avg_cycles_delinquent`, `max_arrears_depth`,
+`avg_arrears_depth_when_behind`, and the terminal-state
+resolution mix (`n_terminal_current`, `n_terminal_delinquent`,
+`n_terminal_default`).
+
+This brings the total past the 30+ target committed to in
+Decision 3, without reopening the leakage question Decision
+10 closed — every new column genuinely precedes default in
+the data-generating process, not just in name.
+
+### Regulatory Context
+Supports the same PRA SS1/23 Principle 3 documentation
+expectation Decision 3 was built against — the feature store
+remains the formal leakage boundary, and this stage extends
+it rather than weakening it. The delinquency ladder features
+are the direct SQL-level expression of the CRR/EBA and IFRS 9
+alignment established in Decision 10.
+
+---
+
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
@@ -943,6 +1123,8 @@ its simplifications stated rather than implied.
 | 8 | Model registry | Version traceability required | Kurshan 2020, Immaneni 2022 | MLflow |
 | 9 | Approval gate | Automated deployment insufficient | Adari 2021, PRA SS1/23 | approval_gate.py |
 | 10 | Hazard-based default | Default assigned before repayment behaviour inverted causality, making repayment features leakage | CRR/EBA default definition, IFRS 9, Klarna Wikipink 2024, Woolard Review 2021 | bnpl_data_generator.py, raw.repayments, validate_synthetic.py, config.yaml |
+| 11 | Automated audit-trail enforcement | Decision log accuracy depended on human memory | FCA CRA Review May 2026, PRA SS1/23 Principle 6 | .git/hooks/pre-commit, .git/hooks/post-commit, docs/audit_trail.log |
+| 12 | Feature store Stage 3 | Repayment features were proxy leakage until default became emergent | Decision 10 (hazard rewrite) | sql/02_feature_store.sql |
 
 ---
 
@@ -1125,12 +1307,13 @@ Five generation runs with different random seeds.
 KS statistic across runs should be below 0.05
 for stable generator output.
 
-**CTGAN benchmark**
-CTGAN trained on Home Credit Default Risk.
-Shared distributional properties compared between
-parametric and learned generator.
-Convergence on shared features provides supporting
-evidence of realistic statistical structure.
+**CTGAN benchmark — planned, not yet implemented**
+Intent: train CTGAN on Home Credit Default Risk and
+compare shared distributional properties against the
+parametric generator's output, as supporting evidence
+of realistic statistical structure where they
+converge. Descoped until the core pipeline is
+complete. Not present in `validate_synthetic.py`.
 
 ---
 
@@ -1293,3 +1476,6 @@ Decision 10.
 | 3.0 | July 2026 | Restructured for audience — detail moved to appendices, main body condensed to 12-15 pages |
 | 3.1 | 30th July 2026 | Added Decision 10 (hazard-based default modelling, censoring, `run_utility` completion, `\copy` load-order lesson). Updated Summary Table, Regulatory Reference Summary, and Appendix A/B/D cross-references. Reject inference flagged as open pending methodology confirmation. |
 | 3.2 | 30th July 2026 | Full rewrite of Decision 10 against the actual generator code and config.yaml. Added: the state machine (CURRENT/DELINQUENT/DEFAULT), the two-hazard split (miss vs resilience), the post-schedule collections fix (42% final-instalment finding), the two-stage calibration sweep methodology and landed parameters, the coarse-delinquency-spectrum finding, the A/B mechanism repair, reject inference (resolved — deliberately not implemented, reasoning documented), right-censoring, config structural cleanup, and the from-scratch database rebuild decision. Summary Table row 10 updated to match. |
+| 3.3 | 30th July 2026 | Corrected Decision 2 and Appendix B: CTGAN benchmark was stated as implemented but does not exist in `validate_synthetic.py`. Marked explicitly as planned, not done — descoped intentionally until the core pipeline is complete. Found during a direct check of the log against the actual validation code. |
+| 3.4 | 30th July 2026 | Added Decision 11: pre-commit and post-commit git hooks enforcing that audit-relevant file changes are always accompanied by a decision log entry, plus a mechanical, timestamped `docs/audit_trail.log`. Installed and verified working (test commit to `config.yaml` alone correctly blocked). Summary Table row 11 added. |
+| 3.5 | 30th July 2026 | Added Decision 12: feature store Stage 3 (repayment and delinquency features), documenting why it was capped at ~10 features under the old causal flaw and how Decision 10 unblocked it past the 30+ target. Added a Decision 2 addendum documenting the validation config restructuring (privacy thresholds split into two explicit keys; `gini_tolerance` wired in as reported context; `n_runs`/`ks_threshold` confirmed still unimplemented). Both found missing when a commit shipped the underlying code/SQL changes with only Decision 11 (the hooks) as coverage. Summary Table row 12 added. |
