@@ -202,7 +202,7 @@ model:
   # threshold RECALIBRATION as part of promotion — the cutoff
   # is not transferable across models, since each model's score
   # distribution differs. See docs/engineering_decision_log.md.
-  business_cutoff: 0.145
+  business_cutoff: 0.137
 
   # Temporal split currently produces a degenerate single-class
   # test set under the corrected has_outcome logic (16/16

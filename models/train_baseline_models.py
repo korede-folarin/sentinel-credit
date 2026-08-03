@@ -14,6 +14,7 @@ See docs/engineering_decision_log.md — Decision 4, Decision 12.
 =============================================================
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import psycopg2
+import joblib
 import yaml
 import mlflow
 import mlflow.sklearn
@@ -53,6 +55,16 @@ DB = CONFIG["database"]
 MODEL_CFG = CONFIG.get("model", {})
 RANDOM_SEED = MODEL_CFG.get("random_seed", 42)
 TEST_SIZE = MODEL_CFG.get("test_size", 0.2)
+
+# Version tag for the governed model package. Bump when the
+# champion is retrained, so downstream explanation and
+# comparison outputs can be traced to the exact model they
+# describe rather than assumed current.
+MODEL_VERSION = "xgboost_v1_20260803"
+
+# Which model is the champion — the one persisted for the
+# decision pipeline and for explanation.
+CHAMPION_MODEL = "xgboost"
 
 CV_CFG = PARAMS.get("cv", {})
 N_SPLITS = CV_CFG.get("n_splits", 5)
@@ -127,6 +139,7 @@ def split_data(df: pd.DataFrame, strategy: str = None) -> tuple:
 
         X_train, X_test = X_full[train_mask], X_full[test_mask]
         y_train, y_test = y_full[train_mask], y_full[test_mask]
+        ids_train = ids_full[train_mask]
         ids_test = ids_full[test_mask]
 
         print(f"  Temporal split at {split_date.date()}: "
@@ -139,7 +152,7 @@ def split_data(df: pd.DataFrame, strategy: str = None) -> tuple:
         )
         print(f"  Stratified split: {len(X_train):,} train / {len(X_test):,} test")
 
-    return X_train, X_test, y_train, y_test, ids_test
+    return X_train, X_test, y_train, y_test, ids_train, ids_test
 
 
 def gini_from_auc(auc: float) -> float:
@@ -293,7 +306,31 @@ def train_xgboost(X_train, y_train, X_test, y_test) -> dict:
     search.fit(X_train, y_train)
     best_params = search.best_params_
 
-    # Same calibration rationale as the other two models.
+    # TWO INTENTIONAL ARTIFACTS, fitted in the same run:
+    #
+    # 1. explanation_base — uncalibrated XGBoost, fitted on the
+    #    full training partition with the selected parameters.
+    #    Saved specifically for SHAP and related diagnostics.
+    #    This is a governed artifact of the canonical training
+    #    run, not a reconstruction fitted later by a downstream
+    #    script (which could silently drift if the grid search
+    #    picks different winners).
+    #
+    # 2. model — the calibrated champion, which produces the
+    #    probabilities the decision engine actually consumes.
+    #
+    # SHAP cannot explain (2) directly: CalibratedClassifierCV
+    # holds one fold estimator per CV fold, each fitted on a
+    # fold rather than the full training set, so explaining it
+    # gives several explanations per prediction with no
+    # principled way to reconcile them. (1) exists precisely to
+    # give the explanation layer one coherent ensemble that was
+    # fitted under identical conditions.
+    explanation_base = XGBClassifier(
+        random_state=RANDOM_SEED, eval_metric="auc", **best_params,
+    )
+    explanation_base.fit(X_train, y_train)
+
     base_model = XGBClassifier(
         random_state=RANDOM_SEED, eval_metric="auc", **best_params,
     )
@@ -310,6 +347,7 @@ def train_xgboost(X_train, y_train, X_test, y_test) -> dict:
     return {
         "name": "xgboost",
         "model": model,
+        "explanation_base": explanation_base,
         "scaler": None,
         "auc": round(auc, 4),
         "gini": round(gini_from_auc(auc), 4),
@@ -353,6 +391,102 @@ def log_to_mlflow(result: dict, X_train, y_train, split_strategy: str) -> None:
         # Logged separately rather than as a derived difference.
 
         mlflow.sklearn.log_model(result["model"], "model")
+
+
+def save_model_package(
+    results, X_train, y_train, X_test, y_test,
+    ids_train, ids_test, strategy, out_dir,
+) -> None:
+    """
+    Persists the governed champion model package.
+
+    Two intentional model artifacts, both fitted in this run:
+
+      champion_calibrated.joblib
+          The calibrated model whose probabilities the decision
+          engine consumes. This is the deployed model.
+
+      champion_explanation_base.joblib
+          The uncalibrated XGBoost fitted on the same training
+          partition with the same selected parameters, saved
+          for SHAP and related diagnostics. It exists because
+          CalibratedClassifierCV cannot be SHAP-explained
+          directly (one fold estimator per CV fold, each fitted
+          on a fold rather than the full training set).
+
+    Saving both here removes a class of downstream error:
+    explanation and comparison scripts no longer retrain their
+    own approximations with hardcoded hyperparameters, which
+    would silently go stale whenever the grid search picks
+    different winners.
+    """
+    champion = next(
+        (r for r in results if r["name"] == CHAMPION_MODEL), None
+    )
+    if champion is None:
+        print(f"  No {CHAMPION_MODEL} result to persist, skipping package.")
+        return
+
+    joblib.dump(
+        champion["model"],
+        os.path.join(out_dir, "champion_calibrated.joblib"),
+    )
+    joblib.dump(
+        champion["explanation_base"],
+        os.path.join(out_dir, "champion_explanation_base.joblib"),
+    )
+
+    with open(os.path.join(out_dir, "feature_list.json"), "w", encoding="utf-8") as f:
+        json.dump({"features": MODEL_FEATURES, "n_features": len(MODEL_FEATURES)},
+                  f, indent=2)
+
+    # Saved split IDs so downstream scripts reconstruct exactly
+    # this partition rather than re-splitting and hoping it
+    # matches.
+    pd.DataFrame({"customer_id": ids_train.values}).to_csv(
+        os.path.join(out_dir, "split_ids_train.csv"), index=False)
+    pd.DataFrame({"customer_id": ids_test.values}).to_csv(
+        os.path.join(out_dir, "split_ids_test.csv"), index=False)
+
+    metadata = {
+        "model_name": CHAMPION_MODEL,
+        "model_version": MODEL_VERSION,
+        "trained_at": datetime.now().isoformat(timespec="seconds"),
+        "best_params": champion["cv_best_params"],
+        "random_seed": RANDOM_SEED,
+        "split_type": strategy,
+        "test_size": TEST_SIZE,
+        "n_features": len(MODEL_FEATURES),
+        "feature_list": MODEL_FEATURES,
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+        "train_bad_rate": round(float(y_train.mean()), 4),
+        "test_bad_rate": round(float(y_test.mean()), 4),
+        "calibration_method": "sigmoid",
+        "cv_n_splits": N_SPLITS,
+        "cv_scoring": CV_SCORING,
+        "test_gini": champion["gini"],
+        "test_auc": champion["auc"],
+        "decision_model_artifact": "champion_calibrated.joblib",
+        "explanation_model_artifact": "champion_explanation_base.joblib",
+        "artifact_note": (
+            "SHAP explains champion_explanation_base.joblib, the "
+            "uncalibrated model fitted in this same run. It does not "
+            "explain the calibrated probability that drives the decision. "
+            "Global rankings stay directionally consistent since "
+            "calibration is monotonic; local magnitudes must not be "
+            "described as changes to the calibrated PD."
+        ),
+    }
+    with open(os.path.join(out_dir, "champion_metadata.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+
+    print(f"\n  Champion package saved ({MODEL_VERSION}):")
+    print("    champion_calibrated.joblib        (decision model)")
+    print("    champion_explanation_base.joblib  (for SHAP)")
+    print("    champion_metadata.json, feature_list.json")
+    print("    split_ids_train.csv, split_ids_test.csv")
 
 
 def print_summary(results: list) -> None:
@@ -433,7 +567,7 @@ def main() -> None:
                   f"model.temporal_split_date in config.yaml")
             continue
 
-        X_train, X_test, y_train, y_test, ids_test = split_data(df, strategy)
+        X_train, X_test, y_train, y_test, ids_train, ids_test = split_data(df, strategy)
 
         print(f"Train bad rate {y_train.mean():.2%}  "
               f"Test bad rate {y_test.mean():.2%}")
@@ -480,6 +614,16 @@ def main() -> None:
         out_path = os.path.join(out_dir, f"test_predictions_{strategy}.csv")
         eval_frame.to_csv(out_path, index=False)
         print(f"\nTest predictions saved to {out_path}")
+
+        # ---- GOVERNED MODEL PACKAGE ----
+        # Persisted only for the canonical split (stratified),
+        # since that is the split every downstream decision and
+        # document is based on.
+        if strategy == "stratified":
+            save_model_package(
+                results, X_train, y_train, X_test, y_test,
+                ids_train, ids_test, strategy, out_dir,
+            )
 
     if len(all_results) == 2:
         print_split_comparison(all_results)

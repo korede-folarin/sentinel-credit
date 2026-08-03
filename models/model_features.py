@@ -56,11 +56,8 @@ MODEL_FEATURES = [
     # training round pending the Feature Set A/B sensitivity
     # comparison, deferred until after the rest of the
     # architecture is built.
-    "total_order_value_gbp",
     "avg_order_value_gbp",
-    "max_order_value_gbp",
     "avg_n_instalments",
-    "n_merchant_categories",
     "pct_high_risk_category",
     "pct_medium_risk_category",
 
@@ -76,7 +73,6 @@ MODEL_FEATURES = [
 
     # Timing (structural, not outcome-derived).
     # transaction_span_days: SUSPECTED — see above.
-    "transaction_span_days",
 ]
 
 
@@ -155,6 +151,24 @@ RESOLUTION_ADJACENT_EXCLUDED = [
 EXPOSURE_TIME_EXCLUDED = [
     "n_approved",
     "days_since_last_transaction",
+    # Added 3rd August 2026 after the SHAP + ablation
+    # investigation (Decision 14). SHAP showed the model gave
+    # 32.1% of total mean |SHAP| importance to these four
+    # features. A repeated-CV ablation (5 folds x 3 repeats)
+    # found Gini/AUC/KS effectively tied between feature sets,
+    # PR-AUC favouring their inclusion (13/15 folds), and the
+    # train/test gap favouring their exclusion (14/15 folds).
+    # Excluded on FEATURE VALIDITY grounds, not performance:
+    # the observation-window analysis established they are
+    # structurally confounded with unequal exposure time and
+    # do not measure the phenomenon they were intended to.
+    # A modest PR-AUC cost is accepted deliberately. Removing
+    # them also changes 9.04% of individual decisions at the
+    # business cutoff, so they were not present-but-harmless.
+    "total_order_value_gbp",
+    "transaction_span_days",
+    "max_order_value_gbp",
+    "n_merchant_categories",
 ]
 
 # SUSPECTED of the same contamination, NOT yet confirmed or
@@ -188,12 +202,12 @@ EXPOSURE_TIME_EXCLUDED = [
 # monitoring (Decision 5) are built — the feature set should be
 # locked once, deliberately, before those layers are built on
 # top of it, not revised mid-build.
-EXPOSURE_TIME_SUSPECTED = [
-    "total_order_value_gbp",
-    "transaction_span_days",
-    "max_order_value_gbp",
-    "n_merchant_categories",
-]
+# RESOLVED 3rd August 2026 — all four moved to
+# EXPOSURE_TIME_EXCLUDED above following the SHAP and ablation
+# investigation. Kept as an empty list rather than deleted so
+# compare_feature_sets.py still imports cleanly and the
+# investigation's structure remains visible in the code.
+EXPOSURE_TIME_SUSPECTED = []
 
 # Generator-internal fields. Never meant to represent
 # real-world observable data. Retained in raw for auditing

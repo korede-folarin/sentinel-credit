@@ -1,10 +1,11 @@
-# Sentinel Credit
+git add .
+git status# Sentinel Credit
 ## Engineering Decision Log
 
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.10
+**Version:** 3.15
 **Last Updated:** 30th July 2026
 **Status:** Living document — updated as decisions are made
 
@@ -1334,6 +1335,602 @@ separate policy approval, a formal fairness assessment, and
 ongoing monitoring — treated as a governance decision, not a
 modelling optimisation, should it ever be pursued.
 
+### Addendum — has_outcome Correction: Maturity Was Never Actually Checked (30th July 2026)
+`feature_store.customer_features`'s `has_outcome` field was
+set to 1 for any customer with repayment records at all —
+meaning "was approved for at least one transaction." It never
+referenced `outcome_observed`, the row-level flag Decision 10
+built specifically to distinguish "confirmed no default" from
+"not yet known." A customer with a still-maturing (censored)
+loan therefore had `default_flag = 0` (the storage convention
+for "not yet observed," per Decision 10) folded into
+`MAX(default_flag) = 0`, and was silently labelled a confirmed
+good outcome rather than an unresolved one.
+
+Verified against the live database: only 44.93% of the
+population previously marked `has_outcome = 1` actually had a
+fully matured outcome (18,694 of 41,604). Corrected `has_outcome`
+logic now requires either a confirmed default
+(`default_flag = 1`, regardless of any other censored
+transaction that customer may also hold) or that every one of
+the customer's repayment rows has `outcome_observed = 1` — the
+same `MAX(defaulted) OR MIN(all_observed)` rule already used
+correctly in the generator's own `calibrate_grid()` function;
+this SQL simply never carried that rule over to the feature
+store. `sql/02_feature_store.sql` rebuilt accordingly.
+
+**Effect**: modelable population 41,604 → 18,694; observed bad
+rate 1.91% → 4.26%. Every result produced earlier in the
+session (EDA, both trained models, calibration, threshold
+selection, fairness analysis) was computed against the
+uncorrected population and needs re-running against the
+corrected one. `EPV` (events per variable) check on the
+corrected population: 796 defaults ÷ ~24 candidate features ≈
+33 events per variable, comfortably above the conventional
+10-per-variable minimum (Peduzzi et al.) — the smaller,
+corrected population remains statistically adequate for
+modelling.
+
+### Addendum — Unequal Observation Opportunity: A Shared Measurement Problem, Not a List of Bad Features (30th July 2026)
+A separate `has_outcome` bug was found and fixed the same day
+(see "has_outcome Correction" addendum above): the field
+previously qualified any customer with repayment records at
+all, never checking `outcome_observed`. Corrected, the
+modelable population dropped from 41,604 to 18,694 and the
+true bad rate rose from 1.91% to 4.26%.
+
+Re-running EDA against the corrected population surfaced a
+second, related problem. Twelve features crossed the 0.5
+leakage-investigation threshold, up from five. Investigation
+found this was not a set of independently weak or leaky
+features, but a single upstream cause expressing itself across
+an entire feature family.
+
+**Root cause.** The corrected `has_outcome` logic has two
+qualifying paths, and they are asymmetric: a defaulted
+customer qualifies regardless of timing (`default_flag = 1`
+alone is sufficient), but a non-defaulted customer only
+qualifies if every one of their repayments has fully matured —
+which mechanically requires having originated early enough in
+the window. Verified directly: `target_default = 1` customers
+average 313.5 days of `transaction_span_days` against 204.1
+for `target_default = 0` — non-defaulters are structurally
+forced to be "older" in the observation window than
+defaulters. Every cumulative exposure feature (transaction
+counts, approval counts, total spending, transaction span,
+maxima, distinct-category counts) inflates simply from having
+more calendar time available, independent of actual risk.
+Observed total spending is behaviour multiplied by time
+available, not behaviour alone.
+
+**Confirmed and excluded now**, via per-day-of-exposure
+normalisation: `n_approved` (raw gap 2.59 vs 4.04; normalised
+by days, 0.012654 vs 0.012874 — near-identical, ~100%
+artifact) and `days_since_last_transaction` (IV 1.11, the
+highest in the dataset — mechanically implausible as genuine
+signal given the same cause). Both moved to
+`EXPOSURE_TIME_EXCLUDED` in `models/model_features.py`.
+
+**Suspected, not yet confirmed or excluded**:
+`total_order_value_gbp` (raw gap 77%, but only ~15 percentage
+points survive per-day normalisation — meaning most, not all,
+of its strength is artifact; a genuine behavioural signal may
+exist underneath), `transaction_span_days` (not merely another
+suspected feature — it is the exposure-time variable driving
+the contamination in the others), `max_order_value_gbp` and
+`n_merchant_categories` (mechanically different — a maximum
+and a distinct-count inflate from having more transactions,
+not directly from calendar time — not conclusively shown
+contaminated when normalised per-transaction rather than
+per-day, but not cleared either). All four moved to
+`EXPOSURE_TIME_SUSPECTED`, retained in `MODEL_FEATURES` for
+the current training round.
+
+**Decision: defer full resolution, do not finalise the feature
+set as final.** A sensitivity comparison is required before
+this is closed — Feature Set A (conservative: all four
+suspected features excluded) versus Feature Set B (exploratory:
+retained) compared on Gini, KS, PR-AUC, calibration, feature
+importance, and train/test stability. If Set B performs
+dramatically better than Set A, that is evidence the
+observation-window asymmetry is contributing to apparent
+model performance, not evidence the features are genuinely
+predictive. This comparison is deferred until after SHAP
+(Decision 7), the MLflow promotion workflow (Decision 8/9),
+and drift monitoring (Decision 5) are built — the feature set
+should be locked once, deliberately, immediately before those
+layers are built on top of it, not revised mid-build.
+
+**The production-realistic long-term fix**: rebuild the
+cumulative exposure family on a common, comparable observation
+basis rather than raw lifetime totals — candidates include
+`order_value_per_observed_day`, `transactions_per_observed_month`,
+`approvals_per_application`, `merchant_categories_per_transaction`,
+or counts within a fixed 30/60/90-day window from origination.
+A fixed window is preferable to normalising by lifetime days,
+which behaves awkwardly for customers with very short
+histories. This is the same underlying fix as the temporal
+split addendum above — a fixed observation horizon, decoupled
+from each customer's own variable exposure time — surfacing
+independently through a different investigation on the same
+day, which is itself evidence the two findings share a common
+root cause rather than being coincidentally similar.
+
+**Not yet implemented**: the rate-normalised feature rebuild,
+the Feature Set A/B comparison, and any resulting change to
+`MODEL_FEATURES`. Current training results should be read with
+this caveat attached — apparent model performance may be
+partly inflated by the observation-time artifact until this is
+resolved.
+
+---
+
+## Decision 13 — Baseline Model Training, Evaluation, and the Business Cutoff as Policy
+
+### Challenge
+Three models needed training and comparing (Decision 4), with
+a defensible evaluation suite and a decision threshold. The
+naive approach — fit each model once with hand-picked
+hyperparameters, report Gini, pick a threshold that looks
+reasonable — produces numbers that cannot be defended under
+review.
+
+### Decision
+
+**Hyperparameter selection.** `GridSearchCV` with 5-fold
+`StratifiedKFold` over search grids declared in `params.yaml`,
+not single fixed values. Stratified rather than plain K-Fold
+because the class imbalance (4.26% positive) means a random
+fold split could leave very few positives in one fold, making
+that fold's score unreliable. Cross-validation runs on the
+training set only; the test set is touched once, at the end.
+
+**Scoring metric for selection: `average_precision` (PR-AUC),
+not `roc_auc`.** Under imbalance, ROC-AUC's false positive
+rate is diluted by a large true-negative denominator, so a
+model can accumulate real false positives with little visible
+effect on the curve. This reasoning was already recorded in
+Appendix C but had not been wired into the code until this
+build. Gini/AUC-ROC remain the REPORTED headline metrics,
+since that is the industry and regulatory convention;
+selection metric and reporting metric are deliberately
+different tools for different jobs.
+
+**Class balancing is mandatory, not searched.** `class_weight`
+and `scale_pos_weight` are fixed rather than offered as grid
+options. At this prevalence, training without balancing risks
+the model favouring the majority class; this is a data-
+integrity requirement, not an empirical question to be settled
+by whichever setting scores marginally higher.
+
+**Probability calibration.** Balanced class weighting fixes
+the model's ability to LEARN from the rare class but distorts
+the probability SCALE — predicted PDs come out systematically
+inflated. Measured: ECE 0.3552 before calibration, with the
+top decile predicting 80% against an actual 8.8%. Fixed with
+`CalibratedClassifierCV` (Platt scaling), fitted on the
+training set only. Result: ECE 0.0026 for XGBoost, roughly a
+150x improvement. Ranking (Gini/AUC/KS) is unaffected by
+calibration; only the probability scale changes.
+
+**Threshold selection is found, not guessed.** Both F1-optimal
+(scanning the precision-recall curve) and Youden's J-optimal
+(scanning the ROC curve) are computed and reported per model
+in `evaluate_models.py`, with an automatic warning when the
+configured cutoff drifts from F1-optimal by more than 0.02.
+
+### The Business Cutoff Is a Policy Parameter, Not a Model Property
+This is the substantive decision. `business_cutoff` does not
+belong to XGBoost, Logistic Regression, or any other
+algorithm. It belongs to the decision engine, downstream of
+scoring:
+
+```
+raw data -> feature store -> champion model -> risk score
+         -> decision engine -> human review
+```
+
+The model predicts risk. The business decides where to draw
+the line. Those are separate engineering responsibilities, and
+the architecture already assumes the threshold is configurable
+rather than learned (Decision 9's human approval gate,
+Decision 7's explainability requirements, Consumer Duty
+outcome monitoring).
+
+Accordingly: **the business cutoff is treated as a configurable
+policy parameter rather than a property of any individual
+algorithm. For this benchmark it is calibrated using the
+champion XGBoost model, but future champion-challenger
+promotion would require threshold recalibration rather than
+assuming transferability across models.**
+
+Set to `0.145`, from XGBoost's F1-optimal (0.1449) on the
+corrected population. Explicitly NOT set by averaging the
+three models' optima (0.0993 / 0.1159 / 0.1449) — a midpoint
+has no engineering justification, being neither F1-optimal,
+expected-loss optimal, nor policy-derived. Since each model
+produces a different score distribution, a cutoff calibrated
+for one is not valid for another; recalibration is therefore
+part of promotion, not an afterthought to it.
+
+### Results (stratified split, corrected population)
+
+| Model | Gini | AUC | KS | PR-AUC | ECE |
+|---|---|---|---|---|---|
+| XGBoost | 0.6493 | 0.8247 | 0.5061 | 0.2052 | 0.0026 |
+| Logistic Regression | 0.6241 | 0.8120 | 0.4849 | 0.1929 | 0.0067 |
+| Decision Tree | 0.6083 | 0.8041 | 0.4651 | 0.1756 | 0.0031 |
+
+Notably, every metric improved after the `has_outcome`
+correction reduced the modelable population from 41,604 to
+18,694 and raised the true bad rate from 1.91% to 4.26%.
+Correcting the labels produced a stronger model, not a weaker
+one — the common expectation that more realistic data degrades
+measured performance did not hold here, because the previous
+numbers were measuring against a partially mislabelled target.
+
+### Regulatory Context
+Separating the scoring model from the decision threshold
+mirrors how model risk management frameworks (PRA SS1/23, SR
+11-7) treat model outputs versus their operational use: the
+model is validated on its own terms, while the policy applied
+to its output is governed, approved, and monitored separately.
+Treating the cutoff as a config-level policy parameter, with
+recalibration required at promotion, makes that separation
+explicit in the codebase rather than implicit.
+
+---
+
+## Decision 14 — SHAP Explainability, and Resolving the Exposure-Time Features on Feature Validity
+
+### Challenge
+Two open items converged. Decision 7 required a SHAP layer
+before XGBoost could be defended for any customer-facing use.
+Decision 12's addendum left four `EXPOSURE_TIME_SUSPECTED`
+features retained-but-unresolved, pending a sensitivity
+comparison. Resolving the second required the first: SHAP
+could measure how much the model *depends* on those features,
+but only a controlled ablation could test whether that
+dependence was *useful*.
+
+### The governed model package
+`train_baseline_models.py` now persists two intentional model
+artifacts from the same canonical training run:
+
+- `champion_calibrated.joblib` — the calibrated model whose
+  probabilities the decision engine consumes.
+- `champion_explanation_base.joblib` — an uncalibrated
+  XGBoost fitted on the same training partition with the same
+  selected hyperparameters, saved specifically for SHAP.
+
+Plus `champion_metadata.json`, `feature_list.json`, and the
+saved split IDs. `explain_models.py` and
+`compare_feature_sets.py` load from this package rather than
+retraining their own approximations with hardcoded
+hyperparameters, which would silently go stale whenever the
+grid search selects different winners.
+
+The explanation base exists because
+`CalibratedClassifierCV` cannot be SHAP-explained directly: it
+holds one fold estimator per CV fold, each fitted on a fold
+rather than the full training set, so explaining it yields
+several explanations per prediction with no principled way to
+reconcile them. The consequence is stated explicitly in every
+output: **SHAP explains the uncalibrated risk-ranking logic,
+not the calibrated probability that drives the decision.**
+Global rankings stay directionally consistent since
+calibration is monotonic; local magnitudes must not be
+described as changes to the calibrated PD. The metadata
+records `valid_uses` and `not_valid_for` lists so this cannot
+be assumed away by a later reader.
+
+### SHAP validation
+Run before any output was used. Additivity max absolute error
+2.384e-06 against a 1e-4 tolerance; feature list matched both
+the saved model and the current `model_features.py`; zero
+nulls; no excluded fields present.
+
+### Finding: dependence is not the same as usefulness
+SHAP showed the model leaning heavily on the suspected
+features — **32.1% of total mean absolute SHAP importance**,
+with `total_order_value_gbp` alone at 20.8%, the single
+largest contributor of any feature.
+
+The ablation then tested whether that dependence earned its
+place. Feature Set A (18 features, suspected removed) versus
+Feature Set B (22, full), identical hyperparameters and seed
+so the feature set was the only variable, across
+RepeatedStratifiedKFold (5 folds x 3 repeats):
+
+| Metric | Set A | Set B | Diff (A−B) | Folds A better |
+|---|---|---|---|---|
+| Gini | 0.6479 | 0.6511 | −0.0032 | 6/15 |
+| AUC | 0.8240 | 0.8256 | −0.0016 | 6/15 |
+| KS | 0.5127 | 0.5132 | −0.0006 | 9/15 |
+| PR-AUC | 0.2111 | 0.2374 | −0.0263 | 2/15 |
+| train/test Gini gap | 0.1529 | 0.1643 | −0.0114 | 14/15 |
+
+An earlier single-split comparison had suggested Set A was
+slightly better on Gini and notably better on KS. **The
+repeated CV did not support that** — the KS advantage
+(0.5218 vs 0.4998 on one split) collapsed to 0.5127 vs 0.5132
+across 15 folds. This is recorded because the single-split
+result was nearly written up as a conclusion, and repeated
+cross-validation is what prevented that.
+
+### Decision: exclude, on feature validity
+Set B extracts modestly more predictive signal — the PR-AUC
+advantage is real and consistent (13 of 15 folds), and PR-AUC
+is the metric deliberately chosen for this problem's
+imbalance, so it is not minimised here. Set A generalises more
+consistently (narrower train/test gap in 14 of 15 folds).
+Gini, AUC and KS are effectively ties.
+
+**The exclusion decision therefore rests primarily on feature
+validity rather than predictive performance.** The
+observation-window analysis identified these variables as
+structurally confounded with unequal exposure time — they do
+not measure the phenomenon they were intended to measure. The
+repeated cross-validation shows that removing them carries a
+modest cost in PR-AUC, but does not materially change Gini,
+AUC or KS.
+
+A supporting consideration: removing them changes **9.04% of
+individual decisions** at the business cutoff. The features
+are not merely present-but-harmless; they materially alter who
+gets flagged, while providing no demonstrated out-of-sample
+benefit outside PR-AUC and being structurally difficult to
+defend.
+
+`total_order_value_gbp`, `transaction_span_days`,
+`max_order_value_gbp` and `n_merchant_categories` move from
+`EXPOSURE_TIME_SUSPECTED` to `EXPOSURE_TIME_EXCLUDED`.
+`MODEL_FEATURES` goes from 22 to 18.
+
+### Methodological note
+The sequence matters more than the outcome: SHAP identified
+the dependency, a controlled ablation tested whether that
+dependency was useful, and repeated cross-validation
+established how stable the answer was. Excluding features
+because their IV or SHAP importance merely *looked*
+suspicious would not have been defensible. Neither would
+retaining them because a single split favoured doing so.
+
+### Outcome after end-to-end retraining
+The ablation above deliberately froze hyperparameters at the
+champion's selected values, so the feature set was the only
+variable. The production pipeline then re-ran everything:
+feature selection, grid search, calibration, threshold
+optimisation, SHAP. That is a different experiment, and it
+produced a different result.
+
+XGBoost on the canonical stratified split:
+
+| Metric | 22 features | 18 features |
+|---|---|---|
+| Gini | 0.6493 | 0.6550 |
+| AUC | 0.8247 | 0.8275 |
+| KS | 0.5061 | 0.5178 |
+| Recall at cutoff | 45.91% | 47.80% |
+| Top-decile lift | 5.03 | 5.16 |
+| PR-AUC | 0.2052 | 0.1956 |
+| Highest VIF | 32.23 | 18.24 |
+| Exposure-time share of SHAP importance | 32.1% | 0% |
+
+Part of the difference is that the grid search re-selected
+hyperparameters for the smaller set — `learning_rate` moved
+from 0.1 to 0.05. The optimal configuration for 18 features is
+not the optimal configuration for 22, and the ablation could
+not see that by construction.
+
+**Revised conclusion.** The exposure-time investigation
+identified structurally confounded features whose apparent
+predictive value arose partly from unequal observation
+opportunity. Removing them produced a cleaner feature set,
+eliminated their influence from the explanation layer
+(32.1% to 0% of SHAP importance), and substantially reduced
+multicollinearity (highest VIF 32.23 to 18.24). On the
+canonical split, the retrained end-to-end model also improved
+on Gini, KS, recall and lift, with a modest reduction in
+PR-AUC.
+
+The decision still rests primarily on feature validity. The
+performance evidence is supportive rather than decisive: the
+end-to-end comparison is a single stratified split, and the
+same evidential weakness at Stage 1 of this investigation is
+precisely what the repeated CV was introduced to correct. A
+0.0057 Gini difference on one split is not stated with more
+confidence than the 15-fold result was.
+
+### Engineering lesson — ablations are not the final criterion
+**A feature ablation should not be the final decision
+criterion for a production pipeline.**
+
+An isolated ablation answers one question: how much predictive
+information does this feature family contain, holding
+everything else fixed? A full retraining answers a different
+one: how does the entire pipeline behave without it, including
+hyperparameter re-selection, calibration, and threshold
+recalibration?
+
+Both are needed, and this investigation demonstrates why.
+Stopping after the ablation would have understated the benefit
+of removing structurally confounded features — the recorded
+conclusion at that point was that exclusion carried a
+measurable cost, which the end-to-end retraining did not
+support. Equally, stopping after the single-split end-to-end
+result would have overstated it, which is what the repeated CV
+guarded against at the earlier stage. The sequence — SHAP for
+dependency, ablation for isolated usefulness, repeated CV for
+stability, full retraining for pipeline behaviour — is what
+makes the conclusion defensible, not any one of those steps
+alone.
+
+### Not yet built
+The audience-specific explanation layer (customer, risk
+officer, regulatory narratives) sits on top of this SHAP
+foundation and is deliberately separate — it involves
+disclosure policy, causal-language avoidance, and
+adverse-action reason derivation from correlated features,
+none of which should be entangled with the numerical layer.
+The rate-normalised replacements for the excluded exposure
+features (`order_value_per_observed_day`,
+`transactions_per_observed_month`, or fixed-window variants)
+remain the production-realistic long-term fix and are not
+implemented.
+
+---
+
+## Decision 15 — A/B Test Analysis, and the Maturity Collapse
+
+### Challenge
+Decision 1 defined an affordability-threshold experiment
+(A_strict 0.45 vs B_relaxed 0.60, `group_B_hazard_multiplier`
+1.60, powered for 80% at 5% significance) that had never been
+formally analysed. Bad rates by arm had appeared in EDA output
+throughout the project, but with no significance test, no
+confidence interval, and no assessment of whether the design
+target had actually been met.
+
+### The causal problem with the obvious analysis population
+The natural instinct is to analyse the modelable population
+(`has_outcome = 1`). That is wrong, and the reason is
+important: **`has_outcome` is a post-treatment variable.**
+
+Group B's hazard multiplier changes repayment behaviour, which
+changes default timing, which changes whether an outcome has
+become observable by `data_end_date`. A fast-defaulting B
+customer becomes observable; a slow-maturing B non-defaulter
+does not. The maturity *rule* is identical across arms, but its
+*effect* is not, because treatment alters the outcome process
+itself. Conditioning on it compares two selected
+post-treatment populations rather than preserving the
+randomisation.
+
+Measured directly: observability is **34.08% in A_strict
+against 40.77% in B_relaxed**, a 6.69pp difference at p < 0.001.
+Not a marginal concern — the filter is substantially
+differential.
+
+**Primary population used instead**: a fully mature cohort,
+defined as customers whose *last* transaction falls on or
+before `data_end_date` minus 420 days (330-day longest tenor
+plus the 90-day default confirmation window). Anchored on the
+last transaction, not the first, because `target_default` is
+`MAX(default_flag)` across all repayments — a customer who
+originated early but borrowed again late has an immature
+outcome that a first-date anchor would silently admit.
+
+**Residual limitation, stated rather than hidden**:
+`last_transaction_date` is itself partly post-treatment, since
+treatment affects approvals, which affects loan count and
+timing. Measured: B_relaxed averages 3.225 approved loans
+against A_strict's 3.029, and a 226-day span against 209 —
+so B customers are marginally more likely to be excluded
+(11.19% vs 12.32% survival). This trades a large selection
+problem for a small one; it does not eliminate it. The clean
+fix is a fixed observation horizon in the label definition,
+already logged under Decision 10.
+
+Randomisation itself is confirmed sound: origination timing is
+indistinguishable between arms (670.9 vs 661.6 average days
+from window start, earliest dates one day apart, identical
+latest date), and all pre-treatment covariate SMDs are below
+0.02. The chi-square on arm sizes flags 50.6/49.4 as
+"imbalanced" (p = 0.0075), but at n = 50,000 that test detects
+trivial deviations; the SMDs are the appropriate metric and
+they are clean.
+
+### Primary result — and why it cannot be interpreted
+On the mature cohort (4,871 customers):
+
+| | A_strict | B_relaxed |
+|---|---|---|
+| Defaults / n | 24 / 2,343 | 39 / 2,528 |
+| Default rate | 1.02% | 1.54% |
+
+Absolute difference +0.52%, 95% CI [−0.11%, +1.15%], relative
+risk 1.506x, p = 0.110.
+
+**This is not a null result. It is an underpowered one.**
+Achieved power: **35.85%** against the 80% target. The minimum
+detectable effect at this sample size is 0.91%, larger than the
+effect appears to be. The confidence interval is compatible
+with both no effect and a ~1pp increase — which is exactly what
+low power looks like, and why the p-value alone would be
+misleading here.
+
+### Root cause: the simulation horizon, not the design
+The mature cohort contains only 4,871 of 50,000 customers
+(9.7%). Diagnostic investigation
+(`sql/diagnostics/check_maturity_collapse.sql`) established
+why:
+
+**85.6% of last transactions fall in 2024.** The transaction
+distribution ramps steeply through the simulation window and
+the maturity cutoff (2023-11-07) slices through Q4 2023,
+leaving nothing eligible after it. The cohort is not small
+because the maturity rule is strict — it is small because the
+simulation stopped collecting 420 days before most of the
+activity it generated could resolve.
+
+Extending `data_end_date` restores it:
+
+| Extension | Cutoff | Eligible | % |
+|---|---|---|---|
+| 0 months | 2023-11-07 | 4,871 | 9.7% |
+| 6 months | 2024-05-06 | 12,328 | 24.7% |
+| 9 months | 2024-08-06 | 20,969 | 41.9% |
+| **12 months** | **2024-11-06** | **41,604** | **83.2%** |
+| 15 months | 2025-02-04 | 41,604 | 83.2% |
+| 18 months | 2025-05-06 | 41,604 | 83.2% |
+
+An 8.5x increase in eligible cohort, with **no change to the
+causal design**. The plateau at 15 and 18 months is a computed
+sufficiency point rather than an estimate: 41,604 is the total
+number of customers who ever transacted, so 12 months is
+precisely enough for every loan in the dataset to mature.
+
+### Decision
+**Extend the simulation horizon and re-run.** `data_end_date`
+moves from 2024-12-31 to 2025-12-31; `origination_end_date`
+stays at 2024-10-31, so the same customers and the same
+transactions are generated — the change purely gives existing
+loans time to resolve, isolating outcome observability rather
+than also altering the population.
+
+Deliberately **not** implemented in the same session as the
+diagnosis. Extending the horizon will raise the observed
+default rate, since more loans reach 90 DPD with 12 further
+months to resolve. That may push it outside the
+BNPL-plausible band the generator was calibrated against
+(Decision 10, anchored to a published ~5% late-fee reference),
+requiring a re-sweep of `base_miss_hazard` and `cure_scale`.
+A calibration sweep is judgement-heavy work and was not
+started at the end of a long session in which the feature
+store, feature set, models and threshold had already been
+rebuilt.
+
+**Not yet done**: the regeneration itself, the resulting
+recalibration check, and the re-run of every downstream stage
+(feature store, EDA, training, SHAP, thresholds,
+documentation).
+
+### Engineering note
+The value here is that the unexpected result was investigated
+rather than accepted. A 35.85%-power experiment could have
+been written up as a limitation — defensible, and quietly
+wrong, since the cause was fixable and the fix was one config
+line. Diagnosing *why* the cohort collapsed distinguished a
+design flaw from a horizon flaw, and only the second was
+actually true.
+
+That the fix is a single `data_end_date` change, propagating
+through the pipeline without touching analysis code, is also
+evidence the architecture is sound. The same correction in a
+notebook-based project would mean manually editing every
+downstream stage.
+
 ---
 
 ## Summary Table
@@ -1711,3 +2308,8 @@ Decision 10.
 | 3.8 | 30th July 2026 | Added a Decision 4 addendum stating the platform's scope is PD (Probability of Default) only. LGD and EAD, the other two components of IFRS 9 Expected Credit Loss, are explicitly out of scope pending a post-default recovery model the generator does not currently have. |
 | 3.9 | 30th July 2026 | Added a second Decision 12 addendum documenting the segment-aware thresholding experiment: the fairness disparity found by `thin_file_flag` at the F1-optimal cutoff, confirmed independent of `thin_file_flag` as a model input (identical gap after removal and re-run), and the deliberate decision not to implement per-segment thresholds — reasoned as a governance/Consumer Duty policy question rather than a modelling optimisation, with the mitigation logged as future work requiring explicit policy approval. |
 | 3.10 | 30th July 2026 | Added a Decision 10 addendum documenting the out-of-time split's tenor-maturity bias: the temporal split date is derived from the data's own distribution, not the generator's maturity requirements, causing longer-tenor loans to be structurally absent from the modelable population near the data boundary. A maturity-curated split date was considered and deliberately not implemented — shrinks the training population, and only relocates rather than eliminates the bias, which is a structural limit of a fixed dataset snapshot. Retained as-is, documented as a known limitation. Future work: recompute the split date using the maturity formula, or the more complete fix of a fixed observation-horizon default definition decoupled from product tenor. |
+| 3.11 | 30th July 2026 | Added two Decision 12 addenda: (1) the has_outcome correction — the feature store never checked outcome_observed, silently labelling censored loans as confirmed good outcomes; corrected, modelable population 41,604→18,694, bad rate 1.91%→4.26%; (2) unequal observation opportunity — the corrected has_outcome's asymmetric qualifying paths (defaulters bypass maturity, non-defaulters don't) contaminate the entire cumulative-exposure feature family, not isolated features. n_approved and days_since_last_transaction confirmed near-total artifacts and excluded (EXPOSURE_TIME_EXCLUDED). total_order_value_gbp, transaction_span_days, max_order_value_gbp, n_merchant_categories flagged suspected but retained pending a deferred Feature Set A/B sensitivity comparison (EXPOSURE_TIME_SUSPECTED), to be resolved after SHAP/MLflow/drift monitoring are built, before the feature set is called final. |
+| 3.12 | 30th July 2026 | Added Decision 13 covering the baseline training and evaluation build: GridSearchCV with StratifiedKFold, average_precision as the selection metric (roc_auc is diluted under imbalance) with Gini/AUC retained as reported metrics, mandatory rather than searched class balancing, Platt-scaling calibration (ECE 0.3552 to 0.0026), and found-not-guessed threshold selection via F1-optimal and Youden's J. Central decision: business_cutoff is a configurable policy parameter belonging to the decision engine, not a property of any algorithm — calibrated against the champion (XGBoost, 0.145) for this benchmark, with recalibration required as part of any future champion-challenger promotion rather than assuming transferability across models. |
+| 3.13 | 3rd August 2026 | Added Decision 14: SHAP explainability foundation and resolution of the exposure-time features. Training now persists a governed model package (calibrated champion + uncalibrated explanation base + metadata + split IDs) so downstream scripts load rather than retrain. SHAP validated (additivity error 2.4e-06) and showed the model gave 32.1% of total importance to the four suspected features. A repeated-CV ablation (5x3 folds) found Gini/AUC/KS effectively tied, PR-AUC favouring the full set (13/15 folds), and the train/test gap favouring the conservative set (14/15). The four features were excluded on FEATURE VALIDITY grounds — they are structurally confounded with unequal exposure time and do not measure what they were intended to — accepting a modest PR-AUC cost. MODEL_FEATURES 22 to 18. Notably, an earlier single-split result suggested the conservative set was better on KS; repeated CV did not support that, and is recorded as the check that prevented a premature conclusion. |
+| 3.14 | 3rd August 2026 | Extended Decision 14 with the end-to-end retraining outcome and the resulting engineering lesson. After the feature exclusions, re-running the full pipeline (including grid search, which re-selected learning_rate 0.1 to 0.05) improved the champion on Gini 0.6493 to 0.6550, KS 0.5061 to 0.5178, recall 45.91% to 47.80%, and top-decile lift 5.03 to 5.16, with PR-AUC the only reduction. Highest VIF fell 32.23 to 18.24; exposure-time SHAP share fell 32.1% to 0%. Conclusion revised: the decision still rests primarily on feature validity, with performance evidence now supportive rather than counter-indicating, though the end-to-end comparison is a single split and is stated with matching caution. Lesson recorded: a feature ablation is not the final decision criterion for a production pipeline — an ablation answers how much information a feature family contains with everything else held fixed, while a full retraining answers how the pipeline behaves without it, including hyperparameter re-selection and threshold recalibration. |
+| 3.15 | 3rd August 2026 | Added Decision 15: the A/B test analysis (Decision 1's affordability-threshold experiment, previously never formally analysed) and the maturity collapse investigation it surfaced. Established that has_outcome is a post-treatment variable — observability differs 34.08% vs 40.77% between arms — so the primary test runs on a fully mature cohort anchored on last_transaction_date instead. Result: +0.52% absolute difference, 95% CI [-0.11%, +1.15%], p = 0.110 at only 35.85% achieved power against an 80% target. Diagnostic established the cause as the simulation horizon, not the design: 85.6% of last transactions fall in 2024 and the maturity cutoff precedes them. Extending data_end_date by 12 months raises the eligible cohort from 4,871 to 41,604 (a computed sufficiency point, plateauing thereafter) with no change to the causal design. Decision: extend and re-run, deliberately deferred to a separate session because the longer horizon will raise the observed default rate and may require re-sweeping the generator calibration. |
