@@ -1,0 +1,71 @@
+# Sentinel Credit — Model Hyperparameter Search Grids
+#
+# Separate from config.yaml on purpose: config.yaml holds
+# business/regulatory settings (thresholds a reviewer needs
+# to see justified — business_cutoff, eda_thresholds).
+# params.yaml holds model tuning search spaces — values that
+# change often during experimentation. Editing this file (not
+# the training script) is how a search grid gets changed.
+#
+# Search method: GridSearchCV with StratifiedKFold, scoring on
+# average_precision (area under the Precision-Recall curve),
+# not roc_auc. This matches the reasoning already documented
+# in docs/engineering_decision_log.md Appendix C: "Precision-
+# Recall AUC — More informative than ROC-AUC on imbalanced
+# datasets... Precision-Recall AUC penalises false positives
+# more appropriately." At ~1.91% positive rate, ROC-AUC's
+# false positive rate (FP / (FP+TN)) is diluted by a huge TN
+# denominator, so a model can rack up real false positives
+# with barely any visible effect on the ROC curve — the curve
+# looks better than the model actually performs at
+# distinguishing the rare positive class. Precision (TP /
+# (TP+FP)) has nowhere to hide the same way, since FP is
+# compared directly against the small TP count.
+#
+# Note: average_precision selects the WINNING hyperparameters.
+# Gini/AUC-ROC remains the REPORTED headline metric in
+# train_baseline_models.py output, since that's the actual
+# regulatory/industry convention (Appendix C's ">0.40
+# acceptable, >0.60 strong" benchmark is stated in AUC-ROC
+# terms — there's no equivalent universal PR-AUC benchmark in
+# credit scoring). Selection criterion and reporting metric
+# are deliberately different tools for different jobs here.
+#
+# Stratified, not plain K-Fold, given the ~95:5 class
+# imbalance — a random fold split could land very few
+# positives in one fold, making that fold's score unreliable.
+# Cross-validation runs on the TRAINING set only; the test set
+# is touched exactly once, at the end, for the final unbiased
+# evaluation.
+#
+# See docs/engineering_decision_log.md — Decision 4, Appendix C.
+
+cv:
+  n_splits: 5
+  scoring: "average_precision"
+
+logistic_regression:
+  # Balancing is mandatory here, not a searched choice — at
+  # 1.91% positive rate, training without it risks the model
+  # trivially favoring the majority class. Only C (regularization
+  # strength) and the other listed values are genuinely searched.
+  class_weight: ["balanced"]
+  max_iter: [1000]
+  C: [0.01, 0.1, 1.0, 10.0]
+  penalty: ["l2"]
+
+decision_tree:
+  # Same as above — mandatory, not searched.
+  class_weight: ["balanced"]
+  max_depth: [4, 6, 8, 10]
+  min_samples_leaf: [30, 50, 100]
+
+xgboost:
+  max_depth: [3, 5, 7]
+  n_estimators: [100, 200, 300]
+  learning_rate: [0.01, 0.05, 0.1]
+  # Multiplier on the data-derived scale_pos_weight (n_neg/n_pos).
+  # Fixed at 1.0 (the true class ratio) — mandatory, not searched,
+  # same reasoning as class_weight above. max_depth/n_estimators/
+  # learning_rate remain genuinely searched.
+  scale_pos_weight_multiplier: [1.0]

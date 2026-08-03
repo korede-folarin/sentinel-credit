@@ -39,11 +39,10 @@ The goal is not simply to build accurate models, but to demonstrate how modern c
 | Component | Description | Status |
 |---|---|---|
 | Synthetic data generator | 50k customers · 174k transactions · 484k repayments · hazard-based, emergent default | ✅ Complete |
-| Validation module | Fidelity 8/8 · Utility · Privacy 2/2 | 🔄 Re-running against rebuilt data |
+| Validation module | Fidelity 8/8 · Utility PASS · Privacy 2/2 — re-run against rebuilt data | ✅ Complete |
 | Database schema | Constrained raw schema · Foreign keys · ERD · Third Normal Form | ✅ Complete |
 | Raw data load | Three source tables loaded and integrity verified | ✅ Complete |
-| Feature store: customer spine | Customer-level table and repayment target | 🔄 In Progress |
-| Feature store: engineered features | 30+ SQL features | 🔄 In Progress |
+| Feature store: engineered features | 30+ SQL features across customer, application, exposure, and repayment/delinquency behaviour | ✅ Complete |
 | Feature store: AWS RDS migration | Local PostgreSQL → Amazon RDS | 🔄 In Progress |
 | Three-model benchmarking | Logistic Regression · Decision Tree · XGBoost | 🔄 In Progress |
 | Champion / Challenger workflow | MLflow model registry | 🔄 In Progress |
@@ -171,7 +170,7 @@ config.yaml
 
 ## Current Status
 
-The data foundation has been rebuilt around an emergent, hazard-based default definition and reloaded into PostgreSQL. Validation is being re-run against the rebuilt data, followed by feature store reconstruction, model benchmarking, monitoring, explainability, governance, deployment, and forecasting.
+The data foundation is rebuilt, validated, and feature-engineered: hazard-based emergent default, reloaded into PostgreSQL, revalidated with recorded results (fidelity 8/8, utility PASS, privacy 2/2), and 30+ features spanning customer, application, exposure, and repayment/delinquency behaviour. Next up is model benchmarking, followed by monitoring, explainability, governance, deployment, and forecasting.
 
 Follow the build on LinkedIn:
 

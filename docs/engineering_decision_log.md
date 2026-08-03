@@ -4,7 +4,7 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.5
+**Version:** 3.10
 **Last Updated:** 30th July 2026
 **Status:** Living document — updated as decisions are made
 
@@ -352,6 +352,23 @@ Principle 3 requires models to be fit for purpose
 and documented. Benchmarking three models with
 documented metrics provides evidence that model
 selection was deliberate.
+
+### Addendum — Modelling Scope: PD Only (30th July 2026)
+This platform models Probability of Default (PD).
+Loss Given Default (LGD) and Exposure at Default
+(EAD) — the other two components of Expected Credit
+Loss under IFRS 9 (Expected Loss = PD × LGD × EAD) —
+are out of scope. The generator does not currently
+model post-default recovery behaviour (partial
+recovery over time, collections success rate,
+write-off timing), which an honest LGD build would
+require; `outstanding_balance_gbp` exists in
+`raw.repayments` but nothing simulates what happens
+to it after default. Building LGD/EAD without that
+groundwork would risk the same "stated as
+implemented but isn't real" problem corrected
+elsewhere in this log (Decision 2/3.3). Stated here
+explicitly as a scope boundary, not an omission.
 
 *Selecting a champion is not the end of the
 modelling lifecycle. Credit portfolios and customer
@@ -965,6 +982,75 @@ Together these mean the schema's central label — default —
 is now defensible against external regulatory standards, with
 its simplifications stated rather than implied.
 
+### Addendum — Out-of-Time Split: Tenor-Maturity Bias, Deliberately Left Unfixed (30th July 2026)
+An out-of-time (OOT) validation split was added alongside the
+stratified split in `models/train_baseline_models.py`
+(`split_strategy: "temporal"`), following the EBA guidance on
+PD model validation naming out-of-time analysis as a required
+element. `temporal_split_date` was set using
+`percentile_disc(0.8)` on `first_transaction_date` across the
+modelable population — a statistical property of the
+generated data, not a calculation using the maturity
+constraint below.
+
+**Finding.** The resulting temporal test set showed a bad rate
+of 0.33% against a 2.12% training bad rate — a 6x gap. Traced
+to right-censoring interacting with variable product tenor: a
+12-instalment plan's final due date falls around day 330, and
+default cannot be confirmed until 90 further days past due,
+so full maturity requires roughly 420 days from origination.
+Near `data_end_date` (2024-12-31), only short-tenor (3-month)
+loans have had time to reach `has_outcome = 1` at all — longer
+tenors originating in the same window are absent from the
+modelable population entirely, not merely censored in the test
+set specifically. The temporal split's test population was
+therefore skewed toward short-tenor loans, not a representative
+slice of "customers who arrived later."
+
+**Considered fix.** A maturity-curated split date, calculated
+directly from the generator's own rules rather than the data's
+distribution: `data_end_date` minus the full maturity
+requirement for the longest tenor (330 + 90 = 420 days),
+giving a cutoff around 2023-11-06 instead of the current
+2024-09-01. This would guarantee every tenor in the product mix
+has had its full window to mature ahead of the split point.
+
+**Decision: not implemented.** Two reasons. First, moving the
+cutoff back by roughly ten months shrinks the training
+population and grows the test population as a direct mechanical
+consequence of relocating the train/test boundary — a real,
+non-trivial cost, not a side effect. Second, and more
+fundamentally: `has_outcome = 1` filtering happens globally,
+before any split. A longer-tenor loan originating near the end
+of the data window is absent from the modelable population
+entirely, not merely present-but-censored in a specific test
+set. Any split date chosen close to `data_end_date` will
+therefore reproduce a version of this bias — a maturity-curated
+date only relocates where the loss of long-tenor visibility
+begins, it does not eliminate the underlying constraint. This
+is a structural limit of working from a single fixed dataset
+snapshot: a live system with continuously arriving performance
+data does not face the same bind, since new data keeps
+extending the observable window forward.
+
+**Retained as-is:** the current percentile-based
+`temporal_split_date`, with this limitation documented rather
+than hidden. Temporal Gini/AUC results should be read as
+directional, not as a like-for-like comparison against the
+stratified split, given the known tenor-mix skew in the test
+population.
+
+**Future work:**
+1. Recompute `temporal_split_date` using the maturity formula
+   above if a fairer (though smaller) OOT test set is wanted.
+2. The more complete fix: redefine the default label around a
+   fixed observation horizon (the Basel/IRB convention is a
+   fixed 12-month PD, applied uniformly regardless of product
+   tenor) rather than one tied to each loan's own resolution
+   timeline. This would remove the tenor-coupling that causes
+   the bias in the first place, rather than working around it
+   with split-date selection. Not yet built — planned only.
+
 ---
 
 ## Decision 11 — Automated Audit-Trail Enforcement
@@ -1106,6 +1192,147 @@ remains the formal leakage boundary, and this stage extends
 it rather than weakening it. The delinquency ladder features
 are the direct SQL-level expression of the CRR/EBA and IFRS 9
 alignment established in Decision 10.
+
+### Addendum — Temporal Leakage in Resolution-Tied Features (30th July 2026)
+A distinct problem from the one this decision originally
+solved was found before any model was trained on this table.
+`max_dpd_ever` and the terminal-state counts
+(`n_terminal_current`, `n_terminal_delinquent`,
+`n_terminal_default`) are aggregated across a customer's full
+repayment history through resolution — including the point of
+default itself. Default is defined as reaching 90 DPD
+(Decision 10), so for any defaulted customer `max_dpd_ever`
+is ≥90 by construction, and `n_terminal_default` is a direct
+count of default events. Neither predicts the target; both
+restate it. `cycles_delinquent` is tied to the same resolved
+trajectory and carries the same problem.
+
+This is a different failure from the one Decision 10 fixed.
+Decision 10 corrected causal *generation* — repayment history
+now genuinely precedes default in how the data is produced.
+This addendum concerns feature *aggregation*: even causally
+valid history becomes leakage if it is aggregated across a
+customer's entire lifetime, including the resolution event,
+rather than cut off at a point before the outcome is known. A
+production scoring model sees only what is observable at the
+moment of scoring, never the loan's eventual full trajectory.
+
+Two fixes were considered. A fixed observation-window
+snapshot (aggregate repayment history only up to a set point
+post-origination, e.g. day 30 or 60, scoring against the
+eventual outcome) is the production-realistic pattern and is
+logged as planned future work, not yet built — same
+planned-not-done discipline as the CTGAN benchmark (Decision
+2). For the current model, the resolution-tied columns are
+excluded at feature selection rather than deleted from the
+table, following the exact precedent already set for
+`default_probability` and `merchant_risk_multiplier`
+(Decision 3, "Label and leakage handling"): the feature store
+remains the complete record for auditing, explainability
+(Decision 7), drift monitoring (Decision 5), and portfolio
+reporting, while `MODEL_FEATURES` in the training code
+defines what the model is actually allowed to see. The
+distinction is worth stating precisely: `default_probability`
+and `merchant_risk_multiplier` are generator-internal fields
+never meant to represent real-world observable data at all;
+`max_dpd_ever` and the terminal-state counts are real,
+meaningful outcome data excluded specifically because they
+are aggregated across the resolution event, not because they
+are synthetic artifacts. Same boundary mechanism, different
+underlying reason — the two should not be cited
+interchangeably if this is asked about directly.
+
+Independent late-payment features (`n_late_payments`,
+`avg_days_late`, etc.) do not have this problem, since they
+are drawn from a process independent of the default path
+(Decision 2/CREDIT 2 reasoning) — they remain in
+`MODEL_FEATURES`. They do carry a milder, separate limitation
+worth naming: they too are aggregated over the customer's
+full lifetime rather than a fixed early window, so in a real
+production system they would not all be available at the
+point a lending decision is made. Unlike the resolution-tied
+columns, this is a deployability-realism gap, not a validity
+gap — late-payment counts are independent noise relative to
+the target, not derived from it, so they do not artificially
+inflate model performance the way `max_dpd_ever` would.
+
+### Addendum — Vulnerability Fields Excluded from Model Training (30th July 2026)
+`vulnerability_score` and `is_vulnerable` are excluded from
+`MODEL_FEATURES` entirely, on a different basis from the
+temporal-leakage exclusions above — this is a fairness and
+regulatory boundary, not a data-quality one. Two separate
+grounds apply. First, the composite score folds in the health
+driver, and `mental_health_flag` is already documented in the
+generator itself as never permitted as a direct model input
+under the Equality Act 2010; including the composite would
+risk reintroducing that protected characteristic indirectly.
+Second, and more broadly, FCA Consumer Duty's vulnerable-
+customer provisions require vulnerability status to inform
+*treatment* — enhanced monitoring, forbearance, tailored
+explanation genre (Decision 7) — not *scoring*. Using it as a
+model input would risk the model penalising the customers
+the framework exists to protect, the opposite of its intent.
+
+These fields remain in `feature_store.customer_features` for
+their intended purpose: Consumer Duty monitoring and fairness
+analysis run *against* the model's outputs (are outcomes
+equitable across vulnerable and non-vulnerable segments), not
+*inside* the model as a predictor. `age_bracket`, `income_band`,
+`employment_status`, and `ab_test_group` are excluded from
+`MODEL_FEATURES` for the same reason — segmentation for
+analysis, never a scoring input — consistent with how they
+are already labelled directly in the Stage 2 SQL comments.
+
+### Addendum — Segment-Aware Thresholding: Considered, Deliberately Not Implemented (30th July 2026)
+Baseline model evaluation at the F1-optimal cutoff (0.05)
+surfaced a severe error-rate disparity by `thin_file_flag`: a
+false-negative rate of 100% for `thin_file_flag=0` customers
+across all three models, against a false-positive rate for
+`thin_file_flag=1` customers roughly 1,000x higher than for
+`thin_file_flag=0`. An experiment removing `thin_file_flag`
+from `MODEL_FEATURES` and re-running training and evaluation
+produced an identical gap — `credit_score` (r=-0.75 with
+`thin_file_flag`) reconstructs the same segmentation on its
+own. `thin_file_flag` was restored to `MODEL_FEATURES`; the
+disparity is a property of a single global cutoff applied to
+segments with genuinely different risk distributions, not an
+artefact of any one input feature.
+
+The mitigation this naturally suggests — computing the
+F1-optimal threshold separately per segment rather than one
+global cutoff — was considered and deliberately not built.
+The reasoning: the engineering finding has already delivered
+its value. A single global threshold produces materially
+different operating characteristics across thin-file and
+non-thin-file customers; that has been discovered, measured,
+and documented. Implementing segment-aware thresholds would
+not be a further modelling optimisation — it would mean two
+different lending policies applied to the same model output
+by customer segment, which immediately raises questions a
+model-tuning decision cannot answer on its own: why are two
+customers with the same predicted PD treated differently, who
+approved that policy, how is it monitored, and under what
+conditions would the thresholds change. Those are governance
+and Consumer Duty policy questions, not modelling questions,
+and answering them requires explicit policy approval and
+ongoing monitoring design, not a code change to
+`evaluate_models.py`.
+
+**Retained:** one global threshold; fairness analysis by
+segment; full error-rate comparison (FPR, FNR, precision,
+recall) per segment; documentation of the disparity found.
+
+**Not implemented:** different thresholds by `thin_file_flag`
+or any other segment.
+
+**Future work:** investigate whether segment-aware
+thresholding or alternative decision policies can reduce this
+operational disparity while remaining consistent with
+explainability requirements (Decision 7) and governance
+expectations (Decision 9). Any implementation would require
+separate policy approval, a formal fairness assessment, and
+ongoing monitoring — treated as a governance decision, not a
+modelling optimisation, should it ever be pursued.
 
 ---
 
@@ -1479,3 +1706,8 @@ Decision 10.
 | 3.3 | 30th July 2026 | Corrected Decision 2 and Appendix B: CTGAN benchmark was stated as implemented but does not exist in `validate_synthetic.py`. Marked explicitly as planned, not done — descoped intentionally until the core pipeline is complete. Found during a direct check of the log against the actual validation code. |
 | 3.4 | 30th July 2026 | Added Decision 11: pre-commit and post-commit git hooks enforcing that audit-relevant file changes are always accompanied by a decision log entry, plus a mechanical, timestamped `docs/audit_trail.log`. Installed and verified working (test commit to `config.yaml` alone correctly blocked). Summary Table row 11 added. |
 | 3.5 | 30th July 2026 | Added Decision 12: feature store Stage 3 (repayment and delinquency features), documenting why it was capped at ~10 features under the old causal flaw and how Decision 10 unblocked it past the 30+ target. Added a Decision 2 addendum documenting the validation config restructuring (privacy thresholds split into two explicit keys; `gini_tolerance` wired in as reported context; `n_runs`/`ks_threshold` confirmed still unimplemented). Both found missing when a commit shipped the underlying code/SQL changes with only Decision 11 (the hooks) as coverage. Summary Table row 12 added. |
+| 3.6 | 30th July 2026 | Added a Decision 12 addendum documenting temporal leakage in resolution-tied features (`max_dpd_ever`, terminal-state counts, `cycles_delinquent`) found before model training began — a different failure mode from the causal-generation flaw Decision 10 fixed. Resolved by excluding these at feature selection (`MODEL_FEATURES` allowlist) rather than deleting them, following the precedent already set for `default_probability`/`merchant_risk_multiplier`, with the distinction between the two exclusion reasons stated explicitly. A fixed observation-window snapshot logged as planned, not yet built. |
+| 3.7 | 30th July 2026 | Added a second Decision 12 addendum confirming `vulnerability_score` and `is_vulnerable` are excluded from `MODEL_FEATURES` on fairness/regulatory grounds (Equality Act 2010 via the composite's health driver; FCA Consumer Duty vulnerable-customer provisions requiring vulnerability to inform treatment, not scoring) — distinct from the temporal-leakage exclusions in the prior addendum. `models/model_features.py` created. |
+| 3.8 | 30th July 2026 | Added a Decision 4 addendum stating the platform's scope is PD (Probability of Default) only. LGD and EAD, the other two components of IFRS 9 Expected Credit Loss, are explicitly out of scope pending a post-default recovery model the generator does not currently have. |
+| 3.9 | 30th July 2026 | Added a second Decision 12 addendum documenting the segment-aware thresholding experiment: the fairness disparity found by `thin_file_flag` at the F1-optimal cutoff, confirmed independent of `thin_file_flag` as a model input (identical gap after removal and re-run), and the deliberate decision not to implement per-segment thresholds — reasoned as a governance/Consumer Duty policy question rather than a modelling optimisation, with the mitigation logged as future work requiring explicit policy approval. |
+| 3.10 | 30th July 2026 | Added a Decision 10 addendum documenting the out-of-time split's tenor-maturity bias: the temporal split date is derived from the data's own distribution, not the generator's maturity requirements, causing longer-tenor loans to be structurally absent from the modelable population near the data boundary. A maturity-curated split date was considered and deliberately not implemented — shrinks the training population, and only relocates rather than eliminates the bias, which is a structural limit of a fixed dataset snapshot. Retained as-is, documented as a known limitation. Future work: recompute the split date using the maturity formula, or the more complete fix of a fixed observation-horizon default definition decoupled from product tenor. |

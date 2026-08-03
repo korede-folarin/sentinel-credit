@@ -34,7 +34,11 @@ plotly==5.22.0
 
 # Database
 psycopg2-binary==2.9.9
-sqlalchemy==2.0.30
+# Pinned loosely, not to an exact version: apache-airflow 2.x
+# requires sqlalchemy<2.0, mlflow accepts <3. An exact pin of
+# 2.0.30 makes those unsatisfiable together. Our own code only
+# uses create_engine()/pd.read_sql(), stable across 1.4 and 2.0.
+sqlalchemy>=1.4.36,<2.0
 
 # LLM
 anthropic==0.28.0
@@ -43,6 +47,15 @@ openai==1.30.0
 # Validation and testing
 pytest==8.2.0
 great-expectations==0.18.19
+
+# EDA — plotting and stats (Jupyter notebook + eda_baseline.py)
+matplotlib==3.9.0
+seaborn==0.13.2
+statsmodels==0.14.2
+
+# Jupyter — lets this venv register as a selectable kernel
+jupyter==1.0.0
+ipykernel==6.29.4
 
 # Utilities
 python-dotenv==1.0.1

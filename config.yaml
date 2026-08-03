@@ -153,3 +153,62 @@ validation:
   ks_threshold: 0.05
 
   reports_dir: "validation/reports"
+
+eda_thresholds:
+  # Standard credit-scoring convention (Siddiqi, Credit Risk
+  # Scorecards), not derived from this dataset — unlike
+  # hellinger_threshold, which is anchored to observed scores.
+  # IV < 0.02 no signal; 0.02-0.3 usable; > 0.5 investigate
+  # for leakage before including the feature.
+  iv_drop_threshold: 0.02
+  iv_leakage_threshold: 0.50
+
+  # Conventional multicollinearity flag for regression models.
+  vif_threshold: 10.0
+
+  # Flags feature pairs worth reviewing before modelling.
+  correlation_threshold: 0.70
+
+  # Standard Tukey IQR multiplier for outlier flagging.
+  outlier_iqr_multiplier: 1.5
+
+
+database:
+  # PostgreSQL connection details. Password is never stored
+  # here — read from the SENTINEL_DB_PASSWORD environment
+  # variable at runtime (see eda_baseline.py / eda_exploration.ipynb).
+  host: "localhost"
+  port: 5432
+  name: "sentinel_credit"
+  schema: "feature_store"
+
+model:
+  test_size: 0.2
+  random_seed: 42
+
+  # Business cutoff is treated as a configurable POLICY
+  # parameter belonging to the decision engine, not as a
+  # property of any individual algorithm. The model produces a
+  # risk score; the business decides where the line sits.
+  #
+  # Calibrated for this benchmark against the champion model
+  # (XGBoost, F1-optimal 0.1449 at Gini 0.6493 / KS 0.5061 on
+  # the corrected population). NOT set by averaging across
+  # models — a midpoint between per-model optima has no
+  # engineering justification (it is neither F1-optimal,
+  # expected-loss optimal, nor policy-derived).
+  #
+  # Future champion-challenger promotion (Decision 8) requires
+  # threshold RECALIBRATION as part of promotion — the cutoff
+  # is not transferable across models, since each model's score
+  # distribution differs. See docs/engineering_decision_log.md.
+  business_cutoff: 0.145
+
+  # Temporal split currently produces a degenerate single-class
+  # test set under the corrected has_outcome logic (16/16
+  # positive at this date) and is skipped automatically by
+  # train_baseline_models.py. Retained in config for the
+  # documented future-work fix, not currently usable.
+  # See Decision 10 addendum (tenor-maturity bias).
+  split_strategy: "temporal"
+  temporal_split_date: "2024-09-01"

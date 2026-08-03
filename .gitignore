@@ -46,3 +46,11 @@ logs/
 
 # BentoML
 bentoml/
+
+
+venv311/
+venv/
+reports/
+__pycache__/
+*.pyc
+models/artifacts/

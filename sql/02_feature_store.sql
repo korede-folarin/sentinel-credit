@@ -1,30 +1,45 @@
 -- ============================================================
 -- SENTINEL CREDIT — FEATURE STORE
--- Stage 3 added: repayment and delinquency features.
+-- Stage 2/3: customer spine, target, engineered features
 --
--- WHY THIS STAGE WAS PREVIOUSLY BLOCKED
--- Under the old generator, payment_status values of 'Missed'
--- and 'Defaulted' were assigned only after the outcome was
--- already decided, so counting them would have reconstructed
--- the target directly (leakage). Only the independent
--- 'Late' path was safe, capping this stage at ~10 features.
--- Under the hazard-based rewrite, default is emergent: the
--- delinquency ladder (max_dpd, reached_sicr,
--- cycles_delinquent, arrears_depth, terminal_state) genuinely
--- precedes default in time rather than being backfilled from
--- it, so these are now legitimate pre-default features.
--- See docs/engineering_decision_log.md — Decision 10.
+-- CORRECTED has_outcome LOGIC (30th July 2026)
+-- Previously, has_outcome was set to 1 for any customer with
+-- repayment records at all -- meaning "was approved for at
+-- least one transaction." It never checked outcome_observed,
+-- the row-level flag Decision 10 built specifically to
+-- distinguish "confirmed no default" from "not yet known."
+--
+-- Result: any customer with a still-maturing (censored) loan
+-- got default_flag=0 (the storage convention for "not yet
+-- observed") folded into MAX(default_flag)=0, and was
+-- labelled a confirmed good outcome. Verified against the
+-- live database: only 44.93% of the population previously
+-- marked has_outcome=1 actually had a fully matured outcome
+-- (18,694 of 41,604). The corrected bad rate among genuinely
+-- modelable customers is ~4.26%, not 1.91%.
+--
+-- Fix: has_outcome now requires EITHER a confirmed default
+-- (default_flag=1, regardless of other censored transactions
+-- that customer may also hold) OR that every one of the
+-- customer's repayment rows has outcome_observed=1 (the same
+-- MAX(defaulted) OR MIN(all_observed) rule already used
+-- correctly in the generator's own calibrate_grid() function
+-- -- this SQL simply never carried that rule over).
 --
 -- OUTCOME OBSERVABILITY
 -- Customers whose applications were all declined generate no
 -- repayment records and therefore have no observable default
--- outcome. They are retained in the feature store for
--- portfolio analytics and monitoring, but flagged via
--- has_outcome so the modelling pipeline can exclude them from
--- training. Reject inference is not applied because the
--- synthetic approval policy is deterministic, leaving no
--- overlap between approved and rejected populations from
--- which rejected outcomes could be meaningfully inferred.
+-- outcome (has_outcome=0 via the LEFT JOIN returning NULL).
+-- Customers with approved transactions that haven't yet
+-- reached a confirmed outcome (still within their performance
+-- window) now ALSO get has_outcome=0, correctly, rather than
+-- being silently labelled as non-defaulters. Both groups are
+-- retained in the feature store for portfolio analytics, but
+-- excluded from model training via has_outcome. Reject
+-- inference is not applied because the synthetic approval
+-- policy is deterministic, leaving no overlap between approved
+-- and rejected populations from which rejected outcomes can be
+-- meaningfully inferred.
 --
 -- NULL SEMANTICS
 -- Counts and sums COALESCE to 0, representing zero observed
@@ -35,10 +50,11 @@
 --
 -- LEAKAGE
 -- Generator-internal fields (merchant_risk_multiplier;
--- default_probability no longer exists post-rewrite) are
+-- default_probability no longer exists post-Decision-10) are
 -- excluded at the feature boundary. They remain in the raw
 -- layer for auditability and synthetic data validation, but
--- are never exposed as model inputs.
+-- are never exposed as model inputs. See models/model_features.py
+-- for the full, currently-maintained exclusion lists.
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS feature_store;
@@ -48,9 +64,13 @@ DROP TABLE IF EXISTS feature_store.customer_features;
 CREATE TABLE feature_store.customer_features AS
 
 WITH customer_default AS (
+    -- CORRECTED: now tracks both whether the customer ever
+    -- confirmed defaulted, and whether ALL of their repayment
+    -- rows have a fully observed (non-censored) outcome.
     SELECT
         customer_id,
-        MAX(default_flag) AS default_flag
+        MAX(default_flag)     AS default_flag,
+        MIN(outcome_observed) AS all_observed
     FROM raw.repayments
     GROUP BY customer_id
 ),
@@ -86,11 +106,6 @@ exposure AS (
         ROUND(SUM(instalment_amount_gbp), 2) AS total_instalment_exposure_gbp,
         COUNT(DISTINCT merchant_category)    AS n_merchant_categories,
 
-        -- Merchant risk tiers. All eight categories are
-        -- assigned so the three proportions sum to 1. Tiers
-        -- are based on documented domain judgement, not the
-        -- generator's hidden merchant_risk_multiplier, which
-        -- is excluded by design.
         ROUND(AVG(CASE WHEN merchant_category IN
              ('Travel','Electronics')
              THEN 1.0 ELSE 0.0 END), 4) AS pct_high_risk_category,
@@ -108,21 +123,13 @@ exposure AS (
     GROUP BY customer_id
 ),
 
--- ============================================================
--- STAGE 3 — repayment and delinquency behaviour.
--- One row per customer, aggregated from raw.repayments.
--- Every field here genuinely precedes default in time under
--- the hazard model, so none of it is proxy-to-label leakage.
--- ============================================================
 repayment_behaviour AS (
     SELECT
         customer_id,
 
-        -- ---- Volume ----
         COUNT(*)                              AS n_instalments_total,
         COUNT(DISTINCT transaction_id)         AS n_transactions_with_repayments,
 
-        -- ---- Late-payment path (independent of default) ----
         SUM(CASE WHEN payment_status = 'Late' THEN 1 ELSE 0 END)
             AS n_late_payments,
         ROUND(AVG(CASE WHEN payment_status = 'Late' THEN 1.0 ELSE 0.0 END), 4)
@@ -134,8 +141,6 @@ repayment_behaviour AS (
         COUNT(DISTINCT CASE WHEN payment_status = 'Late'
               THEN transaction_id END)         AS n_transactions_with_late_payment,
 
-        -- ---- Delinquency ladder (now legitimate under the
-        -- hazard model — see Decision 10) ----
         MAX(max_dpd)                          AS max_dpd_ever,
         ROUND(AVG(max_dpd), 2)                AS avg_max_dpd,
         SUM(CASE WHEN reached_sicr = 1 THEN 1 ELSE 0 END)
@@ -146,7 +151,6 @@ repayment_behaviour AS (
         MAX(arrears_depth)                    AS max_arrears_depth,
         ROUND(AVG(NULLIF(arrears_depth, 0)), 2) AS avg_arrears_depth_when_behind,
 
-        -- ---- Terminal state mix (how transactions resolved) ----
         COUNT(DISTINCT CASE WHEN terminal_state = 'CURRENT'
               THEN transaction_id END)         AS n_terminal_current,
         COUNT(DISTINCT CASE WHEN terminal_state = 'DELINQUENT'
@@ -154,7 +158,6 @@ repayment_behaviour AS (
         COUNT(DISTINCT CASE WHEN terminal_state = 'DEFAULT'
               THEN transaction_id END)         AS n_terminal_default,
 
-        -- ---- Structural ----
         ROUND(AVG(instalment_amount_gbp), 2)  AS avg_instalment_amount_gbp,
         ROUND(SUM(instalment_amount_gbp), 2)  AS total_scheduled_repayment_gbp
 
@@ -165,9 +168,14 @@ repayment_behaviour AS (
 SELECT
     c.customer_id,
 
-    -- ---- TARGET AND OBSERVABILITY ----
+    -- ---- TARGET AND OBSERVABILITY (CORRECTED) ----
     COALESCE(cd.default_flag, 0) AS target_default,
-    CASE WHEN cd.customer_id IS NOT NULL THEN 1 ELSE 0 END AS has_outcome,
+    CASE
+        WHEN cd.customer_id IS NOT NULL
+             AND (cd.default_flag = 1 OR cd.all_observed = 1)
+        THEN 1
+        ELSE 0
+    END AS has_outcome,
 
     -- ---- CUSTOMER ATTRIBUTES ----
     c.age,
@@ -231,16 +239,9 @@ SELECT
     COALESCE(rb.total_scheduled_repayment_gbp, 0)    AS total_scheduled_repayment_gbp,
 
     -- ---- DERIVED RATIOS ----
-    -- Conventional debt-to-income: recurring monthly
-    -- obligations over monthly income.
     ROUND(c.existing_monthly_obligations_gbp
           / NULLIF(c.monthly_income_gbp, 0), 4) AS debt_to_income_ratio,
 
-    -- NOT a standard debt-to-income ratio. Compares the
-    -- customer's total BNPL borrowing over the entire
-    -- observation period with one month's income. This
-    -- measures historical borrowing scale, not current
-    -- affordability.
     ROUND(COALESCE(ex.total_order_value_gbp, 0)
           / NULLIF(c.monthly_income_gbp, 0), 4)
           AS bnpl_exposure_to_monthly_income_ratio,
@@ -250,8 +251,6 @@ SELECT
     ex.last_transaction_date,
     (ex.last_transaction_date - ex.first_transaction_date)
           AS transaction_span_days,
-    -- Uses the configured performance-window end date rather
-    -- than the system date, ensuring reproducible results.
     (DATE '2024-12-31' - ex.last_transaction_date)
           AS days_since_last_transaction,
 
