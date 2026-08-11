@@ -1,0 +1,4 @@
+services:
+  scheduler:
+    volumes:
+      - ../:/usr/local/airflow/project

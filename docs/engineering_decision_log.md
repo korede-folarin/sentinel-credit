@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.22
-**Last Updated:** 7th August 2026 (v3.22)
+**Version:** 3.23
+**Last Updated:** 11th August 2026 (v3.23)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -2705,6 +2705,123 @@ treatment is built, per Decision 12.
 
 ---
 
+## Decision 20 — Drift Monitoring: PSI + Data Quality, Scheduled via Airflow (Astro)
+
+### Challenge
+Drift monitoring had been queued since the project's earliest
+handoff notes (Decision 5) but never implemented — every prior
+evaluation of population stability (Decision 17's temporal PSI,
+Decision 19's segment diagnostics) was a one-off check against a
+fixed snapshot, not a repeatable process that could catch
+degradation between deliberate governance passes. `evaluate_models.py`'s
+own docstring already anticipated the intended mechanism
+("PSI / drift monitoring — belongs to Decision 5's scheduled
+Airflow pipeline") without anything existing to run it.
+
+### Method
+`pipeline/monitor_drift.py` compares the canonical stratified
+training partition (reference) against the temporal test split
+(comparison — the most temporally recent population available in
+the absence of a live scoring stream, stated explicitly as a
+proxy in the script's own docstring, not presented as a live
+production monitor). Three check types: PSI per feature, reusing
+`govern_model_features.py`'s exact calculation and thresholds
+(`feature_governance.thresholds.psi_moderate` / `psi_high`) so a
+"material_shift" flag means the same thing in both places;
+null-rate delta, out-of-range rate, and mean-shift-in-training-sigma-units
+as data-quality checks PSI's binning can occasionally miss;
+and portfolio bad-rate drift, the single number most directly
+tied to business impact. All logic was unit-verified against
+synthetic data with known shift magnitudes before being run
+against real data (identical distributions -> PSI ~0; a 2-sigma
+shift -> correctly flagged "material_shift").
+
+The script does not gate deployment, retrain, or promote anything
+by itself — it produces evidence and a structured alert flag for
+the not-yet-built Approval Gate and Champion/Challenger workflow.
+
+**Scheduling**: implemented via Astro CLI (local Airflow-in-Docker),
+not GitHub Actions — reconsidered explicitly after initially leaning
+toward the lighter option, because Airflow is the correct tool for
+this specific job in a way that isn't just stylistic: a real
+drift-monitoring pipeline needs DAG-structured task dependencies
+(check drift -> branch on the result -> possibly trigger downstream
+evaluation), which GitHub Actions handles awkwardly once a job
+needs more than "run this one script on a schedule." The project's
+own `requirements.txt` already pinned `apache-airflow==2.9.1`
+before this decision, confirming Airflow was the intended tool
+from the start, not a late change.
+
+`infra/dags/monitor_drift_dag.py` runs the script as a subprocess
+rather than reimplementing its logic — the DAG task exercises the
+exact same code path a manual run would, so there is no separate
+"DAG version" of the monitoring logic that could drift out of sync
+with what is documented and tested. Two tasks are deliberately
+separated: `compute_drift` fails only on an infrastructure problem
+(the script itself erroring); `evaluate_alerts` reads the metadata
+`compute_drift` already wrote and fails only if real drift was
+found. This keeps "the pipeline broke" and "the pipeline found
+something" as visibly distinct failure states in Airflow's UI
+rather than one conflated red X — the same distinction the
+architecture's Monitoring block implies with "Alerting" as a
+separate concern from the check itself.
+
+### Environment issues resolved along the way
+Standing up Astro-in-Docker against this project surfaced a
+cluster of environment problems worth recording, since each was a
+real fix, not noise:
+- Exact package pins in `infra/requirements.txt` (`pyyaml==6.0.1`,
+  `mlflow==2.13.0`, `psycopg2-binary==2.9.9`) conflicted with the
+  Astro Runtime image's own Airflow 3.3 core dependencies and its
+  Python 3.14 environment (no prebuilt wheel for the old
+  `psycopg2-binary` pin). Resolved by loosening to `>=` bounds —
+  every affected package is used through long-stable APIs in
+  `monitor_drift.py`, so allowing a newer compatible version was
+  safe, not a compromise.
+- `docker-compose.override.yml` initially referenced a `webserver`
+  service that does not exist in this Astro Runtime version's
+  compose definition, invalidating the whole file silently until
+  removed — only `scheduler` needed the project volume mount.
+- Container networking required an explicit `SENTINEL_DB_HOST`
+  environment-variable override in `monitor_drift.py` (added
+  symmetrically with the pre-existing `SENTINEL_DB_PASSWORD`
+  pattern), since `localhost` inside the container refers to the
+  container itself, not the Windows host running PostgreSQL —
+  `host.docker.internal` is the correct target, set as an Airflow
+  Variable rather than hardcoded.
+- The newer MLflow version resolved inside the container required
+  `MLFLOW_ALLOW_FILE_STORE=true` to keep using the same file-based
+  `mlruns/` tracking store the rest of the project already relies
+  on, rather than forcing a database-backend migration mid-task.
+- The `sentinel_credit_monitoring` MLflow experiment's first
+  creation happened during a manual Windows-native test run before
+  the container setup was complete, which baked an absolute
+  Windows path into that experiment's `meta.yaml`. The container's
+  Linux process later inherited that path via the shared `mlruns/`
+  mount and tried to create a literal `/C:` directory at its
+  filesystem root, failing with a misleading `PermissionError`
+  that was not actually a permissions problem. Resolved by deleting
+  that one experiment's folder so it was recreated fresh,
+  entirely from inside the container. Established going forward:
+  `monitor_drift.py` should be triggered through Airflow, not run
+  manually from Windows PowerShell, to avoid reintroducing a
+  mixed-path experiment.
+
+### Decision
+Drift monitoring is implemented and verified working end-to-end:
+`pipeline/monitor_drift.py`, scheduled daily via
+`infra/dags/monitor_drift_dag.py` under local Astro/Airflow,
+confirmed with a real triggered run (`compute_drift` and
+`evaluate_alerts` both succeeded; `reports/monitoring/monitoring_run_metadata.json`
+shows 0 of 14 features alerting, generated fresh from the
+container-triggered run, not stale data). This closes the Decision
+5 item that had been queued since the project's earliest planning.
+Feeding this evidence into an automated Approval Gate or the
+Champion/Challenger promotion workflow remains future work, not
+resolved here.
+
+---
+
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
@@ -3091,4 +3208,5 @@ Decision 10.
 | 3.19 | 4th August 2026 | Added Decision 18: model scope resolved as customer-level portfolio-risk (not application-time underwriting) for v1, closing the conditional_as_of_logic question left open across Decisions 17-18. `sql/diagnostics/check_point_in_time.sql` correlated the flagged features against exposure-window length: n_applications (r=0.47), bnpl_exposure_to_monthly_income_ratio (r=0.34) and n_late_payments (r=0.22) confirmed exposure-time contaminated and removed; age removed separately on Equality Act 2010 grounds, correcting the "weak IV" framing proposed in Decision 17 once existing_monthly_obligations_gbp was noted to score lower on the same metric while being retained. Six features (pct_late_payments, pct_medium_risk_category, pct_high_risk_category, avg_n_instalments, max_affordability_ratio, avg_order_value_gbp) retained — the diagnostic found no material association with exposure length, stated explicitly as supporting evidence of scope-fitness, not proof of point-in-time validity, since near-zero linear correlation cannot rule out weak, nonlinear or segment-specific contamination. MODEL_FEATURES 18 to 14. The 285-fit governance review (Decision 17) retained as pre-freeze evidence for the 18-feature baseline, not treated as the review of the 14-feature v1 model — a fresh governance pass on 14 features queued before v1 is called final. Application-time underwriting recorded as future v2 work, not current scope. |
 | 3.20 | 7th August 2026 | Added Decision 19: business_cutoff selected as 0.0671 via models/select_business_cutoff.py, using calibrated training-only out-of-fold predictions on the canonical stratified partition (frozen champion hyperparameters, no held-out data touched). Three candidates generated from the same OOF table — F1-optimal (0.0868, 7.82% flagged, 31.68% recall), Youden's J (0.0376, 24.02% flagged, 68.32% recall), review-capacity-constrained at 15% (0.0671, 15.00% flagged, 51.55% recall) — with review-capacity selected as the only candidate answering the operational question directly given a stated 15% review capacity; F1 and Youden retained as comparators, not discarded. Expected-cost-minimizing candidate configured but left unset and skipped — no defensible cost ratio exists, and inventing one would reopen the cost-matrix approach evaluate_models.py already declined (Decision 4 addendum, PD-only scope). Explicitly flagged as conditional on 15% being a real operational figure, not the illustrative placeholder currently in config.yaml. recalibrate_threshold.py (an earlier, duplicate-purpose draft) retired and deleted in favour of extending the existing select_business_cutoff.py. Precision/recall/fairness at 0.0671 on the held-out stratified and temporal splits remain unmeasured pending an evaluate_models.py rerun — the next step, not yet complete. |
 | 3.21 | 7th August 2026 | Resolved Decision 19's operating-policy review (held-out confirmation on temporal only so far — stratified evaluate_models.py output not yet captured; temporal recall 38.71%, within range of the 51.55% OOF estimate; cutoff-independent metrics unchanged; stratified confirmation remains an open action). Surfaced and investigated a material finding: thin_file_flag=0 had 100% FNR on both splits. models/segment_threshold_diagnostics.py (new script, three checks) established this is a policy-scale problem, not a model-signal failure — thin_file_flag=0 defaulters' scores sit entirely below any threshold on the table (max 0.0344/0.0367, 0% above cutoff on either split, ruling out borderline cases), no single global threshold recovers thin_file_flag=0 recall without collapsing thin_file_flag=1's FPR to 75-86%+ (ruling out the threshold choice as cause), and within-segment AUC with bootstrap 95% CI shows the model still discriminates risk within thin_file_flag=0 (0.5661-0.7220 stratified, 0.6148-0.7613 temporal, both CIs clear of 0.5 and consistent across splits, overlapping substantially with thin_file_flag=1's CIs) — ruling out near-random within-segment ranking. Corroborates, does not duplicate, the earlier finding that thin_file_flag removal as a model input did not close the same gap since credit_score reconstructs it (r=-0.75). business_cutoff 0.0671 confirmed for the global-decision question; a separate governance item opened, not resolved here, on whether segment-aware review capacity is warranted — requires explicit Decision 12 policy sign-off before any segment-differentiated treatment is built. |
+| 3.23 | 11th August 2026 | Added Decision 20: drift monitoring implemented and verified working end-to-end, closing the Decision 5 item queued since project inception. pipeline/monitor_drift.py compares the canonical training partition against the temporal test split (PSI per feature reusing govern_model_features.py's exact thresholds, null-rate/out-of-range/mean-shift data-quality checks, portfolio bad-rate drift), all logic unit-verified against synthetic data with known shift magnitudes before running against real data. Scheduled daily via infra/dags/monitor_drift_dag.py under local Astro/Airflow (Docker) — Airflow chosen over GitHub Actions after explicit reconsideration, since a real drift pipeline needs DAG-structured task dependencies GitHub Actions handles awkwardly, and apache-airflow was already pinned in requirements.txt before this decision. DAG runs the script as a subprocess (no separate DAG-version logic to drift out of sync) with two deliberately separated tasks: compute_drift fails only on infrastructure problems, evaluate_alerts fails only on genuine drift findings, keeping "pipeline broke" and "pipeline found something" visibly distinct in Airflow's UI. Resolved a cluster of real environment issues along the way: exact package pins conflicting with the Astro Runtime's Airflow 3.3 core and Python 3.14 (loosened to >= bounds, safe given the stable APIs used); an invalid docker-compose.override.yml referencing a nonexistent webserver service; container-to-host DB networking requiring a new SENTINEL_DB_HOST override (added symmetrically with the existing SENTINEL_DB_PASSWORD pattern); a newer MLflow version requiring MLFLOW_ALLOW_FILE_STORE=true to keep the existing file-based mlruns/ store; and a stale Windows-path artifact baked into the sentinel_credit_monitoring MLflow experiment's meta.yaml from an earlier manual Windows-native run, causing a misleading PermissionError inside the Linux container until that one experiment folder was deleted and recreated container-native. Verified via a real triggered DAG run: both tasks succeeded, monitoring_run_metadata.json shows 0 of 14 features alerting, freshly generated. Feeding this evidence into an automated Approval Gate or Champion/Challenger promotion remains future work, not resolved here. |
 | 3.22 | 7th August 2026 | Completed Decision 19's held-out confirmation with the stratified evaluate_models.py run (previously missing in v3.21 — every full output reviewed at that point was confirmed via MLflow tag to be temporal only). Stratified results land close to the OOF selection estimate (recall 54.87% vs 51.55% OOF, flagged rate 15.51% vs 15.00% target, precision 9.60% vs 9.35% OOF) — expected, since stratified is drawn from the same population distribution the cutoff was selected against; temporal's lower recall (38.71%) reflects genuine out-of-time drift, not a selection failure. thin_file_flag=0's 100% FNR confirmed via full evaluate_models.py on both splits (stratified FPR 0.00%, temporal FPR 0.03%), not only via the targeted segment diagnostics — thin_file_flag=1 FPR corrected from an approximate "~33%" to the precise stratified figure (46.53%) alongside temporal's (32.93%). business_cutoff 0.0671 status moved from "confirmed on temporal, stratified outstanding" to fully confirmed on both splits. The separate governance item (segment-aware review capacity, Decision 12) remains open, unaffected by this completion. |
