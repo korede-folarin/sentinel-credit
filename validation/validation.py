@@ -806,6 +806,82 @@ def main() -> None:
     privacy_results = run_privacy(customers)
     print_privacy(privacy_results)
 
+    # ---- ARTIFACTS ----
+    # Validation results are persisted rather than printed
+    # only. A regenerated dataset should be comparable against
+    # the previous run without re-executing either — and the
+    # fidelity scores in particular are the evidence that a
+    # change to the generator affected what it was supposed to
+    # affect and nothing else.
+    out_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "reports", "validation"
+    )
+    os.makedirs(out_dir, exist_ok=True)
+    saved = []
+
+    fid_rows = []
+    for r in fidelity_results:
+        row = {"check": r.get("check"), "passed": r.get("passed"),
+               "source": r.get("source")}
+        for k in ("hellinger", "js_divergence", "max_diff",
+                  "target", "observed", "diff"):
+            if k in r:
+                row[k] = r[k]
+        fid_rows.append(row)
+    pd.DataFrame(fid_rows).to_csv(
+        os.path.join(out_dir, "fidelity.csv"), index=False)
+    saved.append("fidelity.csv")
+
+    util_row = {k: v for k, v in utility_result.items()
+                if not isinstance(v, (dict, list))}
+    pd.DataFrame([util_row]).to_csv(
+        os.path.join(out_dir, "utility.csv"), index=False)
+    saved.append("utility.csv")
+
+    priv_rows = []
+    for r in privacy_results:
+        priv_rows.append({k: v for k, v in r.items()
+                          if not isinstance(v, (dict, list))})
+    pd.DataFrame(priv_rows).to_csv(
+        os.path.join(out_dir, "privacy.csv"), index=False)
+    saved.append("privacy.csv")
+
+    n_fid_passed = sum(1 for r in fidelity_results if r.get("passed"))
+    n_priv_passed = sum(1 for r in privacy_results if r.get("passed"))
+
+    metadata = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "n_customers": int(len(customers)),
+        "n_transactions": int(len(transactions)),
+        "n_repayments": int(len(repayments)),
+        "fidelity": {
+            "n_passed": n_fid_passed,
+            "n_total": len(fidelity_results),
+            "all_passed": n_fid_passed == len(fidelity_results),
+            "results": fid_rows,
+        },
+        "utility": utility_result,
+        "privacy": {
+            "n_passed": n_priv_passed,
+            "n_total": len(privacy_results),
+            "all_passed": n_priv_passed == len(privacy_results),
+            "results": priv_rows,
+        },
+        "thresholds": dict(VAL),
+        "artifacts": saved,
+    }
+    with open(os.path.join(out_dir, "validation_metadata.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, default=str)
+    saved.append("validation_metadata.json")
+
+    print("\n" + "=" * 58)
+    print(f"ARTIFACTS SAVED — {out_dir}")
+    for name in saved:
+        print(f"  {name}")
+    print("=" * 58)
+
 
 if __name__ == "__main__":
     main()

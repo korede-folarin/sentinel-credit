@@ -405,16 +405,20 @@ def main() -> None:
     print(f"Loaded {len(df):,} customers from "
           f"{DB['schema']}.customer_features")
 
+    # All EDA outputs are persisted, not just printed. Console
+    # output vanishes; a saved artifact can be re-read, diffed
+    # against a previous run, and cited in documentation
+    # without re-executing the script.
+    out_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "reports", "eda"
+    )
+    os.makedirs(out_dir, exist_ok=True)
+    saved = []
+
     target_result = check_target_imbalance(df)
     print_target_imbalance(target_result)
 
-    # Save so downstream reporting/charts read a real file,
-    # not numbers copied out of the console.
-    out_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "reports"
-    )
-    os.makedirs(out_dir, exist_ok=True)
     pd.DataFrame([{
         "n_total": target_result["n_total"],
         "n_modelable": target_result["n_modelable"],
@@ -422,25 +426,101 @@ def main() -> None:
         "n_bad": target_result["n_bad"],
         "n_good": target_result["n_modelable"] - target_result["n_bad"],
         "overall_bad_rate": target_result["overall_bad_rate"],
-    }]).to_csv(os.path.join(out_dir, "eda_target_summary.csv"), index=False)
-    print(f"\nSaved: {out_dir}/eda_target_summary.csv")
+    }]).to_csv(os.path.join(out_dir, "target_summary.csv"), index=False)
+    saved.append("target_summary.csv")
+
+    # Segment bad rates, flattened from the nested dict the
+    # print function consumes.
+    segment_rows = []
+    for seg_col, seg_values in target_result.get("by_segment", {}).items():
+        for seg_val, stats_d in seg_values.items():
+            segment_rows.append({
+                "segment_column": seg_col,
+                "segment_value": seg_val,
+                "n": stats_d.get("n"),
+                "bad_rate": stats_d.get("bad_rate"),
+            })
+    if segment_rows:
+        pd.DataFrame(segment_rows).to_csv(
+            os.path.join(out_dir, "target_by_segment.csv"), index=False)
+        saved.append("target_by_segment.csv")
+
+    # Chart script reads this path — kept for compatibility.
+    legacy_dir = os.path.dirname(out_dir)
+    pd.DataFrame([{
+        "n_total": target_result["n_total"],
+        "n_modelable": target_result["n_modelable"],
+        "n_not_modelable": target_result["n_total"] - target_result["n_modelable"],
+        "n_bad": target_result["n_bad"],
+        "n_good": target_result["n_modelable"] - target_result["n_bad"],
+        "overall_bad_rate": target_result["overall_bad_rate"],
+    }]).to_csv(os.path.join(legacy_dir, "eda_target_summary.csv"), index=False)
 
     miss_df = check_missingness(df)
     print_missingness(miss_df)
+    miss_df.to_csv(os.path.join(out_dir, "missingness.csv"), index=False)
+    saved.append("missingness.csv")
 
     iv_df = run_iv_screening(df)
     print_iv_screening(iv_df)
+    iv_df.to_csv(os.path.join(out_dir, "iv_screening.csv"), index=False)
+    saved.append("iv_screening.csv")
 
     corr, vif_df = check_correlation_and_vif(df)
     print_correlation_and_vif(corr, vif_df)
+    vif_df.to_csv(os.path.join(out_dir, "vif.csv"), index=False)
+    saved.append("vif.csv")
+    corr.to_csv(os.path.join(out_dir, "correlation_matrix.csv"))
+    saved.append("correlation_matrix.csv")
+
+    # Correlated pairs above threshold, as a flat list rather
+    # than requiring the reader to scan a full matrix.
+    thresh = EDA_CFG.get("correlation_threshold", 0.70)
+    pair_rows = []
+    cols = list(corr.columns)
+    for i, c1 in enumerate(cols):
+        for c2 in cols[i + 1:]:
+            r = corr.loc[c1, c2]
+            if abs(r) > thresh:
+                pair_rows.append({"feature_1": c1, "feature_2": c2,
+                                  "r": round(float(r), 4)})
+    pd.DataFrame(pair_rows).to_csv(
+        os.path.join(out_dir, "correlated_pairs.csv"), index=False)
+    saved.append("correlated_pairs.csv")
 
     outlier_df = flag_outliers(df)
     print_outliers(outlier_df)
+    outlier_df.to_csv(os.path.join(out_dir, "outliers.csv"), index=False)
+    saved.append("outliers.csv")
 
     split_result = check_split_stability(df)
     print_split_stability(split_result)
+    pd.DataFrame([split_result]).to_csv(
+        os.path.join(out_dir, "split_stability.csv"), index=False)
+    saved.append("split_stability.csv")
+
+    # Run metadata, so a saved artifact set can always be
+    # traced to the feature set and population that produced it.
+    metadata = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "n_customers_loaded": int(len(df)),
+        "n_modelable": int(target_result["n_modelable"]),
+        "overall_bad_rate": target_result["overall_bad_rate"],
+        "n_features_screened": int(len(MODEL_FEATURES)),
+        "feature_list": list(MODEL_FEATURES),
+        "thresholds": dict(EDA_CFG),
+        "artifacts": saved,
+    }
+    with open(os.path.join(out_dir, "eda_metadata.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+    saved.append("eda_metadata.json")
 
     print("\n" + "=" * 58)
+    print(f"ARTIFACTS SAVED — {out_dir}")
+    for name in saved:
+        print(f"  {name}")
+    print("=" * 58)
     print("EDA COMPLETE — review flags above before training")
     print("=" * 58)
 

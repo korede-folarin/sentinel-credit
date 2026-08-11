@@ -1,12 +1,11 @@
-git add .
-git status# Sentinel Credit
+# Sentinel Credit
 ## Engineering Decision Log
 
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.15
-**Last Updated:** 30th July 2026
+**Version:** 3.22
+**Last Updated:** 7th August 2026 (v3.22)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -1783,6 +1782,14 @@ implemented.
 
 ## Decision 15 — A/B Test Analysis, and the Maturity Collapse
 
+> **Superseded in part by Decision 16 (3rd August 2026).** The
+> maturity collapse described below was resolved by extending
+> the observation horizon. The causal reasoning about
+> post-treatment selection remains valid and is retained: it is
+> why the problem was identified rather than absorbed. The
+> mature-cohort construction it produced is no longer needed,
+> because right-censoring no longer exists.
+
 ### Challenge
 Decision 1 defined an affordability-threshold experiment
 (A_strict 0.45 vs B_relaxed 0.60, `group_B_hazard_multiplier`
@@ -1930,6 +1937,771 @@ through the pipeline without touching analysis code, is also
 evidence the architecture is sound. The same correction in a
 notebook-based project would mean manually editing every
 downstream stage.
+
+---
+
+## Decision 16 — Extending the Observation Horizon: An Architectural Simplification
+
+### What changed
+One config value:
+
+```yaml
+data_generator:
+  origination_end_date: "2024-10-31"   # UNCHANGED
+  data_end_date:        "2025-12-31"   # was 2024-12-31
+```
+
+`origination_end_date` was deliberately left alone. The same
+customers and the same transactions are generated — the change
+gives existing loans time to resolve rather than adding
+population, so the effect is isolated to outcome observability.
+
+### Why
+Decision 15 established that only 9.7% of customers (4,871 of
+50,000) qualified for a causally valid A/B analysis population,
+leaving the experiment at 35.85% power against an 80% target.
+The diagnostic
+(`sql/diagnostics/check_maturity_collapse.sql`) showed the
+cause was the simulation horizon, not the experimental design:
+85.6% of last transactions fell in 2024, while the maturity
+cutoff sat at 2023-11-07. A 12-month extension was computed as
+the sufficiency point — eligible cohort rising to 41,604 and
+plateauing thereafter, since 41,604 is every customer who ever
+transacted.
+
+Leaving it unfixed was considered. It was defensible — the
+limitation could have been documented — but the cause was known
+and the fix was one line. Knowingly shipping an underpowered
+primary experiment when the correction was understood is not a
+position that survives review.
+
+### Effect on the data
+
+| | Before | After |
+|---|---|---|
+| Right-censored transactions | ~33% | **0.00%** |
+| Modelable customers | 18,694 | **41,604** |
+| Customer default rate | 4.26% | 2.72% |
+| Transaction default rate | — | 0.90% |
+| A/B effect (absolute) | +0.52pp | +0.41pp |
+| A/B analysis population | 4,871 (mature cohort) | ~50,000 (full) |
+
+**Right-censoring is now zero.** Every approved loan reaches an
+observed outcome.
+
+The customer default rate fell from 4.26% to 2.72%. This is
+consistent with the removal of the previous maturity selection
+— the old figure was computed on a population where only 37%
+of customers qualified — but that explanation has not been
+demonstrated. Verifying it would require comparing the
+composition (repayment counts, approval mix, customer
+characteristics) of the old and new modelling populations.
+Recorded as a plausible account, not an established one.
+
+### Effect on statistical power
+Recomputed from the regenerated data: **99.85%** achieved
+power, with a minimum detectable effect of 0.233pp against an
+observed effect of 0.410pp. The experiment can now detect an
+effect less than half the size of the one present.
+
+The previous 35.85% figure is **not** a baseline this improved
+on. Regeneration changed the data-generating process — the
+horizon, the observed outcomes, and the event rate all moved —
+so the two numbers describe different experiments. Power was
+recomputed from first principles rather than compared.
+
+### Validation after regeneration
+Fidelity 8/8, utility PASS, privacy 2/2. Fidelity scores are
+identical to the previous run (Hellinger 0.0019 / 0.0043 /
+0.0029; thin-file 31.22%; resilience 24.08%; health 16.95%),
+which is the expected result: the horizon change affects when
+outcomes resolve, not who the customers are.
+
+One movement worth recording: TSTR retention fell from 0.7865
+to 0.7398 and the Gini gap widened from 0.0844 to 0.1080. Both
+remain within the documented pass criteria (the gap is
+reported as supporting context, not a gate — Decision 2
+addendum). Plausibly a consequence of the changed target rate.
+Not investigated further.
+
+### The architectural consequence
+This is the substantive outcome, larger than the power fix.
+
+**Before:**
+```
+generate -> load -> determine maturity -> build modelling
+cohort -> feature store -> models
+```
+
+**After:**
+```
+generate -> load -> feature store -> models
+```
+
+An entire stage is gone. With it goes a class of post-treatment
+selection risk that had to be reasoned about at every step:
+`has_outcome` was a post-treatment variable (observability
+differed 34.08% vs 40.77% between A/B arms), the mature-cohort
+filter existed to work around that, and the temporal split's
+tenor-maturity bias came from the same source. None of those
+apply now, because the underlying cause was removed rather than
+managed.
+
+### What this means for the code
+The distinction applied is **diagnostics stay, cohort
+construction goes**:
+
+| Component | Fate | Reasoning |
+|---|---|---|
+| Observability check | Retained | A validation safeguard. Proves the property holds rather than assuming it, and would catch a regression cheaply. |
+| Power calculation | Retained | Relevant to any experiment |
+| Assignment and covariate balance, SMDs | Retained | Standard for any randomised comparison |
+| `build_mature_cohort()` | Archived | Exists only to work around a problem eliminated at source |
+| Single-class test-set guard | Reviewed | Was added because the temporal split produced 16 customers, all defaulters; that condition no longer arises |
+
+Deliberately NOT made conditional. A branch of the form
+`if maturity_rate < 0.99: use_mature_cohort()` would carry
+complexity forward to guard a state this platform has designed
+out. Sentinel Credit is not intended to support incomplete
+observation windows; the code should reflect that rather than
+hedge against it. The archived logic and the reasoning behind
+it remain in this log and in `sql/diagnostics/`.
+
+### Open question, not resolved
+The generator reports a transaction-level default rate of
+0.90% against a reference of approximately 0.40%. That
+reference may have been chosen under the previous, shorter
+follow-up. If so, 0.90% under full observation may be correct
+rather than too high, and recalibrating toward 0.40% would be
+actively wrong — forcing the simulator to match a target set
+under different observation conditions. **Whether the reference
+still applies must be established before any recalibration
+decision.** No recalibration has been performed.
+
+### Addendum — Signal Recovery: What the Corrected Data Revealed
+EDA on the regenerated dataset produced the clearest evidence
+yet that the exposure-time contamination was real, and it came
+from a direction that could not have been engineered.
+
+Information Value moved in two opposite directions:
+
+| Feature | Censored | Full observation | Change |
+|---|---|---|---|
+| `n_applications` | 0.5829 | 0.2344 | **−60%** |
+| `bnpl_exposure_to_monthly_income_ratio` | 0.6224 | 0.2839 | **−54%** |
+| `avg_order_value_gbp` | 0.3691 | 0.1414 | **−62%** |
+| `pct_late_payments` | 0.2045 | 0.0567 | **−72%** |
+| `n_late_payments` | 0.2493 | 0.0743 | **−70%** |
+| | | | |
+| `savings_balance_gbp` | 0.6538 | 0.7692 | +18% |
+| `thin_file_flag` | 0.6884 | 0.7535 | +9% |
+| `credit_score` | 0.5718 | 0.6294 | +10% |
+| `months_credit_history` | 0.5811 | 0.6075 | +5% |
+
+**Why this happened.** Under right-censoring, a customer only
+entered the modelable population if their outcome had resolved.
+Resolution took time, and more activity meant more opportunity
+to resolve — so activity-related features were correlated with
+*being observable at all*, not only with defaulting. That
+correlation inflated their apparent predictive power. Removing
+censoring removes the selection, and those features fall back
+to what they are actually worth.
+
+The customer attributes moved the other way for the
+complementary reason. `savings_balance_gbp`, `credit_score`,
+`thin_file_flag` and `months_credit_history` are generated
+before any repayment simulation and feed directly into
+`miss_hazard()` and `financial_resilience()`. They were always
+genuine. What changed is that the artifact inflating everything
+around them is gone, so real signal is more visible relative to
+the noise that was crowding it.
+
+**Why this matters beyond the numbers.** Decision 14 excluded
+four exposure-time features on feature-validity grounds, using
+SHAP for dependence, an ablation for usefulness, and repeated
+CV for stability. That decision was made while the
+contamination was still present and could only be reasoned
+about indirectly. This EDA run is independent confirmation
+obtained by removing the cause rather than measuring around it:
+the same collapse appears in the surviving relatives of the
+excluded features, which is what the diagnosis predicted would
+happen and could not have been arranged after the fact.
+
+Two consequences follow:
+
+**Five features now exceed the 0.5 investigation threshold,
+down from seven, and all five are day-zero customer
+attributes.** No behavioural or exposure feature crosses the
+line. The IV distribution is now interpretable in one sentence:
+the model's strongest signals are things known about a customer
+before they borrow.
+
+**Events per variable improved to roughly 63** (1,132 defaults,
+18 features), up from 44, despite the bad rate falling from
+4.26% to 2.72% — the 2.2x larger population more than offsets
+the lower rate.
+
+**One question opened, not closed.**
+`existing_monthly_obligations_gbp` now has an IV of 0.0018 and
+`age` 0.0085, both below the 0.02 drop threshold. This is a
+different question from the exposure-time investigation — no
+contamination, just weak signal — and both are conventional
+credit attributes a reviewer would expect to see considered
+rather than silently dropped. Flagged for a deliberate
+decision; not removed.
+
+### Addendum — Artifact Persistence
+Both `EDA/eda_baseline.py` and `validation/validation.py`
+previously printed their results to console and saved almost
+nothing. Every re-examination therefore required re-executing
+the script and re-connecting to the database.
+
+Both now persist full artifact sets:
+
+- `reports/eda/` — target summary, missingness, IV screening,
+  VIF, full correlation matrix, correlated pairs as a flat
+  list, outliers, split stability, and `eda_metadata.json`
+  recording the feature list, thresholds and population that
+  produced them.
+- `reports/validation/` — fidelity, utility, privacy, and
+  `validation_metadata.json`.
+
+The metadata files matter more than the CSVs: a saved result
+is only useful if it can be traced to the feature set and
+population that generated it. Without that, a stale artifact is
+worse than none.
+
+### Engineering note
+Production engineers are judged not only by what they add, but
+by what they can safely remove. Having eliminated the root
+cause, the correct response was to delete the machinery built
+to manage its symptoms — not to keep it behind a flag. The
+historical reasoning lives in the log; the pipeline does not
+have to carry it.
+
+---
+
+## Decision 17 — Feature Store Inventory: Every Column Accounted For
+
+### Challenge
+`MODEL_FEATURES` reached 18 through a sequence of individual
+exclusions made across Decisions 12, 14 and 16. Each was
+individually documented, but the list had never been *derived*
+from a complete inventory — nobody had established what the
+full candidate set actually was, or confirmed that every
+column in the feature store had a stated role.
+
+That gap matters for two reasons. A reviewer asking "why isn't
+X in the model?" needs an answer for every X, not only for the
+ones that happened to come up. And features that were never
+screened at all are invisible: they neither pass nor fail,
+they simply don't appear.
+
+### Method
+`sql/diagnostics/check_feature_store_inventory.sql` profiles
+every column in `feature_store.customer_features` — type, null
+rate, and distinct-value count on the modelable population.
+Each column was then classified by role.
+
+**The feature store and `MODEL_FEATURES` are different layers,
+and conflating them is the source of the confusion:**
+
+```
+Feature store (64 columns)
+  the governed analytical record — model development,
+  feature screening, fairness analysis, A/B evaluation,
+  monitoring, diagnostics, explainability, audit traceability
+
+        |  eligibility and governance review
+        v
+
+MODEL_FEATURES (18 columns)
+  the scoring contract — only predictors available at
+  decision time, not targets or identifiers, not policy
+  assignments, not regulatory monitoring fields, not
+  resolution-tied, and passing the current governance review
+```
+
+A column can legitimately belong in the feature store and not
+in the model. That is the design, not an oversight.
+
+### Inventory result — 64 columns
+
+| Category | Count | Basis |
+|---|---|---|
+| **CANDIDATE (in `MODEL_FEATURES`)** | **18** | Passed all gates |
+| Excluded — resolution-tied | 12 | Only observable after outcome resolves |
+| Excluded — redundant or exact identity | 11 | Duplicates information already present |
+| Excluded — exposure-time confounded | 6 | Feature validity (Decision 14) |
+| Excluded — regulatory or segmentation | 4 | Not lawful/appropriate as scoring inputs |
+| Never screened — decision required | 4 | See below |
+| Monitoring only | 2 | `is_vulnerable`, `ab_test_group` |
+| Structural (ID, target, filter, dates) | 5 | Not predictors by definition |
+| Excluded — constant | 1 | `n_terminal_delinquent` |
+| Excluded — direct leakage | 1 | `n_terminal_default` |
+
+The 18 CANDIDATE columns are exactly the current
+`MODEL_FEATURES`. The allowlist was correct; it simply had
+never been shown to be complete.
+
+### Why each exclusion category exists
+
+**Resolution-tied (12)** — `max_dpd_ever`, `avg_max_dpd`,
+`n_reached_sicr`, `pct_reached_sicr`, `max_cycles_delinquent`,
+`avg_cycles_delinquent`, `max_arrears_depth`,
+`avg_arrears_depth_when_behind`, `n_terminal_current`,
+`avg_days_late`, `max_days_late`, `total_days_late`. These
+describe how a loan resolved, so they are only knowable after
+the outcome they would be predicting. Retained in the feature
+store for post-hoc explanation, portfolio monitoring and
+delinquency reporting — the boundary pattern established in
+Decision 12: keep in the table, exclude at the model layer.
+
+**Redundant or exact identity (11)** — `annual_income_gbp`
+(= monthly x 12), `n_transactions` (= `n_approved`, r=1.0000),
+`n_declined` (= applications - approved), `approval_rate`,
+`pct_affordability_flagged`, `n_affordability_flags`
+(= `n_declined`), `pct_low_risk_category` (three proportions
+sum to 1), `total_instalment_exposure_gbp` (r=0.974),
+`n_transactions_with_late_payment` (r=0.949),
+`avg_affordability_ratio` (r=0.93), `debt_to_income_ratio`
+(dominant term inside affordability ratio). Feeding both sides
+of an identity to Logistic Regression makes its coefficients
+unstable and meaningless, defeating the reason Decision 4
+chose it.
+
+**Exposure-time confounded (6)** — `n_approved`,
+`days_since_last_transaction`, `total_order_value_gbp`,
+`transaction_span_days`, `max_order_value_gbp`,
+`n_merchant_categories`. Excluded on feature validity in
+Decision 14 and independently confirmed by the horizon
+extension (Decision 16 addendum), where the same collapse
+appeared in their surviving relatives once censoring was
+removed.
+
+**Regulatory or segmentation (4)** — `vulnerability_score`
+(composite includes a health driver, Equality Act 2010),
+`age_bracket`, `income_band`, `employment_status`. The
+banded/categorical forms are for analysis and fairness
+segmentation, not scoring. Note `age` and `monthly_income_gbp`
+are retained in continuous form — the exclusion is of the
+banded representations used for segment reporting, not of the
+underlying attributes.
+
+**Monitoring only (2)** — `is_vulnerable` and `ab_test_group`
+are comparison-group labels. Using either as a predictor would
+mean scoring customers on their vulnerability status or their
+experiment assignment.
+
+**Constant (1)** — `n_terminal_delinquent` has a single
+distinct value across the entire modelable population. Under
+the extended horizon every transaction resolves to CURRENT or
+DEFAULT; none remains still-behind. Zero signal is
+mathematically possible. Worth recording because it is also a
+data property confirming the horizon extension worked.
+
+**Direct leakage (1)** — `n_terminal_default` is a restatement
+of the target.
+
+### Four columns never screened — decision required
+These exist in the feature store and were never added to the
+allowlist or explicitly excluded. They are neither passing nor
+failing; they are simply absent from every prior review:
+
+| Column | Prior suspicion |
+|---|---|
+| `n_instalments_total` | Cumulative count — likely exposure-time confounded |
+| `n_transactions_with_repayments` | Likely identical to `n_approved` |
+| `total_scheduled_repayment_gbp` | Cumulative — likely near-duplicate of `total_order_value_gbp` |
+| `avg_instalment_amount_gbp` | Per-transaction average, so NOT obviously exposure-confounded and not obviously duplicating anything included |
+
+Three are expected to fail on structural grounds.
+`avg_instalment_amount_gbp` is the genuine open question: as
+an average rather than a cumulative sum it does not inflate
+with exposure time, and it has no obvious duplicate in the
+current set. **Not excluded on suspicion** — to be tested with
+correlation and IV in the governance review, held to the same
+standard as everything else.
+
+### Two retained features flagged, not removed
+`age` (IV 0.0085) and `existing_monthly_obligations_gbp`
+(IV 0.0018) both sit below the 0.02 drop threshold on the
+regenerated data. **Both are retained for this training run.**
+
+IV is a screening tool, not a decision rule. It measures
+univariate separation only: a feature can be weak alone and
+still contribute through interactions or non-linear splits,
+particularly in a gradient-boosted model. This project has
+already had IV mislead in both directions — `thin_file_flag`
+read 0.0000 under a binning bug, and the exposure-time family
+read 0.58-0.62 under a selection artifact. Acting on IV alone
+would apply a weaker evidential standard than Decision 14 used
+for the exposure features, in the same project, on the same
+day.
+
+Both are also conventional credit attributes. A reviewer
+asking whether existing financial commitments were considered
+should receive "yes, tested, contributed negligibly, excluded
+with evidence" — not "IV was below 0.02."
+
+They will be decided in the governance review using IV, VIF,
+SHAP and a repeated-CV ablation together, with the outcome
+recorded whichever way it goes.
+
+### Missingness treatment
+Two columns carry substantial nulls by design:
+`avg_days_late` (52.21%) and
+`avg_arrears_depth_when_behind` (79.93%) — both undefined for
+customers who never paid late or never fell behind. Both are
+already excluded as resolution-tied, so no imputation decision
+is required for the model. Recorded because a nullable field
+in a feature store needs a stated reason, and "genuinely
+undefined" is a different situation from "pipeline failure."
+
+All 18 model features have **zero nulls** in the modelable
+population.
+
+### Standing principle
+**Keep broadly in the feature store. Exclude deliberately at
+the model boundary.** Deleting a column the moment it fails
+model eligibility would destroy the evidence for its own
+exclusion — the identity between `n_transactions` and
+`n_approved`, and the IV of 1.11 on
+`days_since_last_transaction`, were only discoverable because
+those columns existed to be measured.
+
+The right test for a feature store column is not "does the
+model use it" but "does it have a documented role." A
+64-column store where every field has a stated purpose is
+better designed than a 30-column one where nobody knows why
+half of them exist.
+
+---
+
+## Decision 18 — Model Scope, and the v1 Feature Freeze
+
+### Challenge
+Decision 16's extended horizon and Decision 17's inventory left
+six features (`n_applications`, `avg_n_instalments`,
+`pct_high_risk_category`, `pct_medium_risk_category`,
+`bnpl_exposure_to_monthly_income_ratio`, `avg_order_value_gbp`)
+flagged `conditional_as_of_logic` — unconfirmed whether they
+are computed point-in-time or as full-lifetime aggregates —
+alongside `pct_late_payments`, `max_affordability_ratio` and
+`n_late_payments` carrying the same open question. This could
+not be resolved as a feature-level question in isolation: it
+depends on what Sentinel Credit is claiming to model, and that
+had never been stated explicitly.
+
+Two distinct model types were being conflated. A **customer-level
+portfolio-risk model** classifies risk using behaviour across a
+defined observation period; lifetime-aggregate features are
+legitimate here provided the scope is stated. An
+**application-time underwriting model** scores one specific new
+application using only information available before that
+application, which requires point-in-time reconstructed
+features and a training population rebuilt as one row per
+application rather than one row per customer. The two require
+different features, different populations, and support
+different claims. Continuing to freeze `MODEL_FEATURES` without
+choosing between them would freeze a feature set that is
+answerable to neither standard cleanly.
+
+### Decision — scope
+**Sentinel Credit v1 is a customer-level portfolio-risk model,
+not an application-time underwriting model.** Application-time
+underwriting is recorded as a future redesign (see below), not
+as an expansion of the current scope.
+
+### Method — testing the six for exposure-time contamination
+`sql/diagnostics/check_point_in_time.sql` correlates each
+flagged feature against exposure-window length, on the
+reasoning that a feature drawing on information beyond a
+consistent observation point should tend to grow with how long
+a customer has been active.
+
+**Confirmed exposure-time contaminated** (correlation with
+exposure length): `n_applications` (r=0.47),
+`bnpl_exposure_to_monthly_income_ratio` (r=0.34),
+`n_late_payments` (r=0.22) — all rise monotonically with tenure.
+
+**No material association found**: `pct_late_payments`,
+`pct_medium_risk_category`, `pct_high_risk_category`,
+`avg_n_instalments`, `max_affordability_ratio`. `avg_order_value_gbp`
+showed a mild upward drift (r=0.08), below the threshold treated
+as material here.
+
+This diagnostic tests only for growth with exposure length. A
+near-zero correlation shows the feature is not accumulating
+over time; it does not establish that the feature's value was
+fixed as of any particular decision point — `max_affordability_ratio`,
+for example, is a lifetime maximum, and a low correlation with
+tenure says nothing about *when within that lifetime* the
+maximum occurred. That distinction only matters under an
+application-time scope. Under the portfolio-risk scope adopted
+above, it does not need to be resolved for v1: the diagnostic
+is retained as supporting evidence that these six show no
+material exposure-time confound, not as proof of point-in-time
+validity, and the wording throughout this decision is
+deliberately kept to that weaker, defensible claim.
+
+### Decision — four features removed
+1. **`age`** — removed on regulatory defensibility grounds
+   (Equality Act 2010 proxy risk), not on IV. This corrects the
+   Decision 17 framing, which had proposed removal on "weak IV"
+   before noticing `existing_monthly_obligations_gbp` scores
+   lower on the same metric and was being retained — an
+   inconsistency once the two are placed side by side.
+2. **`n_applications`** — removed. Confirmed exposure-time
+   contaminated (r=0.47); counts applications across the
+   customer's full observed history, including activity after
+   any consistent observation point.
+3. **`bnpl_exposure_to_monthly_income_ratio`** — removed.
+   Confirmed exposure-time contaminated (r=0.34); the lifetime
+   version accumulates exposure beyond a fixed point.
+4. **`n_late_payments`** — removed. Confirmed exposure-time
+   contaminated (r=0.22); can include late payments occurring
+   after the point risk should have been assessed. Its exact
+   0.000000 SHAP contribution (Decision 17 governance review) is
+   recorded as corroborating, supporting evidence — the removal
+   rests on the confirmed confound, not on the SHAP result alone.
+
+### Decision — six features retained
+`pct_late_payments`, `pct_medium_risk_category`,
+`pct_high_risk_category`, `avg_n_instalments`,
+`max_affordability_ratio`, `avg_order_value_gbp` are **retained**
+for v1. Their construction is consistent with the customer-level
+portfolio-risk scope, and the exposure-window diagnostic found
+no material association requiring removal. This diagnostic is
+supporting evidence, not proof of point-in-time validity, and is
+not being cited as such.
+
+### Resulting feature set
+`MODEL_FEATURES` moves from 18 to **14** for v1. This is
+recorded as a scope-driven freeze, not a performance-driven one:
+no retraining evidence motivated any of the four removals.
+
+### Governance evidence retained, not discarded
+The 285-fit repeated-CV leave-one-out review (Decision 17) is
+**not superseded as evidence** — it remains the governance record
+for the 18-feature baseline and documents why the final set
+changed. It is explicitly marked as pre-freeze evidence, not the
+review of the 14-feature v1 model. A fresh governance pass on
+the 14-feature set is queued as a follow-on step before v1 is
+called final.
+
+### Future work — application-time underwriting
+Recorded, not built: a v2 redesign scoring a specific application
+using only prior history, requiring point-in-time reconstructions
+of the excluded and flagged features (`n_prior_applications`,
+`prior_avg_order_value_gbp`, `max_prior_affordability_ratio`, and
+equivalents for the remaining flagged features) and a training
+population rebuilt as one row per application. None of the
+current governance evidence would carry over unchanged to that
+redesign.
+
+---
+
+## Decision 19 — Business Cutoff Selection: Training-Only OOF, Review-Capacity Constrained
+
+### Challenge
+`business_cutoff: 0.137` had been provisional and increasingly
+dead since Decision 16's horizon extension changed the
+population's bad rate. Evaluation on the frozen 14-feature v1
+champion (`models/artifacts/champion_metadata.json`, stratified
+and temporal splits) confirmed this concretely rather than
+provisionally: at 0.137, XGBoost flagged 0 of 8,321 stratified
+test customers and 3 of 4,857 temporal test customers. The
+configured cutoff was not merely miscalibrated, it was
+non-functional — no evaluation of precision, recall, or
+fairness at an actual operating point was possible until it was
+replaced.
+
+Two constraints on how the replacement could be selected,
+carried over from the project's standing discipline:
+1. **Training-only.** Selecting a threshold on either held-out
+   evaluation set would contaminate that set's use as an
+   independent performance estimate — the same reason GridSearchCV
+   never touches the test partition (Decision 4).
+2. **No invented cost assumptions.** `evaluate_models.py`'s
+   docstring records that a cost-matrix approach using assumed
+   unit costs was considered and declined for the main evaluation
+   script, since this platform is PD-only (Decision 4 addendum)
+   and has no real LGD/EAD basis for a false-negative:false-positive
+   cost ratio. Manufacturing one to select a threshold would
+   produce a cutoff that looks governed without being defensible.
+
+### Method
+`models/select_business_cutoff.py` (retiring an earlier draft,
+`recalibrate_threshold.py`, which duplicated this purpose and
+was deleted rather than merged) reconstructs the exact canonical
+stratified training partition from `split_ids_train.csv`,
+freezes the champion's already-selected XGBoost hyperparameters
+(no re-search), and generates calibrated out-of-fold
+probabilities via a double cross-validation structure: 5 outer
+folds partition the training data for OOF prediction, each
+fitted on a `CalibratedClassifierCV(method="sigmoid")` with its
+own 5-fold inner split for calibration — the same calibration
+method the deployed champion uses, so the threshold is selected
+on the probability scale the decision engine actually outputs,
+not on raw uncalibrated XGBoost scores. Neither held-out test
+split was read at any point in this script.
+
+Three candidate thresholds were generated from the same
+underlying OOF precision-recall table, each answering a
+different question:
+
+| Method | Threshold | Flagged | Precision | Recall | Bad rate if approved |
+|---|---:|---:|---:|---:|---:|
+| F1-optimal | 0.0868 | 7.82% | 11.02% | 31.68% | 2.02% |
+| **Review-capacity (15%)** | **0.0671** | **15.00%** | **9.35%** | **51.55%** | **1.55%** |
+| Youden's J | 0.0376 | 24.02% | 7.74% | 68.32% | 1.13% |
+
+A fourth candidate, expected-cost-minimizing, was configured but
+deliberately left unset (`threshold_recalibration.cost_assumptions.
+false_negative_cost` / `false_positive_cost`, both `null` in
+`config.yaml`) and consequently skipped — no defensible cost
+ratio exists yet, and inventing one to manufacture a fourth
+number would have violated the same PD-only boundary
+`evaluate_models.py` already declined to cross.
+
+### Decision
+**`business_cutoff` is set to `0.0671`**, the review-capacity-
+constrained threshold, selected over F1 and Youden because it is
+the only one of the three that answers the operational question
+directly: given a stated review capacity of 15% of applications,
+how much risk can the model capture. F1 leaves the majority of
+available review capacity unused (7.82% flagged) and misses
+roughly two-thirds of defaults (31.68% recall). Youden exceeds
+the stated capacity by more than half again (24.02% flagged) —
+a statistically balanced operating point, but not one the
+review process was described as able to absorb. At 0.0671,
+15.00% of the training population is flagged, capturing 51.55%
+of observed defaults at 9.35% precision, with a 1.55% residual
+bad rate among approved customers.
+
+F1 and Youden are retained as statistical comparators in
+`reports/threshold_selection/threshold_candidates.csv`, not
+discarded — they document that the capacity constraint was an
+active choice among alternatives, not the only threshold
+computed.
+
+**This selection is conditional on 15% being a genuine
+operational review-capacity figure.** `config.yaml`'s
+`review_capacity.max_flag_rate: 0.15` is currently documented as
+an illustrative placeholder demonstrating the mechanism ("the
+review team can handle at most 15%" was given as an example, not
+confirmed). If the real figure differs, `select_business_cutoff.py`
+should be rerun with the corrected value before this cutoff is
+treated as final — the OOF evidence and calibration do not need
+to be regenerated, only the capacity constraint and the
+resulting candidate.
+
+### Held-out confirmation (both splits)
+`evaluate_models.py` was rerun on both stratified and temporal at
+`business_cutoff: 0.0671`. Stratified landed close to the OOF
+selection estimate (recall 54.87% vs 51.55% OOF, flagged rate
+15.51% vs 15.00% target) — expected, since stratified is drawn
+from the same population distribution the cutoff was selected
+against. Temporal came in lower (recall 38.71%, flagged rate
+10.99%), reflecting a genuinely out-of-time population with a
+different score distribution, not a selection failure. Cutoff-
+independent metrics (Gini, AUC, KS, PR-AUC, ECE, Brier) were
+unchanged from Section 6 of the training summary on both splits,
+as expected — they do not depend on `business_cutoff`.
+
+### Operating-policy review: thin_file_flag segment finding
+The `thin_file_flag` fairness table at 0.0671 surfaced a material
+pattern requiring its own investigation before this cutoff could
+be signed off, not merely noted: false-negative rate for
+`thin_file_flag=0` was 100% on both splits — confirmed via both
+the targeted segment diagnostics and, subsequently, full
+`evaluate_models.py` runs on stratified (FNR 100.00%, FPR 0.00%)
+and temporal (FNR 100.00%, FPR 0.03%) — every defaulted customer
+in that segment was missed on both. `thin_file_flag=1` carried
+both the recall and a substantial false-positive burden (FPR
+46.53% stratified, 32.93% temporal). Logistic Regression and
+Decision Tree showed the same pattern, which corroborates but
+does not independently confirm the finding — the three models
+share the same population and heavily overlapping predictors, so
+agreement between them is expected even under a shared ranking or
+scale issue, not three separate lines of evidence.
+
+`thin_file_flag` is a credit-profile segment, not itself a
+protected characteristic; the finding is an operating-policy
+concern, not a formally established disparate-impact claim.
+
+Three checks (`models/segment_threshold_diagnostics.py`) were run
+on both splits before drawing any conclusion:
+
+1. **Score distribution among defaulted customers, by segment.**
+   `thin_file_flag=0` defaulters' calibrated scores topped out at
+   0.0344 (stratified, n=61) and 0.0367 (temporal, n=34) — roughly
+   half the cutoff, with 0% above it on either split. This is a
+   hard ceiling, not a few borderline cases: the entire segment's
+   defaulted-customer score distribution sits below any threshold
+   that was on the table.
+2. **Threshold sweep by segment, single global threshold.** No
+   threshold exists that recovers `thin_file_flag=0` recall
+   without collapsing `thin_file_flag=1`'s false-positive rate to
+   75-86%+ in the process. This rules out the threshold choice
+   itself as the cause — F1 (0.0868) and Youden (~0.02-0.06
+   depending on split) sit at or above the same collapse point, so
+   no candidate on the table would have avoided this.
+3. **Within-segment AUC, with bootstrap 95% CI** (given the small
+   defaulted-customer counts):
+
+| Split | Segment | n | Defaults | AUC | 95% CI | Gini | KS |
+|---|---|---:|---:|---:|---|---:|---:|
+| Stratified | thin=0 | 5,648 | 61 | 0.6409 | 0.5661-0.7220 | 0.2819 | 0.2584 |
+| Stratified | thin=1 | 2,673 | 165 | 0.6904 | 0.6532-0.7286 | 0.3808 | 0.3293 |
+| Temporal | thin=0 | 3,294 | 34 | 0.6885 | 0.6148-0.7613 | 0.3770 | 0.3621 |
+| Temporal | thin=1 | 1,563 | 90 | 0.6667 | 0.6159-0.7159 | 0.3333 | 0.2772 |
+
+`thin_file_flag=0`'s CI lower bound clears 0.5 on both splits
+(0.5661 stratified, 0.6148 temporal), and the point estimate does
+not collapse on temporal — it rises (0.64 to 0.69). This is
+**interpretation (1): a policy-scale problem, not a model-signal
+failure.** The model ranks risk within `thin_file_flag=0`
+comparably to how it ranks within `thin_file_flag=1` — the two
+segments' CIs overlap substantially on both splits. What collapses
+is the *absolute* probability scale: a rare event (1.03% bad
+rate) within an already-low-base-rate segment gets compressed
+toward zero under one shared calibration, even for the
+segment's genuinely higher-risk members. Checks 1-2 already
+established no single global threshold can fix this; check 3
+establishes why — the signal exists, it does not reach the scale
+a shared cutoff operates on.
+
+This is not new: it echoes the earlier finding (Decision 12
+addendum) that removing `thin_file_flag` as a model input did not
+close this gap, because `credit_score` reconstructs the same
+segmentation on its own (r=-0.75). The mechanism recurring under
+a different diagnostic is corroborating, not incidental.
+
+**What this finding does not license.** Segment-specific
+thresholds are not implemented here, and this evidence is not
+grounds to implement them unilaterally — that remains the
+explicit governance decision Decision 12 already deferred.
+Ranking surviving within `thin_file_flag=0` also does not reduce
+this to "just calibration": a single globally calibrated model
+producing this pattern is consistent with the segment carrying
+real, if compressed, risk information — what policy to build on
+that (percentiles within segment, segment-adjusted cutoffs, or
+leaving the global cutoff as-is with the limitation documented)
+is a separate decision, not resolved by this diagnostic.
+
+### Decision (resolved)
+`business_cutoff: 0.0671` is **confirmed** for the global-decision
+question — held-out evaluation on both splits is consistent with
+the OOF selection evidence, and no alternative global threshold
+on the table would have avoided the segment pattern above. A
+**separate governance item is opened, not resolved here**: whether
+segment-aware review capacity is warranted, given ranking survives
+within `thin_file_flag=0` but the shared probability scale
+suppresses it to zero recall in practice. This item requires
+explicit policy sign-off before any segment-differentiated
+treatment is built, per Decision 12.
 
 ---
 
@@ -2313,3 +3085,10 @@ Decision 10.
 | 3.13 | 3rd August 2026 | Added Decision 14: SHAP explainability foundation and resolution of the exposure-time features. Training now persists a governed model package (calibrated champion + uncalibrated explanation base + metadata + split IDs) so downstream scripts load rather than retrain. SHAP validated (additivity error 2.4e-06) and showed the model gave 32.1% of total importance to the four suspected features. A repeated-CV ablation (5x3 folds) found Gini/AUC/KS effectively tied, PR-AUC favouring the full set (13/15 folds), and the train/test gap favouring the conservative set (14/15). The four features were excluded on FEATURE VALIDITY grounds — they are structurally confounded with unequal exposure time and do not measure what they were intended to — accepting a modest PR-AUC cost. MODEL_FEATURES 22 to 18. Notably, an earlier single-split result suggested the conservative set was better on KS; repeated CV did not support that, and is recorded as the check that prevented a premature conclusion. |
 | 3.14 | 3rd August 2026 | Extended Decision 14 with the end-to-end retraining outcome and the resulting engineering lesson. After the feature exclusions, re-running the full pipeline (including grid search, which re-selected learning_rate 0.1 to 0.05) improved the champion on Gini 0.6493 to 0.6550, KS 0.5061 to 0.5178, recall 45.91% to 47.80%, and top-decile lift 5.03 to 5.16, with PR-AUC the only reduction. Highest VIF fell 32.23 to 18.24; exposure-time SHAP share fell 32.1% to 0%. Conclusion revised: the decision still rests primarily on feature validity, with performance evidence now supportive rather than counter-indicating, though the end-to-end comparison is a single split and is stated with matching caution. Lesson recorded: a feature ablation is not the final decision criterion for a production pipeline — an ablation answers how much information a feature family contains with everything else held fixed, while a full retraining answers how the pipeline behaves without it, including hyperparameter re-selection and threshold recalibration. |
 | 3.15 | 3rd August 2026 | Added Decision 15: the A/B test analysis (Decision 1's affordability-threshold experiment, previously never formally analysed) and the maturity collapse investigation it surfaced. Established that has_outcome is a post-treatment variable — observability differs 34.08% vs 40.77% between arms — so the primary test runs on a fully mature cohort anchored on last_transaction_date instead. Result: +0.52% absolute difference, 95% CI [-0.11%, +1.15%], p = 0.110 at only 35.85% achieved power against an 80% target. Diagnostic established the cause as the simulation horizon, not the design: 85.6% of last transactions fall in 2024 and the maturity cutoff precedes them. Extending data_end_date by 12 months raises the eligible cohort from 4,871 to 41,604 (a computed sufficiency point, plateauing thereafter) with no change to the causal design. Decision: extend and re-run, deliberately deferred to a separate session because the longer horizon will raise the observed default rate and may require re-sweeping the generator calibration. |
+| 3.16 | 3rd August 2026 | Added Decision 16: extended data_end_date from 2024-12-31 to 2025-12-31 (origination_end_date unchanged), eliminating right-censoring entirely. Modelable population 18,694 to 41,604; right-censored transactions ~33% to 0.00%; customer default rate 4.26% to 2.72%; A/B power recomputed at 99.85% with MDE 0.233pp. Validation re-run clean (fidelity 8/8 with identical scores, utility PASS, privacy 2/2); TSTR retention moved 0.7865 to 0.7398, recorded. The substantive outcome is architectural: an entire pipeline stage (maturity determination and cohort construction) is removed, along with the post-treatment selection risk that motivated it. Diagnostics retained as safeguards; build_mature_cohort archived rather than made conditional, since the platform is not intended to support incomplete observation windows. Decision 15 marked superseded in part. Open: whether the 0.40% transaction-level reference still applies under full observation — no recalibration performed. |
+| 3.17 | 3rd August 2026 | Added two Decision 16 addenda. (1) Signal recovery: EDA on the regenerated data shows exposure-related IV collapsing (n_applications -60%, bnpl_exposure_ratio -54%, late-payment features -70%) while day-zero customer attributes rose (savings_balance +18%, thin_file_flag +9%, credit_score +10%). This is independent confirmation of the exposure-time diagnosis obtained by removing the cause rather than measuring around it. Five features now exceed the 0.5 threshold, down from seven, all day-zero attributes. EPV improved to ~63 from 44. Opened, not closed: existing_monthly_obligations_gbp (IV 0.0018) and age (0.0085) now sit below the drop threshold — weak but uncontaminated, flagged for deliberate decision. (2) Artifact persistence: EDA and validation now save full result sets to reports/eda/ and reports/validation/ with metadata recording the feature list, thresholds and population, so results can be re-read and traced without re-execution. |
+| 3.18 | 3rd August 2026 | Added Decision 17: full feature store inventory. All 64 columns profiled and classified by role — 18 candidates (the current MODEL_FEATURES), 12 resolution-tied, 11 redundant or exact identities, 6 exposure-time confounded, 4 regulatory/segmentation, 2 monitoring-only, 5 structural, 1 constant (n_terminal_delinquent, confirming the horizon extension), 1 direct leakage. The allowlist was correct but had never been derived from a complete inventory. Four columns found never screened at all (n_instalments_total, n_transactions_with_repayments, total_scheduled_repayment_gbp, avg_instalment_amount_gbp) — three expected to fail structurally, avg_instalment_amount_gbp a genuine open question, none excluded on suspicion. age (IV 0.0085) and existing_monthly_obligations_gbp (IV 0.0018) flagged but retained pending the governance review, on the grounds that IV is a screening tool not a decision rule and has already misled twice in this project. Standing principle recorded: keep broadly in the feature store, exclude deliberately at the model boundary — deleting a column destroys the evidence for its own exclusion. |
+| 3.19 | 4th August 2026 | Added Decision 18: model scope resolved as customer-level portfolio-risk (not application-time underwriting) for v1, closing the conditional_as_of_logic question left open across Decisions 17-18. `sql/diagnostics/check_point_in_time.sql` correlated the flagged features against exposure-window length: n_applications (r=0.47), bnpl_exposure_to_monthly_income_ratio (r=0.34) and n_late_payments (r=0.22) confirmed exposure-time contaminated and removed; age removed separately on Equality Act 2010 grounds, correcting the "weak IV" framing proposed in Decision 17 once existing_monthly_obligations_gbp was noted to score lower on the same metric while being retained. Six features (pct_late_payments, pct_medium_risk_category, pct_high_risk_category, avg_n_instalments, max_affordability_ratio, avg_order_value_gbp) retained — the diagnostic found no material association with exposure length, stated explicitly as supporting evidence of scope-fitness, not proof of point-in-time validity, since near-zero linear correlation cannot rule out weak, nonlinear or segment-specific contamination. MODEL_FEATURES 18 to 14. The 285-fit governance review (Decision 17) retained as pre-freeze evidence for the 18-feature baseline, not treated as the review of the 14-feature v1 model — a fresh governance pass on 14 features queued before v1 is called final. Application-time underwriting recorded as future v2 work, not current scope. |
+| 3.20 | 7th August 2026 | Added Decision 19: business_cutoff selected as 0.0671 via models/select_business_cutoff.py, using calibrated training-only out-of-fold predictions on the canonical stratified partition (frozen champion hyperparameters, no held-out data touched). Three candidates generated from the same OOF table — F1-optimal (0.0868, 7.82% flagged, 31.68% recall), Youden's J (0.0376, 24.02% flagged, 68.32% recall), review-capacity-constrained at 15% (0.0671, 15.00% flagged, 51.55% recall) — with review-capacity selected as the only candidate answering the operational question directly given a stated 15% review capacity; F1 and Youden retained as comparators, not discarded. Expected-cost-minimizing candidate configured but left unset and skipped — no defensible cost ratio exists, and inventing one would reopen the cost-matrix approach evaluate_models.py already declined (Decision 4 addendum, PD-only scope). Explicitly flagged as conditional on 15% being a real operational figure, not the illustrative placeholder currently in config.yaml. recalibrate_threshold.py (an earlier, duplicate-purpose draft) retired and deleted in favour of extending the existing select_business_cutoff.py. Precision/recall/fairness at 0.0671 on the held-out stratified and temporal splits remain unmeasured pending an evaluate_models.py rerun — the next step, not yet complete. |
+| 3.21 | 7th August 2026 | Resolved Decision 19's operating-policy review (held-out confirmation on temporal only so far — stratified evaluate_models.py output not yet captured; temporal recall 38.71%, within range of the 51.55% OOF estimate; cutoff-independent metrics unchanged; stratified confirmation remains an open action). Surfaced and investigated a material finding: thin_file_flag=0 had 100% FNR on both splits. models/segment_threshold_diagnostics.py (new script, three checks) established this is a policy-scale problem, not a model-signal failure — thin_file_flag=0 defaulters' scores sit entirely below any threshold on the table (max 0.0344/0.0367, 0% above cutoff on either split, ruling out borderline cases), no single global threshold recovers thin_file_flag=0 recall without collapsing thin_file_flag=1's FPR to 75-86%+ (ruling out the threshold choice as cause), and within-segment AUC with bootstrap 95% CI shows the model still discriminates risk within thin_file_flag=0 (0.5661-0.7220 stratified, 0.6148-0.7613 temporal, both CIs clear of 0.5 and consistent across splits, overlapping substantially with thin_file_flag=1's CIs) — ruling out near-random within-segment ranking. Corroborates, does not duplicate, the earlier finding that thin_file_flag removal as a model input did not close the same gap since credit_score reconstructs it (r=-0.75). business_cutoff 0.0671 confirmed for the global-decision question; a separate governance item opened, not resolved here, on whether segment-aware review capacity is warranted — requires explicit Decision 12 policy sign-off before any segment-differentiated treatment is built. |
+| 3.22 | 7th August 2026 | Completed Decision 19's held-out confirmation with the stratified evaluate_models.py run (previously missing in v3.21 — every full output reviewed at that point was confirmed via MLflow tag to be temporal only). Stratified results land close to the OOF selection estimate (recall 54.87% vs 51.55% OOF, flagged rate 15.51% vs 15.00% target, precision 9.60% vs 9.35% OOF) — expected, since stratified is drawn from the same population distribution the cutoff was selected against; temporal's lower recall (38.71%) reflects genuine out-of-time drift, not a selection failure. thin_file_flag=0's 100% FNR confirmed via full evaluate_models.py on both splits (stratified FPR 0.00%, temporal FPR 0.03%), not only via the targeted segment diagnostics — thin_file_flag=1 FPR corrected from an approximate "~33%" to the precise stratified figure (46.53%) alongside temporal's (32.93%). business_cutoff 0.0671 status moved from "confirmed on temporal, stratified outstanding" to fully confirmed on both splits. The separate governance item (segment-aware review capacity, Decision 12) remains open, unaffected by this completion. |

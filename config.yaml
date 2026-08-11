@@ -12,7 +12,7 @@ data_generator:
   # See engineering_decision_log.md — Decision 1a.
   start_date: "2022-01-01"
   origination_end_date: "2024-10-31"
-  data_end_date: "2024-12-31"
+  data_end_date: "2025-12-31"   
 
   # ── DEFAULT DEFINITION ───────────────────────────────
   # 90 DPD on the oldest unpaid instalment. CRR/EBA aligned
@@ -186,23 +186,23 @@ model:
   test_size: 0.2
   random_seed: 42
 
-  # Business cutoff is treated as a configurable POLICY
-  # parameter belonging to the decision engine, not as a
-  # property of any individual algorithm. The model produces a
-  # risk score; the business decides where the line sits.
+  # Business cutoff is a configurable POLICY parameter belonging
+  # to the decision engine, not a property of any individual model.
   #
-  # Calibrated for this benchmark against the champion model
-  # (XGBoost, F1-optimal 0.1449 at Gini 0.6493 / KS 0.5061 on
-  # the corrected population). NOT set by averaging across
-  # models — a midpoint between per-model optima has no
-  # engineering justification (it is neither F1-optimal,
-  # expected-loss optimal, nor policy-derived).
+  # For v1, the cutoff was recalibrated using training-only
+  # out-of-fold predictions from the XGBoost champion.
+  # A 15% review-capacity constraint produced a threshold of
+  # 0.0671, capturing 51.55% of observed defaults at 9.35%
+  # precision in the OOF calibration population.
   #
-  # Future champion-challenger promotion (Decision 8) requires
-  # threshold RECALIBRATION as part of promotion — the cutoff
-  # is not transferable across models, since each model's score
-  # distribution differs. See docs/engineering_decision_log.md.
-  business_cutoff: 0.137
+  # F1-optimal and Youden thresholds were retained as statistical
+  # comparators but not selected because they do not reflect the
+  # stated operational review constraint.
+  #
+  # Any future champion promotion requires threshold
+  # recalibration because score distributions differ by model.
+  # See Decision 18 and threshold recalibration evidence.
+  business_cutoff: 0.0671
 
   # Temporal split currently produces a degenerate single-class
   # test set under the corrected has_outcome logic (16/16
@@ -212,3 +212,73 @@ model:
   # See Decision 10 addendum (tenor-maturity bias).
   split_strategy: "temporal"
   temporal_split_date: "2024-09-01"
+
+
+
+mlflow:
+  tracking_uri: "file:./mlruns"
+  experiment_name: "sentinel_credit_baseline"
+
+model_governance:
+  champion_model: "xgboost"
+  model_version: "v1"
+  dataset_version: "full_horizon_2025_v1"
+  feature_set_label: "14_features_v1_frozen"
+  pipeline_stage: "post_scope_decision_pending_retrain"
+  decision_log_version: "3.20"
+
+
+  
+explainability:
+  split: "stratified"
+  n_top_dependence: 4
+  strategic_dependence_features:
+    - "credit_score"
+    - "thin_file_flag"
+    - "max_affordability_ratio"
+  additivity_tolerance: 0.0001
+  mlflow_artifact_path: "shap"
+
+
+
+feature_governance:
+  n_splits: 5
+  n_repeats: 3
+  iv_bins: 10
+  psi_bins: 10
+  ece_bins: 10
+  xgboost_n_jobs: -1
+  mlflow_artifact_path: "feature_governance/final_review"
+
+  thresholds:
+    iv_weak: 0.02
+    vif_high: 5.0
+    correlation_high: 0.80
+    psi_moderate: 0.10
+    psi_high: 0.25
+    shap_low_share_pct: 0.50
+    cv_pr_auc_material_delta: 0.001
+
+threshold_recalibration:
+  # Inputs for the review-capacity and cost-constrained cutoff
+  # candidates (Decision 18 step 6). Neither candidate is
+  # written to model.business_cutoff automatically — both feed
+  # evidence into reports/threshold_selection/ for human review.
+  cost_assumptions:
+    # Left UNSET deliberately. Inventing a false-negative/
+    # false-positive cost ratio without a defensible financial
+    # basis manufactures a threshold that looks governed but
+    # isn't. The expected-cost candidate is skipped with a
+    # printed note until real values are supplied here. This
+    # also reopens, in a narrow form, the cost-matrix approach
+    # evaluate_models.py's docstring records as considered and
+    # declined — log that explicitly if these get filled in.
+    false_negative_cost: null
+    false_positive_cost: null
+  review_capacity:
+    # ILLUSTRATIVE PLACEHOLDER — replace with the real manual-
+    # review team capacity before this candidate is trusted.
+    # 0.15 demonstrates the mechanism only ("review team can
+    # handle at most 15% of applications" was an example, not
+    # a confirmed operational figure).
+    max_flag_rate: 0.15

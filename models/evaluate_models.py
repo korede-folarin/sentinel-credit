@@ -26,24 +26,28 @@ Deliberately out of scope, not omissions:
 Author:  Folarin Korede
 Version: 1.0.0
 
-Fairness note: is_vulnerable and thin_file_flag are used here
-ONLY as comparison-group labels, exactly as
-docs/engineering_decision_log.md Decision 12 (vulnerability
-addendum) specifies. Neither is a model input.
+Fairness note: is_vulnerable is used only as a comparison-
+group label. thin_file_flag is both a governed model feature
+and a monitored subgroup, so its parity results must be read
+as performance by segment rather than evidence of feature
+exclusion. See Decision 12.
 
 See docs/engineering_decision_log.md — Decision 4, Decision 12.
 =============================================================
 """
 
 import argparse
+import json
 import os
 import sys
 import warnings
 
+import mlflow
 import numpy as np
 import pandas as pd
 import psycopg2
 import yaml
+from mlflow.tracking import MlflowClient
 from sklearn.metrics import (
     roc_auc_score, brier_score_loss, average_precision_score,
     precision_recall_curve, roc_curve,
@@ -61,14 +65,279 @@ with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f
     CONFIG = yaml.safe_load(f)
 
 DB = CONFIG["database"]
+MODEL_CFG = CONFIG["model"]
+MLFLOW_CFG = CONFIG["mlflow"]
+GOV_CFG = CONFIG["model_governance"]
 
-# Business cutoff — the score threshold above which a
-# customer is treated as high risk. Design assumption,
-# revisit once portfolio-level loss appetite is defined.
-BUSINESS_CUTOFF = CONFIG.get("model", {}).get("business_cutoff", 0.10)
+# Required governed values. No script-specific fallback is
+# allowed because training, evaluation and explanation must
+# use the same configured decision threshold and run identity.
+BUSINESS_CUTOFF = MODEL_CFG["business_cutoff"]
+MLFLOW_TRACKING_URI = MLFLOW_CFG["tracking_uri"]
+MLFLOW_EXPERIMENT = MLFLOW_CFG["experiment_name"]
+
+FEATURE_SET_LABEL = GOV_CFG["feature_set_label"]
+MODEL_VERSION = GOV_CFG["model_version"]
+DATASET_VERSION = GOV_CFG["dataset_version"]
+PIPELINE_STAGE = GOV_CFG["pipeline_stage"]
+
+DATA_END_DATE = str(CONFIG["data_generator"]["data_end_date"])
+ORIGINATION_END_DATE = str(
+    CONFIG["data_generator"]["origination_end_date"]
+)
 
 MODEL_NAMES = ["logistic_regression", "decision_tree", "xgboost"]
 
+
+
+def load_training_metadata() -> dict:
+    """Loads the dataset identity saved by the training run."""
+    path = os.path.join(ARTIFACTS_DIR, "champion_metadata.json")
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"{path} not found. Run train_baseline_models.py first."
+        )
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def verify_dataset_identity(metadata: dict) -> None:
+    """
+    Prevents evaluation of stale predictions against the
+    current feature store/configuration. Matching feature names
+    are not enough because the same feature set may exist
+    across different regenerated populations.
+    """
+    saved = metadata.get("dataset", {})
+    expected = {
+        "dataset_version": DATASET_VERSION,
+        "data_end_date": DATA_END_DATE,
+        "origination_end_date": ORIGINATION_END_DATE,
+        "feature_set_label": FEATURE_SET_LABEL,
+    }
+
+    mismatches = []
+    for key, expected_value in expected.items():
+        actual_value = str(saved.get(key, "missing"))
+        if actual_value != str(expected_value):
+            mismatches.append(
+                f"{key}: metadata={actual_value!r}, "
+                f"config={str(expected_value)!r}"
+            )
+
+    if mismatches:
+        raise RuntimeError(
+            "Dataset identity mismatch. Refusing to evaluate potentially "
+            "stale predictions:\n  - " + "\n  - ".join(mismatches)
+        )
+
+    print("Dataset identity verified:")
+    for key, value in expected.items():
+        print(f"  {key}: {value}")
+
+
+def validate_prediction_frame(
+    df: pd.DataFrame,
+    split: str,
+    metadata: dict,
+) -> None:
+    """Checks required columns and canonical split size."""
+    required = {
+        "customer_id",
+        TARGET_COLUMN,
+        "thin_file_flag",
+        *{f"proba_{name}" for name in MODEL_NAMES},
+    }
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(
+            "Prediction file is missing required columns: "
+            + ", ".join(missing)
+        )
+
+    if df["customer_id"].duplicated().any():
+        raise ValueError(
+            f"test_predictions_{split}.csv contains duplicate customer_id values."
+        )
+
+    if split == "stratified":
+        expected_n = metadata.get("n_test")
+        if expected_n is not None and len(df) != int(expected_n):
+            raise RuntimeError(
+                "Stratified prediction count does not match the saved "
+                f"champion package: predictions={len(df):,}, "
+                f"metadata n_test={int(expected_n):,}."
+            )
+
+
+def find_training_run_id(model_name: str, split: str) -> str:
+    """
+    Finds the latest exact MLflow training run for this model,
+    split, feature set and dataset version. Evaluation is
+    attached to that run instead of creating a disconnected
+    evaluation run.
+    """
+    client = MlflowClient()
+    experiment = client.get_experiment_by_name(MLFLOW_EXPERIMENT)
+    if experiment is None:
+        raise RuntimeError(
+            f"MLflow experiment {MLFLOW_EXPERIMENT!r} was not found."
+        )
+
+    filter_string = (
+        f"params.model_type = '{model_name}' and "
+        f"tags.split_strategy = '{split}' and "
+        f"tags.feature_set = '{FEATURE_SET_LABEL}' and "
+        f"tags.dataset_version = '{DATASET_VERSION}' and "
+        f"tags.model_version = '{MODEL_VERSION}' and "
+        f"tags.data_end_date = '{DATA_END_DATE}'"
+    )
+
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=filter_string,
+        order_by=["attributes.start_time DESC"],
+        max_results=10,
+    )
+
+    if not runs:
+        raise RuntimeError(
+            "No matching MLflow training run found for "
+            f"model={model_name}, split={split}, "
+            f"feature_set={FEATURE_SET_LABEL}, "
+            f"dataset_version={DATASET_VERSION}."
+        )
+
+    if len(runs) > 1:
+        print(
+            f"  MLflow: {len(runs)} matching runs found for "
+            f"{model_name}/{split}; attaching to latest run."
+        )
+
+    return runs[0].info.run_id
+
+
+def fairness_gap(table: pd.DataFrame, metric: str) -> float:
+    """Absolute max-minus-min parity gap for one metric."""
+    if table.empty or metric not in table.columns:
+        return float("nan")
+    return float(table[metric].max() - table[metric].min())
+
+
+def write_model_artifacts(
+    model_dir: str,
+    result: dict,
+    split: str,
+    training_run_id: str,
+) -> None:
+    """Writes the complete model evaluation evidence locally."""
+    os.makedirs(model_dir, exist_ok=True)
+
+    result["actual_expected"].to_csv(
+        os.path.join(model_dir, "actual_vs_expected.csv")
+    )
+    result["lift_table"].to_csv(
+        os.path.join(model_dir, "lift_and_capture.csv"),
+        index=False,
+    )
+    result["fairness_thin_file"].to_csv(
+        os.path.join(model_dir, "fairness_thin_file_flag.csv"),
+        index=False,
+    )
+    result["fairness_vulnerable"].to_csv(
+        os.path.join(model_dir, "fairness_is_vulnerable.csv"),
+        index=False,
+    )
+
+    metadata = {
+        "split": split,
+        "model": result["summary"]["model"],
+        "training_run_id": training_run_id,
+        "dataset_version": DATASET_VERSION,
+        "feature_set": FEATURE_SET_LABEL,
+        "model_version": MODEL_VERSION,
+        "pipeline_stage": PIPELINE_STAGE,
+        "data_end_date": DATA_END_DATE,
+        "business_cutoff": BUSINESS_CUTOFF,
+        "summary": result["summary"],
+        "configured_cutoff": result["configured_cutoff"],
+        "f1_threshold_diagnostic": result["f1_optimal"],
+        "youden_threshold_diagnostic": result["youden_optimal"],
+        "threshold_note": (
+            "F1 and Youden thresholds were calculated on the evaluation "
+            "set for diagnosis only. They must not be promoted directly "
+            "to config.yaml. A governed cutoff should be selected using "
+            "training-only out-of-fold or validation predictions, frozen, "
+            "and then assessed on the untouched test/OOT set."
+        ),
+    }
+
+    with open(
+        os.path.join(model_dir, "evaluation_metadata.json"),
+        "w",
+        encoding="utf-8",
+    ) as f:
+        json.dump(metadata, f, indent=2)
+
+
+def log_evaluation_to_mlflow(
+    run_id: str,
+    result: dict,
+    model_dir: str,
+    split: str,
+) -> None:
+    """Adds evaluation metrics and evidence to the training run."""
+    summary = result["summary"]
+    cutoff = result["configured_cutoff"]
+    f1_opt = result["f1_optimal"]
+    youden_opt = result["youden_optimal"]
+    thin = result["fairness_thin_file"]
+    vulnerable = result["fairness_vulnerable"]
+
+    metrics = {
+        "eval_auc": summary["auc"],
+        "eval_gini": summary["gini"],
+        "eval_ks": summary["ks"],
+        "eval_pr_auc": summary["pr_auc"],
+        "eval_ece": summary["ece"],
+        "eval_brier": summary["brier"],
+        "eval_cutoff_precision": cutoff["precision"],
+        "eval_cutoff_recall": cutoff["recall"],
+        "eval_cutoff_n_flagged": cutoff["n_flagged_high_risk"],
+        "eval_f1_diagnostic_threshold": f1_opt["threshold"],
+        "eval_f1_diagnostic_score": f1_opt["f1"],
+        "eval_youden_diagnostic_threshold": youden_opt["threshold"],
+        "eval_youden_j": youden_opt["youden_j"],
+        "eval_thin_file_fnr_gap": fairness_gap(
+            thin, "false_negative_rate"
+        ),
+        "eval_thin_file_fpr_gap": fairness_gap(
+            thin, "false_positive_rate"
+        ),
+        "eval_vulnerability_fnr_gap": fairness_gap(
+            vulnerable, "false_negative_rate"
+        ),
+        "eval_vulnerability_fpr_gap": fairness_gap(
+            vulnerable, "false_positive_rate"
+        ),
+    }
+
+    approved_bad_rate = cutoff.get("bad_rate_among_approved")
+    if approved_bad_rate is not None:
+        metrics["eval_bad_rate_among_approved"] = approved_bad_rate
+
+    with mlflow.start_run(run_id=run_id):
+        mlflow.log_metrics(metrics)
+        mlflow.set_tags({
+            "evaluation_logged": "true",
+            "evaluation_split": split,
+            "evaluation_cutoff": str(BUSINESS_CUTOFF),
+            "threshold_status": "configured_cutoff_under_review",
+        })
+        mlflow.log_artifacts(
+            model_dir,
+            artifact_path=f"evaluation/{split}",
+        )
 
 def load_predictions(split: str) -> pd.DataFrame:
     path = os.path.join(ARTIFACTS_DIR, f"test_predictions_{split}.csv")
@@ -82,16 +351,13 @@ def load_predictions(split: str) -> pd.DataFrame:
 
 def load_segment_labels() -> pd.DataFrame:
     """
-    Pulls is_vulnerable and ab_test_group from the feature
-    store for fairness segmentation. thin_file_flag is NOT
-    re-fetched here — it's back in MODEL_FEATURES (restored
-    30th July 2026 after the exclusion experiment produced an
-    identical fairness gap either way — see model_features.py
-    NON_MODEL_EXCLUDED comment), so it's already a column in
-    the test predictions. Fetching it again would collide on
-    merge, silently renaming both to thin_file_flag_x/_y.
-    These are NEVER used as model inputs — comparison-group
-    labels only.
+    Pulls is_vulnerable and ab_test_group from the feature store
+    for fairness segmentation. thin_file_flag is NOT re-fetched
+    here — it's already a governed model feature and therefore
+    already a column in the test predictions (see Decision 12
+    addendum for why it was tested for removal and restored).
+    Fetching it again would collide on merge, silently renaming
+    both to thin_file_flag_x/_y.
     """
     password = os.environ.get("SENTINEL_DB_PASSWORD", "")
     conn = psycopg2.connect(
@@ -348,82 +614,204 @@ def print_model_report(name: str, df: pd.DataFrame) -> dict:
     print(lift_table.to_string())
 
     cm = confusion_matrix_at_cutoff(y_true, proba, BUSINESS_CUTOFF)
+    cutoff_result = bad_rate_at_cutoff(y_true, proba, BUSINESS_CUTOFF)
+
     print(f"\nConfusion matrix at CONFIGURED cutoff {BUSINESS_CUTOFF}:")
     print(f"  TP: {cm['tp']:>6}   FP: {cm['fp']:>6}")
     print(f"  FN: {cm['fn']:>6}   TN: {cm['tn']:>6}")
-    print(f"  Precision: {cm['precision']:.2%}   Recall: {cm['recall']:.2%}")
+    print(
+        f"  Precision: {cm['precision']:.2%}   "
+        f"Recall: {cm['recall']:.2%}"
+    )
 
     f1_opt = find_f1_optimal_threshold(y_true, proba)
     youden_opt = find_youden_optimal_threshold(y_true, proba)
-    print(f"\nOptimal thresholds (found, not guessed):")
-    print(f"  F1-optimal:     {f1_opt['threshold']:.4f}  "
-          f"(F1={f1_opt['f1']:.4f}, precision={f1_opt['precision']:.2%}, "
-          f"recall={f1_opt['recall']:.2%})")
-    print(f"  Youden-optimal: {youden_opt['threshold']:.4f}  "
-          f"(J={youden_opt['youden_j']:.4f}, sensitivity={youden_opt['sensitivity']:.2%}, "
-          f"specificity={youden_opt['specificity']:.2%})")
-    if abs(f1_opt['threshold'] - BUSINESS_CUTOFF) > 0.02:
-        print(f"  NOTE: configured cutoff ({BUSINESS_CUTOFF}) differs from "
-              f"F1-optimal ({f1_opt['threshold']:.4f}) by more than 0.02 — "
-              f"worth reviewing config.yaml business_cutoff.")
+    print("\nTest-set diagnostic thresholds:")
+    print(
+        f"  F1 diagnostic:     {f1_opt['threshold']:.4f}  "
+        f"(F1={f1_opt['f1']:.4f}, "
+        f"precision={f1_opt['precision']:.2%}, "
+        f"recall={f1_opt['recall']:.2%})"
+    )
+    print(
+        f"  Youden diagnostic: {youden_opt['threshold']:.4f}  "
+        f"(J={youden_opt['youden_j']:.4f}, "
+        f"sensitivity={youden_opt['sensitivity']:.2%}, "
+        f"specificity={youden_opt['specificity']:.2%})"
+    )
+    print(
+        "  NOTE: diagnostic only. Do not promote a threshold "
+        "selected on this evaluation set directly into config.yaml."
+    )
 
-    cutoff_result = bad_rate_at_cutoff(y_true, proba, BUSINESS_CUTOFF)
+    if abs(f1_opt["threshold"] - BUSINESS_CUTOFF) > 0.02:
+        print(
+            f"  REVIEW: configured cutoff ({BUSINESS_CUTOFF}) differs "
+            f"from the F1 diagnostic ({f1_opt['threshold']:.4f}) by "
+            "more than 0.02."
+        )
+
     print(f"\nAt configured cutoff {BUSINESS_CUTOFF}:")
-    print(f"  Flagged high-risk: {cutoff_result['n_flagged_high_risk']:,}")
-    print(f"  Bad rate among approved: {cutoff_result['bad_rate_among_approved']:.2%}")
+    print(
+        f"  Flagged high-risk: "
+        f"{cutoff_result['n_flagged_high_risk']:,}"
+    )
+    approved_bad_rate = cutoff_result["bad_rate_among_approved"]
+    if approved_bad_rate is None:
+        print("  Bad rate among approved: n/a")
+    else:
+        print(f"  Bad rate among approved: {approved_bad_rate:.2%}")
 
-    print("\nFairness — thin_file_flag:")
-    print(fairness_parity(df, f"proba_{name}", "thin_file_flag").to_string(index=False))
+    thin_fairness = fairness_parity(
+        df, f"proba_{name}", "thin_file_flag"
+    )
+    vulnerable_fairness = fairness_parity(
+        df, f"proba_{name}", "is_vulnerable"
+    )
+
+    print("\nPerformance by thin_file_flag:")
+    print(thin_fairness.to_string(index=False))
 
     print("\nFairness — is_vulnerable (label only, never a model input):")
-    print(fairness_parity(df, f"proba_{name}", "is_vulnerable").to_string(index=False))
+    print(vulnerable_fairness.to_string(index=False))
 
     summary_row = {
-        "model": name, "gini": round(gini, 4), "auc": round(auc, 4),
-        "ks": round(ks, 4), "pr_auc": pr_auc, "ece": ece, "brier": brier,
+        "model": name,
+        "gini": round(gini, 4),
+        "auc": round(auc, 4),
+        "ks": round(ks, 4),
+        "pr_auc": pr_auc,
+        "ece": ece,
+        "brier": brier,
     }
-    lift_table_out = lift_table.reset_index().rename(columns={"index": "decile"})
+
+    lift_table_out = (
+        lift_table.reset_index()
+        .rename(columns={"index": "decile"})
+    )
     lift_table_out.insert(0, "model", name)
 
-    return {"summary": summary_row, "lift_table": lift_table_out}
+    configured_cutoff = {
+        **cm,
+        "n_flagged_high_risk": cutoff_result["n_flagged_high_risk"],
+        "bad_rate_among_approved": approved_bad_rate,
+    }
+
+    return {
+        "summary": summary_row,
+        "actual_expected": ae,
+        "lift_table": lift_table_out,
+        "configured_cutoff": configured_cutoff,
+        "f1_optimal": f1_opt,
+        "youden_optimal": youden_opt,
+        "fairness_thin_file": thin_fairness,
+        "fairness_vulnerable": vulnerable_fairness,
+    }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--split", choices=["stratified", "temporal"], default="stratified",
-        help="Which split's predictions to evaluate (default: stratified)"
+        "--split",
+        choices=["stratified", "temporal"],
+        default="stratified",
+        help="Which split's predictions to evaluate (default: stratified)",
     )
     args = parser.parse_args()
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
     print("=" * 58)
     print("SENTINEL CREDIT — MODEL EVALUATION")
     print(f"Split: {args.split}")
+    print(f"MLflow experiment: {MLFLOW_EXPERIMENT}")
     print("=" * 58)
 
-    df = load_predictions(args.split)
-    segments = load_segment_labels()
+    metadata = load_training_metadata()
+    verify_dataset_identity(metadata)
 
-    df = df.merge(segments, on="customer_id", how="left")
+    df = load_predictions(args.split)
+    validate_prediction_frame(df, args.split, metadata)
+
+    segments = load_segment_labels()
+    before_merge = len(df)
+    df = df.merge(
+        segments,
+        on="customer_id",
+        how="left",
+        validate="one_to_one",
+    )
+
+    if len(df) != before_merge:
+        raise RuntimeError(
+            "Segment merge changed the prediction row count."
+        )
+    if df[["is_vulnerable", "ab_test_group"]].isna().any().any():
+        raise RuntimeError(
+            "Some prediction rows are missing current segment labels."
+        )
+
+    evaluation_root = os.path.join(
+        PROJECT_ROOT,
+        "reports",
+        "evaluation",
+        args.split,
+    )
+    os.makedirs(evaluation_root, exist_ok=True)
 
     summaries = []
     lift_tables = []
+
     for name in MODEL_NAMES:
         result = print_model_report(name, df)
         summaries.append(result["summary"])
         lift_tables.append(result["lift_table"])
 
+        run_id = find_training_run_id(name, args.split)
+        model_dir = os.path.join(evaluation_root, name)
+
+        write_model_artifacts(
+            model_dir=model_dir,
+            result=result,
+            split=args.split,
+            training_run_id=run_id,
+        )
+        log_evaluation_to_mlflow(
+            run_id=run_id,
+            result=result,
+            model_dir=model_dir,
+            split=args.split,
+        )
+
+        print(f"\n  MLflow evaluation attached to run: {run_id}")
+
     out_dir = os.path.join(PROJECT_ROOT, "reports")
     os.makedirs(out_dir, exist_ok=True)
 
+    comparison_path = os.path.join(
+        out_dir,
+        f"model_comparison_{args.split}.csv",
+    )
+    lift_path = os.path.join(
+        out_dir,
+        f"lift_tables_{args.split}.csv",
+    )
+
     pd.DataFrame(summaries).to_csv(
-        os.path.join(out_dir, f"model_comparison_{args.split}.csv"), index=False
+        comparison_path,
+        index=False,
     )
     pd.concat(lift_tables, ignore_index=True).to_csv(
-        os.path.join(out_dir, f"lift_tables_{args.split}.csv"), index=False
+        lift_path,
+        index=False,
     )
-    print(f"\nSaved: {out_dir}/model_comparison_{args.split}.csv")
-    print(f"Saved: {out_dir}/lift_tables_{args.split}.csv")
+
+    print(f"\nSaved: {comparison_path}")
+    print(f"Saved: {lift_path}")
+    print(f"Saved detailed evidence under: {evaluation_root}")
+    print("Evaluation metrics and artifacts were attached to the")
+    print("matching MLflow training runs.")
 
 
 if __name__ == "__main__":
