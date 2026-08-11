@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.23
-**Last Updated:** 11th August 2026 (v3.23)
+**Version:** 3.24
+**Last Updated:** 11th August 2026 (v3.24)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -2822,6 +2822,169 @@ resolved here.
 
 ---
 
+## Decision 21 — Champion/Challenger Promotion Workflow (Evidence-Only, MLflow Registry)
+
+### Challenge
+The architecture's Modelling Engine names "MLflow Model Registry:
+Champion, Challenger, Versioning" as a standing capability, but
+nothing in the project had ever called `mlflow.register_model` —
+every prior script logged runs to the tracking experiment without
+registering any model version. No mechanism existed to compare a
+future retrained or alternative model against the current champion
+on governed terms, or to record that comparison anywhere.
+
+### Method
+`pipeline/promote_champion.py` auto-discovers the current champion's
+stratified and temporal runs via the `is_champion` tag
+`train_baseline_models.py` already sets, combined with the standard
+governance-identity filter every other script in this project
+checks against. The challenger is deliberately NOT auto-discovered
+— its two run IDs (stratified, temporal) are required CLI arguments,
+since unlike "the current champion" there is no safe default for
+"which run is the challenger."
+
+Promotion requires a material Gini improvement on BOTH splits, not
+one — reusing the temporal-stability concern central to this
+project since Decision 16/18. PR-AUC and KS are reported as
+corroborating evidence, not gating criteria, matching how the
+current champion was itself selected on combined evidence rather
+than a single dominant metric.
+
+`champion_promotion.min_gini_delta` is left unset in config.yaml,
+deliberately — no real promotion has happened yet to calibrate a
+defensible threshold against, the same position taken for the
+cost-assumption and review-capacity thresholds elsewhere. Until
+set, the script computes and reports every delta but
+`material_win` is unconditionally `False` — verified directly: a
+configured threshold of `None` was tested against a materially
+better synthetic challenger and correctly still returned
+`material_win: False`, confirming the script cannot accidentally
+recommend a promotion by falling back to an implicit default.
+
+Uses MLflow's alias-based Model Registry (`champion`/`challenger`
+aliases on one registered model name), not the deprecated
+stage-based API, consistent with `mlflow>=2.13.0`. Registration is
+idempotent on run_id — reruns reuse the existing version rather
+than creating duplicates.
+
+`--apply` refuses outright if promotion criteria are not met,
+regardless of the flag being set, and even when met requires
+typing `PROMOTE` verbatim — no `-y`/`--yes` shortcut exists.
+Even on a successful apply, `config.yaml` and `champion_metadata.json`
+are explicitly NOT updated by this script — the same "evidence
+generated, human applies" boundary used for `business_cutoff`
+(Decision 19), stated in the script's own printed output.
+
+### Verification
+No real challenger exists yet in this project — self-tested by
+comparing the current champion against itself (its own stratified
+and temporal run IDs passed as the "challenger"). Result: delta_gini
+0.0000 on both splits, `material_win: False` on both,
+"promotion NOT supported," and the challenger correctly registered
+under `sentinel_credit_champion` version 1 with the `challenger`
+alias. This is the first registered model version this project has
+ever created.
+
+### Decision
+The workflow is implemented and verified working, but has not been
+exercised against a genuine challenger, since none currently
+exists. `min_gini_delta` remains unset until a real promotion
+decision requires it — recorded as an open input, not a defect.
+
+---
+
+## Decision 22 — Portfolio Forecasting (Prophet), LSTM Explicitly Deferred
+
+### Challenge
+The architecture's Intelligence Core names "Forecasting: Prophet +
+LSTM, macro scenarios, stress testing, IFRS 9 impact" as a
+capability. Before building anything, a direct check of the
+database (`raw.transactions`, `raw.repayments`, `raw.customers`,
+`feature_store.customer_features` — four tables, confirmed via
+`information_schema.tables`) established that no macro/economic
+data exists anywhere in this project — nothing for unemployment,
+interest rates, CPI, or any other external series a real stress-
+testing or IFRS 9 macro overlay would require. This split
+Forecasting into two genuinely different pieces of work: portfolio
+time-series forecasting (buildable immediately from existing raw
+data) and macro-scenario stress testing (blocked on a real data-
+sourcing decision, deliberately not fabricated to fill the gap).
+
+### Method
+`forecasting/build_portfolio_timeseries.py` constructs two monthly
+series from `raw.transactions`/`raw.repayments` directly — a
+portfolio-level view, independent of the customer-level modelling
+pipeline. Originations: transactions grouped by month, restricted
+to `application_approved = 1`. Default rate: NOT a naive count of
+defaults recorded per month — every repayment row is joined back to
+its transaction to recover the ORIGINATION month, since a default
+surfacing in month N from a cohort originated in month N-4 belongs
+to that earlier cohort's risk, not the recording month. Only
+`outcome_observed = 1` transactions contribute, the same right-
+censoring discipline as Decision 10/12 applied at cohort level.
+Verified against synthetic data with a known unresolved case before
+running against real data: January cohort correctly showed 1/3
+defaulted (a late-surfacing default correctly attributed to its
+origination month, not the month it was recorded), and a
+deliberately unresolved February transaction was correctly excluded
+rather than counted as a non-default.
+
+Against real data: 34 monthly cohorts, January 2022 through October
+2024, zero unresolved transactions (consistent with Decision 16's
+confirmed 0% right-censoring). Originations grow near-exponentially
+(60 to 17,111, ~300x). Default rate is noisier but shows a genuine
+mild upward drift (~0.5-0.8% early, ~0.8-1.1% later).
+
+`forecasting/forecast_portfolio.py` fits Prophet on each series,
+backtesting against the last 6 held-out months before producing
+any forward forecast, and reports MAE and MAPE (guarded against
+near-zero denominators) rather than a single potentially-misleading
+metric. Forecast output beyond the data's own end date is visually
+and programmatically distinguished (`is_beyond_data` flag, separate
+plot color/style) from the backtested portion, since nothing
+validates it against anything.
+
+**LSTM was deliberately not built**, not omitted silently: ~34
+monthly points is far too little history to train a neural sequence
+model without it memorizing noise rather than learning a real
+pattern — a confidently-wrong LSTM would be a worse outcome than no
+LSTM, the same reasoning already applied to declining invented cost
+ratios elsewhere in this project. Recorded as future work once
+meaningfully more monthly history exists.
+
+**The originations forecast carries a caveat load-bearing enough to
+be verified empirically, not just asserted**: `config.yaml`'s
+`data_generator.origination_end_date` (2024-10-31) and
+`n_customers` (50000) are fixed generation-schedule parameters, not
+market dynamics — the near-exponential growth reflects the
+synthetic population's onboarding schedule reaching its endpoint.
+The backtest confirms this directly: the final held-out months
+(2024-05 through 2024-10) curve sharply above Prophet's fitted
+linear trend, and the actual October value lands far outside what
+the model predicted — visible in `forecast_origination_volume.png`,
+not just stated in a docstring. MAPE (24.45%) is high for exactly
+this reason. Default rate does not carry the same problem to the
+same degree — it reflects portfolio risk evolving over the observed
+period, a legitimate forecasting target, though still subject to
+this project's general synthetic-data and PD-only scope (Decision
+4 addendum).
+
+### Verification
+Run twice against identical real data — once via container-relayed
+values, once natively from PowerShell — producing matching results
+(default rate MAE 0.001633 vs 0.001634, MAPE 18.43% vs 18.44%;
+origination MAE and MAPE identical to four decimal places).
+Confirmed reproducible, not a one-off artifact.
+
+### Decision
+Portfolio time-series forecasting (Prophet, both series, backtested)
+is implemented and verified. LSTM and macro-scenario stress testing
+/ IFRS 9 macro overlay are recorded as explicit future work, gated
+respectively on more historical data and a real macro-data-sourcing
+decision — neither fabricated to appear complete.
+
+---
+
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
@@ -3209,4 +3372,5 @@ Decision 10.
 | 3.20 | 7th August 2026 | Added Decision 19: business_cutoff selected as 0.0671 via models/select_business_cutoff.py, using calibrated training-only out-of-fold predictions on the canonical stratified partition (frozen champion hyperparameters, no held-out data touched). Three candidates generated from the same OOF table — F1-optimal (0.0868, 7.82% flagged, 31.68% recall), Youden's J (0.0376, 24.02% flagged, 68.32% recall), review-capacity-constrained at 15% (0.0671, 15.00% flagged, 51.55% recall) — with review-capacity selected as the only candidate answering the operational question directly given a stated 15% review capacity; F1 and Youden retained as comparators, not discarded. Expected-cost-minimizing candidate configured but left unset and skipped — no defensible cost ratio exists, and inventing one would reopen the cost-matrix approach evaluate_models.py already declined (Decision 4 addendum, PD-only scope). Explicitly flagged as conditional on 15% being a real operational figure, not the illustrative placeholder currently in config.yaml. recalibrate_threshold.py (an earlier, duplicate-purpose draft) retired and deleted in favour of extending the existing select_business_cutoff.py. Precision/recall/fairness at 0.0671 on the held-out stratified and temporal splits remain unmeasured pending an evaluate_models.py rerun — the next step, not yet complete. |
 | 3.21 | 7th August 2026 | Resolved Decision 19's operating-policy review (held-out confirmation on temporal only so far — stratified evaluate_models.py output not yet captured; temporal recall 38.71%, within range of the 51.55% OOF estimate; cutoff-independent metrics unchanged; stratified confirmation remains an open action). Surfaced and investigated a material finding: thin_file_flag=0 had 100% FNR on both splits. models/segment_threshold_diagnostics.py (new script, three checks) established this is a policy-scale problem, not a model-signal failure — thin_file_flag=0 defaulters' scores sit entirely below any threshold on the table (max 0.0344/0.0367, 0% above cutoff on either split, ruling out borderline cases), no single global threshold recovers thin_file_flag=0 recall without collapsing thin_file_flag=1's FPR to 75-86%+ (ruling out the threshold choice as cause), and within-segment AUC with bootstrap 95% CI shows the model still discriminates risk within thin_file_flag=0 (0.5661-0.7220 stratified, 0.6148-0.7613 temporal, both CIs clear of 0.5 and consistent across splits, overlapping substantially with thin_file_flag=1's CIs) — ruling out near-random within-segment ranking. Corroborates, does not duplicate, the earlier finding that thin_file_flag removal as a model input did not close the same gap since credit_score reconstructs it (r=-0.75). business_cutoff 0.0671 confirmed for the global-decision question; a separate governance item opened, not resolved here, on whether segment-aware review capacity is warranted — requires explicit Decision 12 policy sign-off before any segment-differentiated treatment is built. |
 | 3.23 | 11th August 2026 | Added Decision 20: drift monitoring implemented and verified working end-to-end, closing the Decision 5 item queued since project inception. pipeline/monitor_drift.py compares the canonical training partition against the temporal test split (PSI per feature reusing govern_model_features.py's exact thresholds, null-rate/out-of-range/mean-shift data-quality checks, portfolio bad-rate drift), all logic unit-verified against synthetic data with known shift magnitudes before running against real data. Scheduled daily via infra/dags/monitor_drift_dag.py under local Astro/Airflow (Docker) — Airflow chosen over GitHub Actions after explicit reconsideration, since a real drift pipeline needs DAG-structured task dependencies GitHub Actions handles awkwardly, and apache-airflow was already pinned in requirements.txt before this decision. DAG runs the script as a subprocess (no separate DAG-version logic to drift out of sync) with two deliberately separated tasks: compute_drift fails only on infrastructure problems, evaluate_alerts fails only on genuine drift findings, keeping "pipeline broke" and "pipeline found something" visibly distinct in Airflow's UI. Resolved a cluster of real environment issues along the way: exact package pins conflicting with the Astro Runtime's Airflow 3.3 core and Python 3.14 (loosened to >= bounds, safe given the stable APIs used); an invalid docker-compose.override.yml referencing a nonexistent webserver service; container-to-host DB networking requiring a new SENTINEL_DB_HOST override (added symmetrically with the existing SENTINEL_DB_PASSWORD pattern); a newer MLflow version requiring MLFLOW_ALLOW_FILE_STORE=true to keep the existing file-based mlruns/ store; and a stale Windows-path artifact baked into the sentinel_credit_monitoring MLflow experiment's meta.yaml from an earlier manual Windows-native run, causing a misleading PermissionError inside the Linux container until that one experiment folder was deleted and recreated container-native. Verified via a real triggered DAG run: both tasks succeeded, monitoring_run_metadata.json shows 0 of 14 features alerting, freshly generated. Feeding this evidence into an automated Approval Gate or Champion/Challenger promotion remains future work, not resolved here. |
+| 3.24 | 11th August 2026 | Added Decision 21: champion/challenger promotion workflow implemented (pipeline/promote_champion.py), the first use of MLflow's Model Registry in this project (alias-based, not the deprecated stage API). Champion auto-discovered via the existing is_champion tag; challenger requires explicit run IDs (no safe auto-discovery default exists for "which run is the challenger"). Promotion requires a material Gini win on BOTH splits, matching the temporal-stability standard from Decision 16/18. min_gini_delta left unset deliberately (same reasoning as other illustrative thresholds this project has declined to invent) — verified the script never recommends promotion with no threshold configured, regardless of delta size. --apply refuses outright if criteria aren't met and requires typing PROMOTE verbatim even when they are; config.yaml and champion_metadata.json are explicitly not touched even on a successful apply. Self-tested (no real challenger exists yet) by comparing the champion against itself: delta_gini 0.0000 both splits, correctly recommended against promotion, and successfully created this project's first registered model version. Added Decision 22: portfolio forecasting implemented (forecasting/build_portfolio_timeseries.py, forecasting/forecast_portfolio.py), Prophet only — LSTM explicitly deferred, not silently dropped, given ~34 monthly points is too little history to train a neural sequence model without overfitting to noise. Database checked directly first (four tables: raw.transactions, raw.repayments, raw.customers, feature_store.customer_features) confirming no macro/economic data exists anywhere in the project, splitting "Forecasting" into buildable-now (portfolio time series) versus blocked-on-a-real-data-decision (macro stress testing, IFRS 9 overlay) rather than fabricating either. Default-rate cohort attribution verified against synthetic data with a known unresolved case before running on real data (late-surfacing defaults correctly attributed to origination month, not recording month; unresolved outcomes correctly excluded, not counted as non-defaults). Real run: 34 monthly cohorts Jan 2022-Oct 2024, 0 unresolved (consistent with Decision 16's confirmed 0% right-censoring). Origination-volume forecast carries a caveat verified empirically, not just asserted: growth reflects the synthetic population's fixed onboarding schedule and origination_end_date, and the backtest visibly fails to track the accelerating actual values in the held-out months (MAPE 24.45%), directly evidencing the caveat rather than merely stating it. Default-rate forecast (MAE 0.0016, MAPE ~18.4%) is a more legitimate target, reflecting actual portfolio risk evolution. Reproduced identically across two separate runs (container-relayed and native PowerShell) on real data. |
 | 3.22 | 7th August 2026 | Completed Decision 19's held-out confirmation with the stratified evaluate_models.py run (previously missing in v3.21 — every full output reviewed at that point was confirmed via MLflow tag to be temporal only). Stratified results land close to the OOF selection estimate (recall 54.87% vs 51.55% OOF, flagged rate 15.51% vs 15.00% target, precision 9.60% vs 9.35% OOF) — expected, since stratified is drawn from the same population distribution the cutoff was selected against; temporal's lower recall (38.71%) reflects genuine out-of-time drift, not a selection failure. thin_file_flag=0's 100% FNR confirmed via full evaluate_models.py on both splits (stratified FPR 0.00%, temporal FPR 0.03%), not only via the targeted segment diagnostics — thin_file_flag=1 FPR corrected from an approximate "~33%" to the precise stratified figure (46.53%) alongside temporal's (32.93%). business_cutoff 0.0671 status moved from "confirmed on temporal, stratified outstanding" to fully confirmed on both splits. The separate governance item (segment-aware review capacity, Decision 12) remains open, unaffected by this completion. |

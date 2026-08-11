@@ -282,3 +282,23 @@ threshold_recalibration:
     # handle at most 15% of applications" was an example, not
     # a confirmed operational figure).
     max_flag_rate: 0.15
+
+champion_promotion:
+  # Left UNSET deliberately, same reasoning as
+  # threshold_recalibration.cost_assumptions: no promotion has
+  # happened yet to calibrate a real threshold against, and
+  # inventing one would manufacture a decision rule that looks
+  # governed without being defensible. Until this is set,
+  # promote_champion.py reports deltas but never recommends
+  # promotion, regardless of how large the improvement looks.
+  min_gini_delta: null
+  registered_model_name: "sentinel_credit_champion"
+
+
+approval_gate:
+  # 48h is the one threshold in this project's governance scripts
+  # that IS defaulted rather than left unset — it's derived from
+  # monitor_drift_dag.py's actual @daily schedule (Decision 20),
+  # not a business judgement that hasn't been made yet. Tolerates
+  # one missed scheduled run before the gate refuses stale evidence.
+  max_monitoring_age_hours: 48
