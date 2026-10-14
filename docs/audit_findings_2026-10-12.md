@@ -279,6 +279,34 @@ The owner ruled that leakage is a valid reason for removal. Choices:
   governance review) and the thin-file FNR governance item
   (Decision 19).
 
+### 15th October 2026: documentation separation and dashboard rebuild (Decision 28)
+
+**Fixed:**
+- **Decision log scope.** Appendices A–D and the regulatory summary
+  moved verbatim to the documents they belong to, with links left in
+  place. README progress table, tech stack, docs table and status
+  corrected against the code (unbuilt items marked planned). Power BI
+  doc renamed from `README (10).md`.
+- **Identifier lesson recorded** (Decision 10 addendum), with
+  uniqueness verified on all three raw tables.
+- **Dashboard rebuilt.**
+  - The Model Performance page no longer crashes: it called
+    `st.dataframe(width='stretch')`, unsupported in Streamlit 1.35.
+  - Home no longer advertises pages that did not exist.
+  - The gate tile reads the STALE-aware view.
+  - Assessment scoring is shared with the API, and parity is verified.
+
+**New findings (not fixed):**
+- **A28.** `reports/threshold_selection/selected_business_cutoff.json`
+  is a stale August v1 file (an F1-based 0.0868 selection). Nothing
+  regenerates it now, and the dashboard does not use it. Delete it or
+  regenerate it deliberately.
+- **A29.** Streamlit 1.35 probes `/<page>/_stcore/health` when a page
+  is opened by direct URL, logging two harmless 404s per load. It is
+  framework behaviour; upgrading Streamlit would remove it.
+- **A30.** `.claude/launch.json` (local preview config, no
+  credentials) is untracked. Keep it local or ignore it.
+
 ---
 
 ## Findings that could change the "Remaining work" priorities

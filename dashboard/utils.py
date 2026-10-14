@@ -51,13 +51,27 @@ def image_path(relative_path: str):
 
 
 def missing_evidence(script_hint: str) -> None:
-    st.warning(
-        f"No evidence found for this view yet. Run {script_hint} "
-        "and refresh this page."
+    from theme import empty_state
+    empty_state("No evidence for this view yet.",
+                f"Run {script_hint}, then refresh this page.")
+
+
+def _connect():
+    config = load_config()
+    db_cfg = config["database"]
+    host = os.environ.get("SENTINEL_DB_HOST", db_cfg["host"])
+    password = os.environ.get("SENTINEL_DB_PASSWORD", "")
+    return psycopg2.connect(
+        host=host, port=db_cfg["port"], dbname=db_cfg["name"],
+        user="postgres", password=password, connect_timeout=5,
     )
 
 
 @st.cache_resource
+def _connection_holder() -> dict:
+    return {"conn": None}
+
+
 def get_db_connection():
     """
     Live connection to the database, for anything this dashboard
@@ -66,29 +80,46 @@ def get_db_connection():
     every other script in this project does, so the dashboard
     works whether it is run natively or inside the Airflow
     container, with no separate configuration path invented for
-    it.
+    it. Reconnects if the cached connection was closed (e.g. a
+    PostgreSQL restart) instead of failing every later query.
     """
-    config = load_config()
-    db_cfg = config["database"]
-    host = os.environ.get("SENTINEL_DB_HOST", db_cfg["host"])
-    password = os.environ.get("SENTINEL_DB_PASSWORD", "")
-    return psycopg2.connect(
-        host=host, port=db_cfg["port"], dbname=db_cfg["name"],
-        user="postgres", password=password,
-    )
+    holder = _connection_holder()
+    if holder["conn"] is None or holder["conn"].closed:
+        holder["conn"] = _connect()
+    return holder["conn"]
 
 
-@st.cache_data(ttl=300)
-def query_db(sql: str) -> pd.DataFrame:
+@st.cache_data(ttl=300, show_spinner=False)
+def query_db(sql: str, params: tuple = ()) -> pd.DataFrame:
+    """Read-only query. Always pass user-supplied values via params."""
     conn = get_db_connection()
-    return pd.read_sql(sql, conn)
+    try:
+        return pd.read_sql(sql, conn, params=params or None)
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        conn.close()
+        return pd.read_sql(sql, get_db_connection(), params=params or None)
+    finally:
+        if not conn.closed:
+            conn.rollback()  # never leave a read transaction open
 
 
-def governance_header() -> None:
-    config = load_config()
-    gov = config["model_governance"]
-    cols = st.columns(4)
-    cols[0].metric("Champion model", gov["champion_model"])
-    cols[1].metric("Feature set", gov["feature_set_label"])
-    cols[2].metric("Model version", gov["model_version"])
-    cols[3].metric("Business cutoff", config["model"]["business_cutoff"])
+def governance_status():
+    """
+    Latest approval-gate status from reporting.governance_status_latest,
+    which derives STALE at read time (Decision 24). Returns a dict, or
+    None if the database is unavailable — callers show that honestly.
+    """
+    try:
+        frame = query_db("SELECT * FROM reporting.governance_status_latest")
+    except Exception:  # noqa: BLE001 - surfaced by the caller as unavailable
+        return None
+    return None if frame.empty else frame.iloc[0].to_dict()
+
+
+def db_available() -> tuple:
+    """(True, None) if a trivial query succeeds, else (False, reason)."""
+    try:
+        query_db("SELECT 1 AS ok")
+        return True, None
+    except Exception as error:  # noqa: BLE001
+        return False, str(error).splitlines()[0][:200]

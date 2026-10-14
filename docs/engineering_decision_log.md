@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.28
-**Last Updated:** 14th October 2026 (v3.28)
+**Version:** 3.29
+**Last Updated:** 15th October 2026 (v3.29)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -45,14 +45,30 @@ decisions.
 
 The Project Rationale provides the high-level
 motivation for choosing BNPL, using synthetic data,
-and building a connected CreditOps architecture.
+and building a connected CreditOps architecture. It
+also holds the research and regulatory reference
+material: calibration assumptions, the regulatory
+source mapping and the regulatory reference summary.
 
-To avoid repeating that material, this document
-begins with the individual engineering decisions.
+This document is the record of engineering decisions.
 Each entry focuses on the implementation challenge,
 the evidence consulted, the engineering implication,
 the resulting design decision, and its regulatory
-context.
+context. The short research and regulatory notes
+inside each entry stay here because they explain that
+specific decision. Material that supports many
+decisions lives with the document it belongs to (see
+[Reference Material](#reference-material)).
+
+Related documents:
+- [Project Rationale](project_rationale.md): why the
+  project exists, research and regulatory foundations
+- [Validation Results](validation_results.md):
+  synthetic-data validation results and methodology
+- [Model Evaluation Report](model_evaluation_report.md):
+  evaluation results and metric definitions
+- [Audit Findings](audit_findings_2026-10-12.md): the
+  October 2026 audit of the log against the code
 
 ---
 ## Decision 1 — Synthetic Data Generation
@@ -102,7 +118,7 @@ statistics. These assumptions support transparent,
 domain-faithful experimentation rather than claim
 precise representation of the UK BNPL market.
 Detailed calibration assumptions and derivations
-are provided in Appendix A.
+are provided in [Calibration Assumptions](project_rationale.md#synthetic-data-calibration-assumptions).
 
 The dataset supports feature engineering, model
 development, A/B testing, drift monitoring,
@@ -193,7 +209,7 @@ implements Fidelity, Utility, and Privacy only.
 Internal consistency — five generation runs with
 different seeds. KS tests confirm stable output.
 
-Detailed methodology provided in Appendix B.
+Detailed methodology provided in [Validation Methodology](validation_results.md#validation-methodology).
 
 ### Regulatory Context
 Directly implements the three dimensions defined
@@ -356,7 +372,7 @@ values for explanation.
 Each model evaluated on predictive performance,
 calibration, business threshold performance,
 stability, and fairness. Metric definitions
-provided in Appendix C.
+provided in [Metric Definitions](model_evaluation_report.md#metric-definitions).
 
 ### Regulatory Context
 Comparative evaluation with documented metrics
@@ -1132,6 +1148,50 @@ population.
    the bias in the first place, rather than working around it
    with split-date selection. Not yet built — planned only.
 
+### Addendum — Identifier Design: Pseudonymised Customer IDs, Natural Keys Below Them (recorded 15th October 2026)
+**Why customer IDs are hashed (owner's account, corroborated by the
+code).** A raw sequential customer number should not be left exposed
+in every table, export and report. The generator therefore derives
+each customer ID from an MD5 digest of an internal key
+(`generate_customer_id()`, `data_generator/bnpl_data_generator.py`),
+whose docstring records the purpose as GDPR-style pseudonymisation.
+The second aim was that IDs be unambiguously unique.
+
+**The lesson: a truncated digest is only as unique as its width.**
+Truncating a hash trades length for collision risk. The same
+docstring records that the digest was **widened to 16 hex characters
+"so the truncated digest cannot collide across the population"**, so
+an earlier, shorter truncation preceded it. The README's Data
+Foundation section records that a collision **was** observed, and
+where: "Loading the data into PostgreSQL exposed an identifier
+collision that Python validation had not detected, leading to a
+redesign of the identifier strategy." The primary-key constraint
+caught what the Python validation missed. The earlier digest width
+was not recorded and is not reconstructed here. At 16 hex characters (64 bits), the chance of
+any collision among 50,000 customers is about n²/2⁶⁵ ≈ 7×10⁻¹¹.
+Uniqueness also does not rest on the hash alone: the digest input
+includes the customer's index, so distinct customers hash distinct
+inputs.
+
+**Below the customer, natural composite keys instead of more hashes.**
+Transaction and repayment IDs are built from their parent, not hashed:
+- `T-{customer_id}-{n}` for transactions
+- `R-{transaction_id}-{instalment}` for repayments
+
+They are unique by construction, and readable: an ID shows which
+customer and transaction it belongs to. This is the "ID format changed
+to natural composite keys" behind the from-scratch rebuild described
+above.
+
+**Verified (15th October 2026, live database).** Every ID is distinct,
+and each is a declared primary key:
+
+| Table | Rows | Distinct IDs |
+|---|---:|---:|
+| `raw.customers` | 50,000 | 50,000 |
+| `raw.transactions` | 174,421 | 174,421 |
+| `raw.repayments` | 483,579 | 483,579 |
+
 ---
 
 ## Decision 11 — Automated Audit-Trail Enforcement
@@ -1147,7 +1207,7 @@ the actual mechanism for keeping the log itself accurate was
 process the FCA CRA review (Decision 6's evidence) criticises
 in real firms. This was confirmed as a live problem, not a
 hypothetical one: the CTGAN benchmark had been stated as
-implemented in Decision 2 and Appendix B for some time before
+implemented in Decision 2 and the validation methodology (then Appendix B) for some time before
 a direct check against `validate_synthetic.py` showed it
 didn't exist.
 
@@ -1570,7 +1630,7 @@ not `roc_auc`.** Under imbalance, ROC-AUC's false positive
 rate is diluted by a large true-negative denominator, so a
 model can accumulate real false positives with little visible
 effect on the curve. This reasoning was already recorded in
-Appendix C but had not been wired into the code until this
+the metric definitions (then Appendix C) but had not been wired into the code until this
 build. Gini/AUC-ROC remain the REPORTED headline metrics,
 since that is the industry and regulatory convention;
 selection metric and reporting metric are deliberately
@@ -3443,7 +3503,7 @@ stated rather than implied.
 
 ---
 
-## Decision 26 — pct_late_payments: Removal Evidence (Decision Pending)
+## Decision 26 — pct_late_payments: Removal Evidence (decided in Decision 27)
 
 > **Status: decided 14th October 2026 — remove (see Decision 27).**
 > The owner ruled that leaking outcome information into the model is
@@ -3707,6 +3767,89 @@ moving the registry alias back.
 
 ---
 
+## Decision 28 — One Scoring Path for API and Dashboard; Dashboard Rebuilt on Evidence Only
+
+### Challenge
+Adding an interactive Credit Risk Assessment page to the Streamlit
+dashboard meant a second place that turns an applicant into model
+features. Copying the FastAPI service's feature construction would
+create two implementations that could drift apart: the same applicant
+scored differently depending on the screen used. That is the
+training-serving skew Decision 3 exists to prevent, moved to serving.
+
+The audit also found the dashboard partly broken and overstated:
+- the Model Performance page crashed on load under the pinned
+  Streamlit 1.35 (`st.dataframe(width='stretch')`, a newer API)
+- the home page advertised explainability, fairness and drift pages
+  that did not exist
+- the governance tile read the gate's JSON file, so it could never
+  show STALE (Decision 24)
+
+### Decision
+1. **One feature-construction module.** `serving/features.py` holds
+   the first-application feature logic and the merchant risk tiers
+   (mirroring `sql/02_feature_store.sql`). `serving/app.py` and the
+   dashboard's `dashboard/scoring.py` both call it. The champion is
+   loaded from `model_governance.artifacts_dir`, and the decision uses
+   `model.business_cutoff` with `>=`, as everywhere else.
+2. **The dashboard shows evidence, never placeholders.** Every page
+   reads a live query, `config.yaml`, or evidence the pipeline wrote.
+   When evidence is missing, the page says which script produces it.
+   Seven sections replace the previous three, each mapped to something
+   that exists:
+   - Executive Overview
+   - Credit Risk Assessment (new)
+   - Portfolio Intelligence (absorbs Forecasting)
+   - Model Performance
+   - Explainability
+   - Model Monitoring
+   - Governance & Audit
+3. **Honest outputs on the assessment page.** It shows the calibrated
+   PD and a review recommendation at the cutoff ("refer for manual
+   review" / "below review threshold"). It does not show a credit
+   score, a limit or an approval.
+
+   The context around the score comes only from real sources:
+   - percentile among the champion's held-out test predictions
+   - SHAP drivers from the explanation model, labelled as raw margin
+   - warnings when an input falls outside the training range
+
+   The Decision 18 scope warning is always visible. Nothing typed is
+   stored.
+4. **One design system.** `.streamlit/config.toml` plus
+   `dashboard/theme.py` hold the palette, typography, Plotly template
+   and components. Status is never shown by colour alone. The
+   assessment page uses a separate, quieter ivory register.
+
+### Verification
+- **All seven pages:** run headless under `streamlit.testing`
+  `AppTest` with no exceptions.
+- **Score parity:** a submitted new-applicant assessment matches the
+  FastAPI service exactly (PD 0.0318, same decision).
+- **Session state:** the result persists across reruns.
+- **Lookups:** unknown customer IDs are reported as not found, and
+  existing-customer scoring matches the API (0.1117).
+- **API unchanged:** API scores before and after the refactor are
+  identical (0.033 / 0.0091 / 0.1117).
+- **Rendering:** checked at 1,440 px and 375 px widths, with no
+  horizontal overflow on any page.
+
+Found and fixed while verifying:
+- a form/session-state key collision that broke every new-applicant
+  assessment
+- a segment table overflowing its column
+- clipped chart labels and titles at phone width
+- the sidebar covering the page on phones
+
+### Limits
+- The dashboard runs locally; nothing is hosted (Decision 6).
+- The SHAP explanations are of the uncalibrated explanation model
+  (Decision 14).
+- The 15% review capacity behind the cutoff is still a placeholder
+  (Decision 19).
+
+---
+
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
@@ -3738,343 +3881,21 @@ moving the registry alias back.
 | 25 | Drift overlap removed, cohort time axis | Self-overlapping comparison; identical runs | PRA SS1/23 Principle 4 | monitor_drift.py, feature_drift_by_cohort |
 | 26 | pct_late_payments removal evidence | Feature mixes cure events and post-default rows | Validity-first ablation, bootstrap CI | evaluate_feature_removal.py, models/challengers/ |
 | 27 | Remove pct_late_payments; v1.1 via validity path | Gini-win rule cannot approve a leakage fix | Owner decision; paired-bootstrap CIs | promote_champion.py, train_baseline_models.py, config artifacts_dir |
+| 28 | One scoring path; evidence-only dashboard | Second feature-construction path would drift; dashboard partly broken | Training-serving skew (D3) | serving/features.py, dashboard/ |
 
 ---
 
-## Regulatory Reference Summary
+## Reference Material
 
-| Regulation | Scope | Decisions |
-|---|---|---|
-| FCA Consumer Duty PS22/9 2023 | Good outcomes for retail customers | 1, 7 |
-| FCA CONC 5.2A | Creditworthiness assessment | 1, 3 |
-| PRA SS1/23 April 2023 | Model risk management UK banks | 3, 4, 5, 8, 9 |
-| SR 11-7 Federal Reserve 2011 | Model risk management global | 9 |
-| FCA Mills Review July 2026 | AI governance retail financial services | 5, 6 |
-| FCA CRA Review May 2026 | Governance weakness examples | 5, 6 |
-| FCA/ICO/Turing Synthetic Data 2023 | Synthetic data validation | 2 |
-| Woolard Review FCA February 2021 | BNPL consumer harm | 1 |
-| CRR/EBA default definition | 90-DPD regulatory default threshold | 10 |
-| IFRS 9 (SICR) | Significant increase in credit risk threshold | 10 |
+Reference material that supports the decisions above, but is not itself a decision, lives with the documents it belongs to (moved 15th October 2026, verbatim):
 
----
-
-## Appendix A — Synthetic Data Calibration
-## Assumptions and Derivations
-
-Detailed calibration parameters for the synthetic
-data generator. These are documented design
-assumptions informed by published statistics.
-
-**Base default rate**
-base_default_rate in config.yaml = 0.004 (0.4%)
-Source: Klarna Wikipink UK 2024 published UK default rate.
-
-This is the RAW Klarna rate. The population uplift for
-higher-risk segments is applied by the default probability
-engine multipliers — it is NOT baked into the base rate.
-
-The default probability engine applies these multipliers
-per transaction (mean multiplier across the population
-shown in brackets):
-
-  merchant_risk_multiplier   range 0.50 to 2.50   (mean 1.363) (varies by product)
-  thin file       x 2.0      applied to 31%        (mean 1.312)  (only 31% affected)
-  vulnerable      x 1.5      applied to ~59%*       (mean 1.285)   (only 59% affected)
-  affordability   x 1.3      when ratio > 0.35      (mean 1.103)   (only stretched customers)
-  credit score    x 1.4      when score < 550       (mean 1.140)   (only poor credit)
-
-
-
-  Compound mean multiplier = 2.89x
-  A/B uplift for Group B = +0.004 flat (added last, post-cap)
-  Cap = 0.15 maximum per transaction
-
-Realised portfolio default rate = 1.47% per approved
-transaction. This emergent rate is the OUTPUT of the engine,
-not a target. It is defensible: above Klarna's published
-0.4% because our population is 31% thin-file and 24%
-low-resilience, and below the Woolard Review FCA 2021
-finding of roughly 1 in 10 BNPL customers in arrears at a
-major bank.
-
-*Note: is_vulnerable fires if ANY of the four Consumer Duty
-drivers is present, so composite prevalence (~59%) is higher
-than the single resilience-driver figure of 24%. This is
-correct and intended — 24% calibrates the resilience driver
-only, not overall vulnerability.
-
-**Note on Decision 10 (v3.1):** The multiplier structure
-above still governs which customers are exposed to higher
-arrears risk. What changed is that `default_probability`
-is no longer stored or drawn directly — these multipliers
-now feed into the hazard/arrears process described in
-Decision 10, and default emerges from that process at
-90 DPD rather than being assigned in advance.
-
-**Age distribution**
-Read directly from Klarna Wikipink UK 2024
-published age bracket chart for UK Pay in 3:
-18-25: 19%, 26-35: 33%, 36-45: 23%,
-46-55: 15%, 56+: 10%.
-
-**Vulnerability prevalence 24%**
-FCA Financial Lives Survey May 2022.
-Measures resilience driver only — one of four
-Consumer Duty vulnerability drivers.
-Used as conservative lower-bound estimate.
-
-**Thin-file prevalence 31%**
-PwC and TotallyMoney YouGov February 2022.
-1 in 3 UK adults financially under-served with
-thin file as qualifying characteristic.
-Represents limited or near-prime credit history.
-LexisNexis UK 2021: 1.7m adults with no credit
-activity in past 24 months for additional context.
-
-**Mental health prevalence 17%**
-NHS Digital Adult Psychiatric Morbidity Survey.
-1 in 6 UK adults experience common mental health
-problem in any given week.
-Used only for FCA Consumer Duty vulnerability
-flagging (Driver 1: Health).
-Must never be used as direct model input —
-would violate Equality Act 2010.
-
-**Merchant categories**
-Informed by Klarna UK Store Directory July 2026
-and Klarna press release March 2026.
-Luxury excluded — price point not purchase type.
-Marketplaces excluded — platform not risk category.
-Food and Grocery retained — Woolard Review FCA
-2021 flagged BNPL for essential spending as
-vulnerability indicator.
-Percentages are design assumptions. No published
-source provides UK BNPL category breakdown.
-
-**Merchant risk multiplier range 0.50 to 2.50**
-Klarna Q2 2025 Investor Report:
-Standard BNPL delinquency: 0.88%
-Fair Financing delinquency: 2.18%
-Ratio: 2.18 / 0.88 = 2.47x
-Range anchored to this empirically grounded spread.
-Individual multipliers derived from two-dimension
-scoring framework: order value and discretionary
-nature of spend. Design assumptions documented
-in config.yaml.
-
-**Income distribution**
-ONS Household Income Inequality UK FYE 2023
-quintile boundaries as baseline.
-Shifted downward — Woolard Review FCA 2021 and
-PwC/TotallyMoney 2022 confirm BNPL users skew
-lower income than general population.
-CFPB 2024 US data used as directional indicator.
-Shift magnitude is a design assumption.
-
-**A/B test uplift 0.004 (0.40pp)**
-Calculated for 80% statistical power at 5%
-significance with 25,000 customers per group
-at 1.0% base default rate.
-Represents 40% relative increase.
-Design assumption tested in validate_synthetic.py.
-
----
-
-## Appendix B — Validation Methodology
-
-**Fidelity measures**
-KS statistic per feature — tests whether synthetic
-and reference distributions are drawn from the
-same distribution.
-Hellinger distance — bounded 0 to 1, measures
-distributional similarity.
-Jensen-Shannon divergence — symmetric variant of
-KL divergence, more stable for distributions with
-zero probability mass.
-
-**Utility measure**
-Train-on-Synthetic Test-on-Real (TSTR).
-Model trained on synthetic data. Scored on Home
-Credit Default Risk as reference.
-Primary metric: Gini coefficient.
-Tolerance: within 5 percentage points of
-equivalent real-data trained model.
-Limitation: Home Credit is PCA-transformed and
-from a different market. Explicitly documented.
-Where no real reference file is present, an
-internal held-out check runs instead and the
-result records that real TSTR was not performed
-(see Decision 10).
-
-**Privacy measures**
-Singling-out test — checks whether any synthetic
-record is unique enough to correspond to a single
-real individual.
-Nearest-neighbour distance analysis — checks
-average distance between synthetic records and
-their nearest real-world equivalent. Low distance
-indicates re-identification risk.
-
-**Internal consistency**
-Five generation runs with different random seeds.
-KS statistic across runs should be below 0.05
-for stable generator output.
-
-**CTGAN benchmark — planned, not yet implemented**
-Intent: train CTGAN on Home Credit Default Risk and
-compare shared distributional properties against the
-parametric generator's output, as supporting evidence
-of realistic statistical structure where they
-converge. Descoped until the core pipeline is
-complete. Not present in `validate_synthetic.py`.
-
----
-
-## Appendix C — Metric Definitions
-
-**Gini coefficient**
-Measures discriminatory power of the model.
-Derived from AUC-ROC: Gini = 2 x AUC - 1.
-Range 0 to 1. Higher is better.
-Industry benchmark for credit scoring: above 0.40
-considered acceptable, above 0.60 strong.
-
-**KS statistic**
-Kolmogorov-Smirnov statistic.
-Maximum difference between cumulative default and
-non-default score distributions.
-Range 0 to 1. Higher is better.
-
-**AUC-ROC**
-Area Under the Receiver Operating Characteristic
-curve. Measures ability to distinguish defaulters
-from non-defaulters across all thresholds.
-
-**Precision-Recall AUC**
-More informative than ROC-AUC on imbalanced
-datasets. Credit default datasets are heavily
-imbalanced — non-defaulters are the majority
-class. Precision-Recall AUC penalises false
-positives more appropriately.
-
-**Expected Calibration Error (ECE)**
-Measures whether predicted default probabilities
-match observed default rates. A model predicting
-10% default probability should default 10% of the
-time. Low ECE indicates well-calibrated model.
-
-**Brier Score**
-Mean squared error of probability predictions.
-Lower is better. Combines calibration and
-discrimination into one metric.
-
-**Population Stability Index (PSI)**
-Measures distribution shift between training and
-scoring populations.
-Below 0.10: stable.
-0.10 to 0.25: moderate shift, monitor.
-Above 0.25: significant shift, model review
-required.
-Source: Kurian and Allali 2024.
-
-**Recall at operating threshold**
-Proportion of actual defaulters correctly
-identified at the business lending cutoff.
-More operationally relevant than overall AUC
-because the business operates at one threshold
-not all thresholds.
-
----
-
-## Appendix D — Regulatory Source Mapping
-
-Full mapping of regulatory documents to specific
-design decisions and implementation components.
-
-**FCA Consumer Duty PS22/9 July 2023**
-Obligation: deliver good outcomes for retail
-customers including understandable information.
-Implementation: adaptive explainability engine
-produces plain English customer output matched
-to error type. Vulnerability flags trigger
-enhanced treatment in scoring and explanation.
-
-**FCA CONC 5.2A**
-Obligation: creditworthiness assessment before
-extending credit. Forward-looking for BNPL as
-regulation phases in.
-Implementation: affordability_ratio field
-calculated as (obligations + instalment) /
-monthly income. fca_affordability_flag fires
-when ratio exceeds 0.45.
-
-**PRA SS1/23 April 2023**
-Principle 1 — model inventory: MLflow registry.
-Principle 2 — independent governance: human
-approval gate, second line sign-off.
-Principle 3 — documented development: feature
-store, three-model comparison with metrics.
-Principle 4 — independent validation: automated
-monthly revalidation, champion/challenger.
-Principle 5 — risk mitigants: human gate as
-compensating control on drift detection.
-Principle 6 — internal audit evidence: MLflow
-logs plus audit trail PDF export.
-
-**SR 11-7 Federal Reserve 2011**
-Requirement: effective challenge by independent
-qualified individuals.
-Implementation: human approval gate with second
-line reviewer. Rejection logged with rationale.
-
-**FCA Mills Review July 2026**
-Finding: AI governance in retail financial
-services is still maturing. Consumer Duty is
-the primary governance framework.
-Implementation: full platform designed around
-Consumer Duty obligations. Continuous monitoring
-addresses maturity gaps.
-
-**FCA CRA Multi-Firm Review May 2026**
-Finding: examples of governance weaknesses
-including surveillance gaps and disconnected
-processes.
-Implementation: closed-loop architecture
-connects monitoring to governance automatically.
-Used as inspiration not direct regulatory
-obligation — CRA review covers rating agencies
-not BNPL lenders.
-
-**FCA/ICO/Alan Turing Synthetic Data June 2023**
-Framework: utility, fidelity, privacy.
-Implementation: validate_synthetic.py covers
-all three dimensions. See Appendix B.
-
-**Woolard Review FCA February 2021**
-Finding: more than one in ten BNPL customers
-at a major bank were already in arrears.
-BNPL for essential spending flagged as
-vulnerability indicator.
-Implementation: Food and Grocery retained as
-merchant category. Vulnerability scoring
-reflects BNPL population risk profile.
-
-**CRR/EBA Default Definition**
-Requirement: default is defined at 90 days past
-due on a credit obligation.
-Implementation: `days_past_due` accumulates
-against the oldest outstanding instalment;
-default is reached when it crosses 90 days. See
-Decision 10.
-
-**IFRS 9 — Significant Increase in Credit Risk**
-Requirement: a distinct, earlier threshold (30
-DPD is the commonly applied backstop) for
-recognising deteriorating credit risk ahead of
-default.
-Implementation: `reached_sicr` flags this
-threshold separately from `default_flag`. See
-Decision 10.
+| Former section | Now in |
+|---|---|
+| Appendix A — Synthetic data calibration assumptions | [Project Rationale → Synthetic Data Calibration Assumptions](project_rationale.md#synthetic-data-calibration-assumptions) |
+| Appendix B — Validation methodology | [Validation Results → Validation Methodology](validation_results.md#validation-methodology) |
+| Appendix C — Metric definitions | [Model Evaluation Report → Metric Definitions](model_evaluation_report.md#metric-definitions) |
+| Appendix D — Regulatory source mapping | [Project Rationale → Regulatory Source Mapping](project_rationale.md#regulatory-source-mapping) |
+| Regulatory reference summary | [Project Rationale → Regulatory Reference Summary](project_rationale.md#regulatory-reference-summary) |
 
 ---
 
@@ -4115,3 +3936,4 @@ Decision 10.
 | 3.26 | 14th October 2026 | Audit clean-up and two new decisions. Added Decision 23 retrospectively (automated approval gate, built 11th August in `e59a042` but never logged; scope stated as an evidence gate, not Decision 9's human approval). Added dated Implementation Status notes to Decisions 3 (local PostgreSQL, not RDS), 5, 6, 7, 8 and 9, marking what is built, partly built, and planned-not-built, plus a filename note on Decision 2. Extended the Summary Table to Decision 26. Added Decision 25: the drift comparison now excludes customers in the training reference (previously 79.3% overlap), and a new informational origination-quarter cohort view (`reporting.feature_drift_by_cohort`) gives drift a real time axis with a per-cohort noise floor. Added Decision 26: `pct_late_payments` removal evidence via `models/evaluate_feature_removal.py`. The feature mixes cure events and post-default rows. Removal costs −0.0054 repeated-CV Gini, with a held-out difference of −0.0038 (95% CI includes 0), and calibration is unchanged. The challenger is registered as v2; the promotion rule returned "not supported", exposing a conflict between Decision 21's Gini-win rule and validity-driven removals. The decision is left open. The champion's artifacts were verified unchanged by checksum. `config.yaml` comments only: the temporal-split note was corrected, and the identity values are documented as load-bearing (they were not edited). |
 | 3.27 | 14th October 2026 | Added Decision 27: the owner ruled that `pct_late_payments` is removed because it leaks outcome information. Superseding Decision 18's frozen set is pending the owner's typed promotion. Added a validity promotion path to `promote_champion.py` (`--validity-override`): it is allowed only when the cited decision exists, the evidence matches the exact challenger runs, and on both splits the 95% paired-bootstrap CI of the Gini difference reaches zero (stratified −0.0038 [−0.0148, +0.0079]; temporal −0.0015 [−0.0164, +0.0150]). The dry run returned "supported"; both refusal paths were tested. Package location is now `config.yaml model_governance.artifacts_dir`, read by all scripts and the API. Training refuses to overwrite a package with a different identity and gains `--pin-xgboost-params` and `--no-prompt`. Added a Decision 21 addendum: champion run selection with rollback (same Gini → latest; latest worse → previous). Decision 26 marked decided. |
 | 3.28 | 14th October 2026 | Decision 27 carried out: v1.1 is the live champion. The owner typed `PROMOTE` (registry v3, tagged `validity_override` / Decision 27). `MODEL_FEATURES` 14 → 13. Config identity switched to v1.1, with the package in `models/artifacts_v1_1/`; v1 is untouched and its reports are archived. The pinned retrain reproduces the promoted challenger exactly (0.5618 / 0.5611). Cutoff recalibrated by the Decision 19 method: 0.0657 (was 0.0671). Stratified recall 57.96% vs 54.87%, precision 9.90% vs 9.60%. SHAP, the governance review (13 features, pending owner sign-off) and segment diagnostics regenerated. The API serves v1.1 without the hardcoded `pct_late_payments` default. Monitoring and the gate pass on 13 features. The thin-file FNR finding is unchanged. |
+| 3.29 | 15th October 2026 | Documentation separated from the decision record. Appendices A–D and the Regulatory Reference Summary moved verbatim: A and D plus the summary to `project_rationale.md` (Research and Regulatory Foundations), B to `validation_results.md`, C to `model_evaluation_report.md`. A Reference Material pointer table replaces them, and the in-text references are now links. Added a Decision 10 addendum on identifier design: pseudonymised customer IDs (owner's account, corroborated by the generator docstring and the README's record of a collision caught by the database), natural composite keys below them, and uniqueness verified on all three tables. Added Decision 28: one feature-construction module shared by the FastAPI service and the dashboard, and the Streamlit dashboard rebuilt as seven evidence-only sections with a central design system; verified headless and rendered. |

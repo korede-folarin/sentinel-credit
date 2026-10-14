@@ -23,7 +23,7 @@ data_generator:
 
   # ── POPULATION ───────────────────────────────────────
   # Prevalences reference published UK figures. Sources and
-  # reasoning in engineering_decision_log.md — Appendix A.
+  # reasoning in docs/project_rationale.md — Synthetic Data Calibration Assumptions.
   vulnerability_prevalence: 0.24
   thin_file_prevalence: 0.31
   # Consumer Duty flagging only. Never a model input.

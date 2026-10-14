@@ -227,3 +227,61 @@ Evaluation artifacts are attached to their exact MLflow training runs (see the t
 ## 12. Status statement
 
 Evaluation of the frozen 14-feature v1 champion is complete on both splits. `business_cutoff` is confirmed at 0.0671 (Decision 19) — held-out results on stratified and temporal are both consistent with the training-only OOF selection evidence. XGBoost remains the clear champion. One item remains open, not blocking the champion or cutoff conclusions: a Decision 12 governance decision on segment-aware review capacity for `thin_file_flag`, whose ranking survives within-segment on both splits but whose recall is structurally suppressed to zero by the shared probability scale at any global cutoff.
+
+---
+
+## Metric Definitions
+
+> Moved verbatim from the Engineering Decision Log (Appendix C) on 15th October 2026, when reference material was separated from the decision record. Content is unchanged; it describes the design as documented at the time.
+
+**Gini coefficient**
+Measures discriminatory power of the model.
+Derived from AUC-ROC: Gini = 2 x AUC - 1.
+Range 0 to 1. Higher is better.
+Industry benchmark for credit scoring: above 0.40
+considered acceptable, above 0.60 strong.
+
+**KS statistic**
+Kolmogorov-Smirnov statistic.
+Maximum difference between cumulative default and
+non-default score distributions.
+Range 0 to 1. Higher is better.
+
+**AUC-ROC**
+Area Under the Receiver Operating Characteristic
+curve. Measures ability to distinguish defaulters
+from non-defaulters across all thresholds.
+
+**Precision-Recall AUC**
+More informative than ROC-AUC on imbalanced
+datasets. Credit default datasets are heavily
+imbalanced — non-defaulters are the majority
+class. Precision-Recall AUC penalises false
+positives more appropriately.
+
+**Expected Calibration Error (ECE)**
+Measures whether predicted default probabilities
+match observed default rates. A model predicting
+10% default probability should default 10% of the
+time. Low ECE indicates well-calibrated model.
+
+**Brier Score**
+Mean squared error of probability predictions.
+Lower is better. Combines calibration and
+discrimination into one metric.
+
+**Population Stability Index (PSI)**
+Measures distribution shift between training and
+scoring populations.
+Below 0.10: stable.
+0.10 to 0.25: moderate shift, monitor.
+Above 0.25: significant shift, model review
+required.
+Source: Kurian and Allali 2024.
+
+**Recall at operating threshold**
+Proportion of actual defaulters correctly
+identified at the business lending cutoff.
+More operationally relevant than overall AUC
+because the business operates at one threshold
+not all thresholds.

@@ -61,6 +61,9 @@ import psycopg2
 import yaml
 from pydantic import BaseModel, Field
 
+from serving.features import PROFILE_FIELDS
+from serving.features import build_new_customer_features as shared_build_features
+
 warnings.filterwarnings("ignore")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -259,75 +262,21 @@ def lookup_existing_customer(customer_id: str) -> Optional[dict]:
 
 def build_new_customer_features(request: ScoreRequest) -> dict:
     """
-    First-application feature construction. Every default here
-    is a stated, sensible choice for "no history exists yet",
-    not an invented average.
+    First-application feature construction, delegated to the shared
+    serving/features.py so this API and the Streamlit assessment page
+    build features identically. Missing profile fields -> HTTP 422.
     """
-
-    required = [
-        "monthly_income_gbp",
-        "existing_monthly_obligations_gbp",
-        "savings_balance_gbp",
-        "credit_score",
-        "months_credit_history",
-        "num_credit_accounts",
-        "num_defaults_24m",
-        "thin_file_flag",
-    ]
-
-    missing = [f for f in required if getattr(request, f) is None]
-
-    if missing:
+    profile = {f: getattr(request, f) for f in PROFILE_FIELDS}
+    try:
+        return shared_build_features(
+            profile, request.order_value_gbp, request.n_instalments,
+            request.merchant_category,
+        )
+    except KeyError as error:
         raise HTTPException(
             status_code=422,
-            detail=(
-                f"customer_id not found or not provided — new-customer "
-                f"profile fields are required: {missing}"
-            ),
+            detail=f"customer_id not found or not provided — {error.args[0]}",
         )
-
-    instalment_amount = request.order_value_gbp / request.n_instalments
-
-    affordability_ratio = (
-        request.existing_monthly_obligations_gbp + instalment_amount
-    ) / request.monthly_income_gbp
-
-    HIGH_RISK_CATEGORIES = {
-        "Travel",
-        "Electronics",
-    }
-
-    MEDIUM_RISK_CATEGORIES = {
-        "Fashion & Clothing",
-        "Home",
-        "Other",
-    }
-
-    return {
-        "monthly_income_gbp": request.monthly_income_gbp,
-        "existing_monthly_obligations_gbp": request.existing_monthly_obligations_gbp,
-        "savings_balance_gbp": request.savings_balance_gbp,
-        "credit_score": request.credit_score,
-        "months_credit_history": request.months_credit_history,
-        "num_credit_accounts": request.num_credit_accounts,
-        "num_defaults_24m": request.num_defaults_24m,
-        "thin_file_flag": request.thin_file_flag,
-        "max_affordability_ratio": round(affordability_ratio, 4),
-        "avg_order_value_gbp": request.order_value_gbp,
-        "avg_n_instalments": request.n_instalments,
-
-        "pct_high_risk_category": (
-            1.0
-            if request.merchant_category in HIGH_RISK_CATEGORIES
-            else 0.0
-        ),
-
-        "pct_medium_risk_category": (
-            1.0
-            if request.merchant_category in MEDIUM_RISK_CATEGORIES
-            else 0.0
-        ),
-    }
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def scoring_interface(request: Request):

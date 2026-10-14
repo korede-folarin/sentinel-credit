@@ -1,0 +1,17 @@
+# Sentinel Credit, Streamlit theme. Base colours only; typography and
+# component styling live in dashboard/theme.py. Run from the project root:
+#   streamlit run dashboard/Home.py
+
+[theme]
+base = "dark"
+primaryColor = "#B89A61"              # muted champagne gold: interactive accents
+backgroundColor = "#151719"           # deep charcoal
+secondaryBackgroundColor = "#202326"  # graphite
+textColor = "#F5F1E9"                 # soft ivory
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

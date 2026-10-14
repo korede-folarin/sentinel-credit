@@ -22,7 +22,7 @@ Calibration sources:
   Klarna Wikipink UK 2024 · Klarna Q2 2025 Investor Report
   FCA Financial Lives Survey May 2022 · ONS FYE 2023
   PwC/TotallyMoney 2022 · World Bank March 2025
-  See docs/engineering_decision_log.md — Appendix A.
+  See docs/project_rationale.md — Synthetic Data Calibration Assumptions.
 =============================================================
 """
 

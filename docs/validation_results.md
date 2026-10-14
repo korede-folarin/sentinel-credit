@@ -83,3 +83,55 @@ python validation/validation.py
 ```
 
 Requires `data_generator/output/{customers,transactions,repayments}.csv`. For the full TSTR path rather than the internal fallback, `validation/reference/home_credit.csv` must be present. All results are written to `reports/validation/`.
+
+---
+
+## Validation Methodology
+
+> Moved verbatim from the Engineering Decision Log (Appendix B) on 15th October 2026, when reference material was separated from the decision record. Content is unchanged; it describes the design as documented at the time.
+
+**Fidelity measures**
+KS statistic per feature — tests whether synthetic
+and reference distributions are drawn from the
+same distribution.
+Hellinger distance — bounded 0 to 1, measures
+distributional similarity.
+Jensen-Shannon divergence — symmetric variant of
+KL divergence, more stable for distributions with
+zero probability mass.
+
+**Utility measure**
+Train-on-Synthetic Test-on-Real (TSTR).
+Model trained on synthetic data. Scored on Home
+Credit Default Risk as reference.
+Primary metric: Gini coefficient.
+Tolerance: within 5 percentage points of
+equivalent real-data trained model.
+Limitation: Home Credit is PCA-transformed and
+from a different market. Explicitly documented.
+Where no real reference file is present, an
+internal held-out check runs instead and the
+result records that real TSTR was not performed
+(see Decision 10).
+
+**Privacy measures**
+Singling-out test — checks whether any synthetic
+record is unique enough to correspond to a single
+real individual.
+Nearest-neighbour distance analysis — checks
+average distance between synthetic records and
+their nearest real-world equivalent. Low distance
+indicates re-identification risk.
+
+**Internal consistency**
+Five generation runs with different random seeds.
+KS statistic across runs should be below 0.05
+for stable generator output.
+
+**CTGAN benchmark — planned, not yet implemented**
+Intent: train CTGAN on Home Credit Default Risk and
+compare shared distributional properties against the
+parametric generator's output, as supporting evidence
+of realistic statistical structure where they
+converge. Descoped until the core pipeline is
+complete. Not present in `validate_synthetic.py`.
