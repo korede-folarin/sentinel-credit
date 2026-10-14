@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Parity Check · Sentinel Credit</title>
+<style>
+  :root { --bg:#151719; --panel:#202326; --line:#2E3236; --text:#F5F1E9; --stone:#A8A49D;
+          --gold:#B89A61; --ok:#438B73; --bad:#C4545C; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:40px 16px; }
+  h1 { font:600 2rem Georgia, serif; margin:0 0 6px; }
+  .kicker { color:var(--gold); font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; }
+  p { color:var(--stone); }
+  table { width:100%; border-collapse:collapse; margin-top:18px; background:var(--panel); }
+  td { padding:9px 12px; border-bottom:1px solid var(--line); }
+  td:first-child { color:var(--stone); }
+  .pill { display:inline-block; padding:2px 10px; border:1px solid; font-weight:600;
+          letter-spacing:.06em; font-size:.8rem; }
+  .pass { color:var(--ok); } .fail { color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <div class="kicker">Verification</div>
+  <h1>Browser model parity</h1>
+  <p>Scores the parity vectors with the published ONNX model in this browser (onnxruntime-web)
+     and compares each result with the probability the Python champion produced. The website is
+     only published if this passes.</p>
+  <table id="out"><tr><td>Status</td><td id="status">Running…</td></tr></table>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+<script>
+const MAX_ABS_DIFF = 1e-5;   // same rule as website/tools/export_model.py
+
+function row(label, value) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td>${label}</td><td>${value}</td>`;
+  document.getElementById("out").appendChild(tr);
+}
+
+(async () => {
+  try {
+    ort.env.wasm.numThreads = 1;
+    const [contract, vectors] = await Promise.all([
+      fetch("model/model_contract.json").then(r => r.json()),
+      fetch("model/parity_vectors.json").then(r => r.json()),
+    ]);
+    if (JSON.stringify(vectors.features) !== JSON.stringify(contract.features))
+      throw new Error("feature order in vectors does not match the model contract");
+
+    const session = await ort.InferenceSession.create("model/sentinel_champion.onnx",
+                                                      { executionProviders: ["wasm"] });
+    const n = vectors.rows.length, k = contract.features.length;
+    const flat = new Float32Array(n * k);
+    vectors.rows.forEach((r, i) => flat.set(r, i * k));
+    const t0 = performance.now();
+    const out = await session.run({ [contract.input_name]:
+                                    new ort.Tensor("float32", flat, [n, k]) });
+    const ms = performance.now() - t0;
+    const probs = out[contract.probability_output].data;   // [n, 2], row-major
+
+    let maxDiff = 0, sumDiff = 0, flips = 0, worst = -1;
+    for (let i = 0; i < n; i++) {
+      const pBrowser = probs[i * 2 + 1], pPython = vectors.expected[i];
+      const d = Math.abs(pBrowser - pPython);
+      sumDiff += d;
+      if (d > maxDiff) { maxDiff = d; worst = i; }
+      if ((pBrowser >= contract.cutoff) !== (pPython >= contract.cutoff)) flips++;
+    }
+    const passed = maxDiff < MAX_ABS_DIFF && flips === 0;
+    window.__parity = { passed, n, maxDiff, meanDiff: sumDiff / n, flips, ms,
+                        backend: "wasm", ortVersion: ort.env.versions?.web || "1.19.2",
+                        userAgent: navigator.userAgent };
+    document.getElementById("status").innerHTML =
+      `<span class="pill ${passed ? "pass" : "fail"}">${passed ? "PASS" : "FAIL"}</span>`;
+    row("Model", `${contract.model} ${contract.model_version} · ${contract.feature_set}`);
+    row("Vectors scored", n.toLocaleString());
+    row("Max |Δ| vs Python", maxDiff.toExponential(2) + `  (rule: below ${MAX_ABS_DIFF})`);
+    row("Mean |Δ|", (sumDiff / n).toExponential(2));
+    row("Decision flips at cutoff " + contract.cutoff, flips);
+    row("Inference time (all vectors)", ms.toFixed(0) + " ms");
+  } catch (err) {
+    window.__parity = { passed: false, error: String(err) };
+    document.getElementById("status").innerHTML =
+      `<span class="pill fail">ERROR</span> ${String(err)}`;
+  }
+})();
+</script>
+</body>
+</html>

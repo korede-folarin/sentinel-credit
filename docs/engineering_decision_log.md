@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.29
-**Last Updated:** 15th October 2026 (v3.29)
+**Version:** 3.30
+**Last Updated:** 15th October 2026 (v3.30)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -3850,6 +3850,71 @@ Found and fixed while verifying:
 
 ---
 
+## Decision 29 — Public Demo Scores In the Browser (ONNX), Gated on Two Parity Checks
+
+### Challenge
+The project needs a public, recruiter-facing demonstration where a
+visitor can enter an application and get a genuine score from the
+real champion. Two routes existed (handoff):
+1. Host the FastAPI service and have the site call it. That means real
+   infrastructure with cost and upkeep, and an endpoint exposed to
+   strangers.
+2. Convert the model to ONNX and score in the visitor's browser with
+   onnxruntime-web. No server and no database; a permanent static link.
+
+Route 2 carries one specific risk: a converted model that is subtly
+different from the governed one. A demo that quietly scores
+differently from the champion would undermine the project's central
+claim.
+
+### Decision
+**Route 2, in-browser ONNX, chosen by the owner on 15th October 2026.**
+Nothing is built on the converted model until it passes two parity
+checks against the Python champion. The pass rule was fixed before
+running: max |Δ probability| below 1e-5, and **zero** decision flips at
+the configured cutoff.
+
+`website/tools/export_model.py` converts the full champion — five
+XGBoost models, each with its own Platt calibrator, probabilities
+averaged — into one ONNX graph (skl2onnx 1.17, onnxmltools 1.12,
+opset 17 / ai.onnx.ml 3).
+
+**Conversion lesson.** onnxmltools requires XGBoost split features named
+`f0..fN`, and the champion's boosters carry real feature names.
+Names are stripped on a **copy** only. Column order is unchanged, and
+parity is measured against the original, unmodified model, so a
+mapping error could not pass silently.
+
+### Evidence
+| Check | Engine | n | max \|Δ\| | Decision flips |
+|---|---|---:|---:|---:|
+| Modelable population | onnxruntime 1.19.2 (Python) | 41,604 | 5.96e-08 | 0 |
+| Edge cases (input extremes + 500 random points) | onnxruntime 1.19.2 (Python) | 529 | 8.94e-09 | 0 |
+| Browser replay, incl. the 200 customers closest to the cutoff | onnxruntime-web 1.19.2 (WASM, Chromium) | 1,988 | 2.53e-08 | 0 |
+
+The browser scored all 1,988 vectors in about 115 ms. Evidence:
+`website/public/model/python_parity_report.json`, and
+`website/public/parity.html`, which re-runs the browser check for any
+visitor.
+
+### Contract
+`website/public/model/model_contract.json` publishes what the site
+must respect:
+- feature order and the cutoff, with its `>=` rule
+- training ranges, for out-of-range warnings
+- the Decision 18 scope statement and the synthetic-data label
+
+The site may show a probability and a review recommendation only. No
+credit score, limit or approval is invented.
+
+### Not yet decided
+- **Hosting.** GitHub Pages is proposed but not yet chosen.
+- **Browsers.** The site pages are not built yet, and the browser
+  check has run in Chromium only. Firefox and Safari should be checked
+  before launch.
+
+---
+
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
@@ -3882,6 +3947,7 @@ Found and fixed while verifying:
 | 26 | pct_late_payments removal evidence | Feature mixes cure events and post-default rows | Validity-first ablation, bootstrap CI | evaluate_feature_removal.py, models/challengers/ |
 | 27 | Remove pct_late_payments; v1.1 via validity path | Gini-win rule cannot approve a leakage fix | Owner decision; paired-bootstrap CIs | promote_champion.py, train_baseline_models.py, config artifacts_dir |
 | 28 | One scoring path; evidence-only dashboard | Second feature-construction path would drift; dashboard partly broken | Training-serving skew (D3) | serving/features.py, dashboard/ |
+| 29 | Public demo scores in the browser (ONNX) | Public demo without servers, without drifting from the champion | Two parity checks, fixed pass rule | website/tools/export_model.py, website/public/ |
 
 ---
 
@@ -3937,3 +4003,4 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.27 | 14th October 2026 | Added Decision 27: the owner ruled that `pct_late_payments` is removed because it leaks outcome information. Superseding Decision 18's frozen set is pending the owner's typed promotion. Added a validity promotion path to `promote_champion.py` (`--validity-override`): it is allowed only when the cited decision exists, the evidence matches the exact challenger runs, and on both splits the 95% paired-bootstrap CI of the Gini difference reaches zero (stratified −0.0038 [−0.0148, +0.0079]; temporal −0.0015 [−0.0164, +0.0150]). The dry run returned "supported"; both refusal paths were tested. Package location is now `config.yaml model_governance.artifacts_dir`, read by all scripts and the API. Training refuses to overwrite a package with a different identity and gains `--pin-xgboost-params` and `--no-prompt`. Added a Decision 21 addendum: champion run selection with rollback (same Gini → latest; latest worse → previous). Decision 26 marked decided. |
 | 3.28 | 14th October 2026 | Decision 27 carried out: v1.1 is the live champion. The owner typed `PROMOTE` (registry v3, tagged `validity_override` / Decision 27). `MODEL_FEATURES` 14 → 13. Config identity switched to v1.1, with the package in `models/artifacts_v1_1/`; v1 is untouched and its reports are archived. The pinned retrain reproduces the promoted challenger exactly (0.5618 / 0.5611). Cutoff recalibrated by the Decision 19 method: 0.0657 (was 0.0671). Stratified recall 57.96% vs 54.87%, precision 9.90% vs 9.60%. SHAP, the governance review (13 features, pending owner sign-off) and segment diagnostics regenerated. The API serves v1.1 without the hardcoded `pct_late_payments` default. Monitoring and the gate pass on 13 features. The thin-file FNR finding is unchanged. |
 | 3.29 | 15th October 2026 | Documentation separated from the decision record. Appendices A–D and the Regulatory Reference Summary moved verbatim: A and D plus the summary to `project_rationale.md` (Research and Regulatory Foundations), B to `validation_results.md`, C to `model_evaluation_report.md`. A Reference Material pointer table replaces them, and the in-text references are now links. Added a Decision 10 addendum on identifier design: pseudonymised customer IDs (owner's account, corroborated by the generator docstring and the README's record of a collision caught by the database), natural composite keys below them, and uniqueness verified on all three tables. Added Decision 28: one feature-construction module shared by the FastAPI service and the dashboard, and the Streamlit dashboard rebuilt as seven evidence-only sections with a central design system; verified headless and rendered. |
+| 3.30 | 15th October 2026 | Added Decision 29: the public demo scores in the visitor's browser via ONNX (owner's choice, route 2), gated on parity with the Python champion under a pass rule fixed in advance (max \|Δ\| < 1e-5, zero decision flips). Results: Python onnxruntime on 41,604 customers, max \|Δ\| 5.96e-08, 0 flips; edge cases 8.94e-09, 0 flips; browser onnxruntime-web (WASM) on 1,988 vectors including the 200 nearest the cutoff, 2.53e-08, 0 flips. Conversion lesson recorded (XGBoost feature names stripped on a copy, parity measured against the original). Hosting and cross-browser checks remain open. |
