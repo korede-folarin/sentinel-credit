@@ -52,8 +52,9 @@ import argparse
 import json
 import os
 import sys
+import uuid
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 
 import mlflow
 import numpy as np
@@ -294,6 +295,44 @@ def check_target_rate_shift(reference: pd.DataFrame, comparison: pd.DataFrame) -
     }
 
 
+def log_drift_history(feature_drift_df: pd.DataFrame, run_id: str) -> None:
+    """
+    Appends this run's per-feature results to
+    reporting.feature_drift_log, so history accumulates across runs
+    instead of being overwritten with feature_drift.csv. All rows
+    from one run share run_id and logged_at.
+
+    Raw psycopg2 rather than pandas.to_sql: to_sql fails in this
+    environment against both an Engine and a Connection (pandas /
+    SQLAlchemy version mismatch). The table's DDL lives in
+    sql/reporting/create_feature_drift_log.sql, not here — a missing
+    table fails loudly rather than being silently recreated.
+    """
+    db_host = os.environ.get("SENTINEL_DB_HOST", DB["host"])
+    password = os.environ.get("SENTINEL_DB_PASSWORD", "")
+
+    df = feature_drift_df.copy()
+    df["run_id"] = run_id
+    df["logged_at"] = datetime.now().astimezone()
+    cols = list(df.columns)
+    values = list(df[cols].itertuples(index=False, name=None))
+
+    conn = psycopg2.connect(
+        host=db_host, port=DB["port"], dbname=DB["name"],
+        user="postgres", password=password,
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.executemany(
+                f"INSERT INTO reporting.feature_drift_log ({', '.join(cols)}) "
+                f"VALUES ({', '.join(['%s'] * len(cols))})",
+                values,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def find_champion_run_id() -> str | None:
     """
     Best-effort link back to the champion training run, so this
@@ -389,13 +428,17 @@ def main() -> None:
         print("No features triggered a drift or data-quality alert.")
     print("-" * 62)
 
+    run_id = f"drift_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:8]}"
+
     drift_path = os.path.join(OUTPUT_DIR, "feature_drift.csv")
     drift.to_csv(drift_path, index=False)
+    log_drift_history(drift, run_id)
 
     champion_run_id = find_champion_run_id()
 
     metadata = {
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "run_id": run_id,
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "reference_population": "canonical_stratified_training_partition",
         "comparison_population_source": args.population,
         "n_reference": int(len(reference)),
@@ -438,6 +481,7 @@ def main() -> None:
                 "dataset_version": DATASET_VERSION,
                 "comparison_population_source": args.population,
                 "champion_training_run_id": champion_run_id or "unknown",
+                "drift_log_run_id": run_id,
             })
             mlflow.log_metric("n_features_with_alerts", n_alerts)
             mlflow.log_metric("max_psi", float(drift["psi"].max()))

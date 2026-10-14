@@ -45,9 +45,11 @@ import argparse
 import json
 import os
 import sys
+import traceback
 import warnings
 from datetime import datetime, timedelta
 
+import psycopg2
 import yaml
 
 warnings.filterwarnings("ignore")
@@ -63,6 +65,7 @@ with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f
 
 GATE_CFG = CONFIG.get("approval_gate", {})
 MAX_MONITORING_AGE_HOURS = GATE_CFG.get("max_monitoring_age_hours", 48)
+DB_CFG = CONFIG.get("database", {})
 
 
 def load_monitoring_evidence() -> dict:
@@ -84,7 +87,11 @@ def evaluate_gate(evidence: dict) -> dict:
                 "Run pipeline/monitor_drift.py first."
             ),
         })
-        return {"gate_status": "BLOCK", "checks": checks}
+        return {
+            "gate_status": "BLOCK", "checks": checks,
+            "n_alerts": None, "n_features_total": None,
+            "monitoring_age_hours": None,
+        }
 
     checks.append({
         "check": "monitoring_evidence_exists",
@@ -92,8 +99,15 @@ def evaluate_gate(evidence: dict) -> dict:
         "detail": f"Found: {MONITORING_METADATA_PATH}",
     })
 
+    # Timezone-aware comparison: monitor_drift.py writes generated_at
+    # with a UTC offset, so evidence produced in the UTC Airflow
+    # container and a gate run on the Windows host agree on its age.
+    # A naive value (metadata written before this change) is read as
+    # this machine's local time, the old behaviour. See Decision 24.
     generated_at = datetime.fromisoformat(evidence["generated_at"])
-    age = datetime.now() - generated_at
+    if generated_at.tzinfo is None:
+        generated_at = generated_at.astimezone()
+    age = datetime.now().astimezone() - generated_at
     age_hours = age.total_seconds() / 3600
     age_ok = age_hours <= MAX_MONITORING_AGE_HOURS
 
@@ -134,7 +148,78 @@ def evaluate_gate(evidence: dict) -> dict:
     gating_checks = [c for c in checks if c["passed"] is not None]
     gate_status = "PASS" if all(c["passed"] for c in gating_checks) else "BLOCK"
 
-    return {"gate_status": gate_status, "checks": checks}
+    return {
+        "gate_status": gate_status,
+        "checks": checks,
+        # Real numbers, not buried in the printed detail strings —
+        # write_governance_status() reads these directly rather
+        # than parsing prose back apart, which would be fragile.
+        "n_alerts": n_alerts,
+        "n_features_total": n_total,
+        "monitoring_age_hours": round(age_hours, 2),
+    }
+
+
+def write_governance_status(result: dict) -> bool:
+    """
+    Writes the gate result this run already computed into
+    reporting.governance_status_log, so Power BI (or any other
+    live reporting tool) can read the real, current gate status
+    through the same DirectQuery connection already used for
+    every other reporting view, instead of a manually typed
+    value standing in for it.
+
+    This is purely additive: it runs after evaluate_gate() has
+    already decided PASS or BLOCK, and it never changes that
+    decision. If the database is unreachable, this prints a
+    warning and returns False rather than failing the whole gate
+    check — the JSON evidence file main() already wrote is the
+    thing promote_champion.py actually depends on, this database
+    write is a reporting convenience layered on top of it, not a
+    new dependency for the gate itself.
+    """
+    if not DB_CFG:
+        print("  Skipping governance status write — no database "
+              "section in config.yaml.")
+        return False
+
+    db_host = os.environ.get("SENTINEL_DB_HOST", DB_CFG.get("host", "localhost"))
+    db_password = os.environ.get("SENTINEL_DB_PASSWORD", "")
+
+    try:
+        conn = psycopg2.connect(
+            host=db_host, port=DB_CFG.get("port", 5432),
+            dbname=DB_CFG.get("name", "sentinel_credit"),
+            user="postgres", password=db_password,
+        )
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO reporting.governance_status_log
+                (gate_status, evaluated_at, n_alerts, n_features_total,
+                 monitoring_age_hours, max_monitoring_age_hours)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                result["gate_status"],
+                result["evaluated_at"],
+                result["n_alerts"],
+                result["n_features_total"],
+                result["monitoring_age_hours"],
+                result["max_monitoring_age_hours"],
+            ),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("  Governance status written to "
+              "reporting.governance_status_log.")
+        return True
+    except Exception as error:
+        print(f"  WARNING: could not write governance status to the "
+              f"database ({error}). The evidence file was still saved "
+              f"correctly — this only affects the live Power BI feed.")
+        return False
 
 
 def main() -> None:
@@ -144,18 +229,35 @@ def main() -> None:
         help="Suppress printed output — used when called as a library check "
              "from another script (e.g. promote_champion.py).",
     )
+    parser.add_argument(
+        "--require-db-write", action="store_true",
+        help="Exit 2 if the governance status cannot be written to the "
+             "database. Used by the Airflow DAG, where a silently missing "
+             "row would only surface later as a STALE badge.",
+    )
     args = parser.parse_args()
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     evidence = load_monitoring_evidence()
     result = evaluate_gate(evidence)
 
-    result["evaluated_at"] = datetime.now().isoformat(timespec="seconds")
+    # Offset-aware, so a row written from the UTC container and one
+    # written on the Windows host land on one timeline (Decision 24).
+    result["evaluated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     result["max_monitoring_age_hours"] = MAX_MONITORING_AGE_HOURS
 
     result_path = os.path.join(OUTPUT_DIR, "approval_gate_result.json")
     with open(result_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
+
+    # Additive: writes the same result to the database for Power BI's
+    # live feed. Runs after the JSON file above is already safely
+    # saved, and never affects the gate_status — see
+    # write_governance_status()'s own docstring. Only with
+    # --require-db-write does a failed write change the exit code.
+    written = write_governance_status(result)
+    if args.require_db_write and not written:
+        sys.exit(2)
 
     if not args.quiet:
         print("=" * 62)
@@ -175,8 +277,16 @@ def main() -> None:
         print(f"\nSaved: {result_path}")
         print("=" * 62)
 
+    # Exit codes: 0 PASS, 1 BLOCK, 2 the gate could not complete or
+    # (with --require-db-write) could not record its result.
     sys.exit(0 if result["gate_status"] == "PASS" else 1)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # An unhandled error would otherwise exit 1, indistinguishable
+        # from a recorded BLOCK verdict to a caller such as the DAG.
+        traceback.print_exc()
+        sys.exit(2)

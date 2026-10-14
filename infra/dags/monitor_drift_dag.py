@@ -15,12 +15,20 @@ concerns Airflow's UI can distinguish cleanly:
   and "the monitoring job found something" show up as visibly
   different failure reasons in the Airflow UI, not one conflated
   red X.
+- run_approval_gate: re-evaluates pipeline/approval_gate.py on the
+  evidence compute_drift just wrote, and records the result in
+  reporting.governance_status_log, so the Power BI gate badge stays
+  current while the stack runs (Decision 24). Runs alongside
+  evaluate_alerts, not after it: found drift must still produce a
+  BLOCK row, not no row. The task fails only if the gate cannot
+  record its result; a BLOCK verdict is a governance outcome,
+  already surfaced as a failure by evaluate_alerts.
 
-Neither task retrains, promotes a model, or changes MODEL_FEATURES.
-This DAG produces evidence and a visible alert state; feeding that
-into an automated Approval Gate or Champion/Challenger promotion
-workflow is the next Intelligence Core / Governance Layer piece,
-not yet built.
+No task retrains, promotes a model, or changes MODEL_FEATURES.
+
+max_active_runs=1: when the stack comes back after downtime,
+catch-up runs would otherwise execute concurrently and race on the
+same CSV and metadata JSON (observed 12th October 2026, audit A18).
 
 Container setup this DAG assumes (see infra/docker-compose.override.yml):
 - The project repo is mounted at /usr/local/airflow/project.
@@ -47,23 +55,43 @@ from airflow.models import Variable
 
 PROJECT_MOUNT = "/usr/local/airflow/project"
 SCRIPT_PATH = os.path.join(PROJECT_MOUNT, "pipeline", "monitor_drift.py")
+GATE_SCRIPT_PATH = os.path.join(PROJECT_MOUNT, "pipeline", "approval_gate.py")
 METADATA_PATH = os.path.join(
     PROJECT_MOUNT, "reports", "monitoring", "monitoring_run_metadata.json"
 )
+
+
+def _script_env() -> dict:
+    """Subprocess environment: DB settings from Airflow Variables,
+    never written to disk or the task log."""
+    env = os.environ.copy()
+    env["SENTINEL_DB_HOST"] = Variable.get("sentinel_db_host")
+    env["SENTINEL_DB_PASSWORD"] = Variable.get("sentinel_db_password")
+    env["MLFLOW_ALLOW_FILE_STORE"] = "true"
+    return env
 
 default_args = {
     "owner": "sentinel-credit",
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
+    # With max_active_runs=1, a task that never returns would block
+    # every later scheduled run. Healthy runs finish in about a
+    # minute; a run blocked on I/O through the Windows bind mount
+    # (observed 13th October 2026, audit A21) is failed here instead
+    # of hanging indefinitely.
+    "execution_timeout": timedelta(minutes=20),
 }
 
 
 @dag(
     dag_id="sentinel_credit_drift_monitoring",
-    description="Daily PSI drift and data-quality check for the v1 champion",
+    # @daily fires only while the local Astro/Docker stack is up —
+    # not continuous daily monitoring. See Decision 20 addendum.
+    description="PSI drift and data-quality check for the v1 champion (scheduled while the local stack is running)",
     schedule="@daily",
     start_date=datetime(2026, 8, 11),
     catchup=False,
+    max_active_runs=1,
     default_args=default_args,
     tags=["sentinel-credit", "monitoring", "drift"],
 )
@@ -78,13 +106,7 @@ def sentinel_credit_drift_monitoring():
         version" of the monitoring logic to drift out of sync with
         the one actually documented and tested.
         """
-        db_host = Variable.get("sentinel_db_host")
-        db_password = Variable.get("sentinel_db_password")
-
-        env = os.environ.copy()
-        env["SENTINEL_DB_HOST"] = db_host
-        env["SENTINEL_DB_PASSWORD"] = db_password
-        env["MLFLOW_ALLOW_FILE_STORE"] = "true"
+        env = _script_env()
 
         result = subprocess.run(
             ["python", SCRIPT_PATH],
@@ -149,8 +171,39 @@ def sentinel_credit_drift_monitoring():
                 "the check itself ran successfully."
             )
 
+    @task
+    def run_approval_gate(metadata_path: str) -> str:
+        """
+        Re-evaluates the approval gate against the evidence
+        compute_drift just wrote. Exit codes from approval_gate.py:
+        0 PASS and 1 BLOCK are both a successfully RECORDED verdict
+        (this task succeeds and returns it); 2 means the result could
+        not be written to reporting.governance_status_log, which
+        fails the task, since the badge would otherwise only reveal
+        the problem 48h later as STALE.
+        """
+        result = subprocess.run(
+            ["python", GATE_SCRIPT_PATH, "--require-db-write"],
+            cwd=PROJECT_MOUNT,
+            env=_script_env(),
+            capture_output=True,
+            text=True,
+        )
+        print(result.stdout)
+        if result.stderr:
+            print("---- stderr ----")
+            print(result.stderr)
+
+        if result.returncode not in (0, 1):
+            raise AirflowFailException(
+                f"approval_gate.py exited with code {result.returncode} — "
+                "the gate result was not recorded. See task log above."
+            )
+        return "PASS" if result.returncode == 0 else "BLOCK"
+
     metadata_path = compute_drift()
     evaluate_alerts(metadata_path)
+    run_approval_gate(metadata_path)
 
 
 sentinel_credit_drift_monitoring()

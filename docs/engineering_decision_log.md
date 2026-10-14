@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.24
-**Last Updated:** 11th August 2026 (v3.24)
+**Version:** 3.25
+**Last Updated:** 13th October 2026 (v3.25)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -2820,6 +2820,19 @@ Feeding this evidence into an automated Approval Gate or the
 Champion/Challenger promotion workflow remains future work, not
 resolved here.
 
+### Addendum — "Daily" Corrected (13th October 2026)
+"Scheduled daily" above describes the DAG's `@daily` setting, not
+what happened. The schedule only fires while the local Astro/Docker
+stack is running. Scheduled runs occurred on 12th and 13th August
+2026 and then stopped when the stack went down. Docker Desktop does
+not auto-start on this machine, so there were no runs from 14th
+August to 11th October. Monitoring is therefore described as **scheduled while the
+local stack is running**. Two further limitations are recorded in
+Decision 24 and `docs/audit_findings_2026-10-12.md` (A2/A3):
+- the comparison population overlaps the reference by 79.3%
+- both populations are fixed snapshots, so repeated runs produce
+  near-identical results
+
 ---
 
 ## Decision 21 — Champion/Challenger Promotion Workflow (Evidence-Only, MLflow Registry)
@@ -2982,6 +2995,212 @@ is implemented and verified. LSTM and macro-scenario stress testing
 / IFRS 9 macro overlay are recorded as explicit future work, gated
 respectively on more historical data and a real macro-data-sourcing
 decision — neither fabricated to appear complete.
+
+---
+
+## Decision 24 — Drift History Logging Fixed, and Gate Status Derived at Read Time
+
+> **Numbering note.** Commit `e59a042` describes "Decision 23:
+> automated approval gate", but no Decision 23 entry was ever
+> written to this log. That gap is recorded as an open item in
+> `docs/audit_findings_2026-10-12.md` (B1) and is deliberately not
+> back-filled here; this entry takes the next unused number.
+
+### Challenge
+The 12th October 2026 audit (`docs/audit_findings_2026-10-12.md`)
+found two problems in the monitoring-to-governance path.
+
+First, `log_drift_history()` in `pipeline/monitor_drift.py` inserted
+a run's rows into `reporting.feature_drift_log` and then crashed:
+leftover code from an earlier `pandas.to_sql` attempt called an
+unimported `create_engine`. The table held exactly one run (14
+rows, 13th August 2026 23:41), and that run never wrote its
+metadata JSON or MLflow record.
+
+Second, `reporting.governance_status_latest` returned whatever
+`approval_gate.py` last wrote. Its latest row was a PASS from 13th
+August 2026. On 12th October that PASS was still displayed on the
+Power BI badge, although re-running the gate would have blocked on
+evidence roughly 62 days old. The status was real data, but it was
+frozen at write time.
+
+### Why the scheduled runs stopped
+Airflow's run history (`airflow dags list-runs`, read 13th October
+2026) and the MLflow monitoring experiment agree:
+- **11th August:** failed setup runs, then a manual success at 12:07.
+- **12th and 13th August 00:00 UTC:** scheduled successes.
+- **14th August to 11th October:** no runs.
+- **12th October 23:53 UTC:** when the stack next came up, Airflow ran
+  two catch-up runs (`scheduled__2026-08-14` and
+  `scheduled__2026-10-12`) **concurrently**.
+- **13th October 00:00 UTC:** the scheduled run.
+
+All of the October runs succeeded. The DAG is unpaused (`is_paused =
+False`). Both Airflow Variables exist, and `sentinel_db_host` is
+`host.docker.internal`.
+
+The cause is the host, not the DAG.
+- The Astro containers restart automatically whenever Docker is
+  running, but Docker Desktop's `AutoStart` setting is off.
+- On 12th October, Docker Desktop also showed a launch error about
+  stale socket files in `%LOCALAPPDATA%\Docker\run\` (last written
+  11th August), though the engine did come up afterwards.
+
+No Docker means no scheduler, and no runs.
+
+**Consequence for how this project describes scheduling:** the DAG's
+`@daily` schedule only fires while the local Astro/Docker stack is
+up. It is described as **scheduled while the local stack is
+running**, not as daily monitoring.
+
+### Decision
+1. **Drift logging.** `log_drift_history()` now inserts once via
+   raw psycopg2 (the approach the earlier attempts landed on) and
+   no longer creates the table at runtime. Each run gets a
+   `run_id`, written to every row, `monitoring_run_metadata.json`,
+   and the MLflow run's tags. The DDL lives in
+   `sql/reporting/create_feature_drift_log.sql`, including the
+   `ADD COLUMN IF NOT EXISTS run_id` migration.
+
+   The 14 pre-existing rows keep `run_id = NULL`. They are a real run,
+   but no id was recorded for it, and one is not invented after the
+   fact.
+2. **Gate status at read time.** `governance_status_latest` now
+   computes the evidence's age *now*:
+   `monitoring_age_hours` plus the time since the gate ran. A PASS
+   whose evidence exceeds the row's own `max_monitoring_age_hours`
+   reads `STALE`.
+   - No second threshold is introduced. The view uses the gate's
+     stored value, so the two cannot disagree.
+   - A BLOCK stays BLOCK, because age cannot make it less blocking.
+   - `gate_status` keeps its column name so existing report bindings
+     still work.
+   - New columns: `recorded_gate_status`, `evidence_age_hours_now`,
+     `is_stale`.
+
+   Because Power BI queries the view via DirectQuery, the badge
+   changes without any pipeline run. A stopped pipeline now shows up
+   as STALE instead of an indefinite PASS.
+3. **Canonical SQL matches the live database.** `segment_key`, applied
+   earlier by the one-off `fix_*.sql` scripts, is folded into
+   `sql/reporting/create_reporting_views.sql`. The scripts themselves
+   are kept as a record of the fix, moved from the project root to
+   `sql/reporting/maintenance/`; `inventory_tables.sql` moved to
+   `sql/diagnostics/`. Re-applying the file
+   against the live views succeeded, which confirms the columns
+   match.
+
+### Limitations, stated rather than hidden
+- **Time basis (resolved — see Addendum below).** `evaluated_at` is a naive local timestamp. Gate runs
+  on the Windows host match the server's `Europe/London`
+  `localtimestamp`. Runs inside the UTC container read up to one hour
+  young during BST. The 13th August rows show the skew is real:
+  - container `generated_at` 00:00:35 UTC = 01:00:35 London
+  - a gate run at 01:00:23 London evaluated the previous day's
+    evidence and recorded its age as 25.0h, against a true age of
+    about 24h
+
+  Fixed by the timestamptz migration in the Addendum below.
+- **Accumulated drift rows are not a trend.** Reference and comparison
+  are fixed snapshots, and 79.3% of the comparison customers are in
+  the reference partition. Repeated runs log near-identical values.
+  This is unchanged by this decision (audit A2/A3).
+- **The same skew affects `feature_drift_log.logged_at` (resolved — see Addendum below).** Container
+  rows are stored in UTC and host rows in London time. The 13th
+  October 01:00 BST container run is stored as `00:00:12`, which
+  sorts before a host run made at 00:54 BST. Order by `logged_at`
+  across sources is unreliable until timestamps carry a time zone.
+- **Five logged runs, identical values.** Every feature has exactly
+  one distinct PSI and one distinct comparison mean across all five
+  runs (13th August to 13th October). This confirms that accumulated
+  rows on fixed snapshots are not a trend.
+- **The gate is not scheduled (resolved — see Addendum below).** Container runs write drift rows but
+  no governance rows. The badge stays current only when
+  `approval_gate.py` is run, and otherwise goes STALE after 48h, by
+  design.
+
+### Regulatory Context
+PRA SS1/23 Principle 4 expects ongoing monitoring to be effective,
+not merely present. A governance indicator that keeps reporting
+PASS after its evidence has lapsed overstates assurance. Deriving
+staleness at read time means the indicator fails safe when the
+monitoring it depends on stops.
+
+### Addendum — Gate Scheduled, Timestamps Made Absolute (13th October 2026)
+Two items from the Limitations above are resolved.
+
+**The gate now runs in the DAG.** `infra/dags/monitor_drift_dag.py`
+gained a third task, `run_approval_gate`, downstream of
+`compute_drift` and alongside `evaluate_alerts`. Found drift
+therefore still produces a recorded BLOCK row, not a missing row.
+If `compute_drift` fails, the gate is skipped, and the badge turns
+STALE on its own after 48h, as designed.
+
+`approval_gate.py`'s exit codes were made unambiguous: 0 PASS,
+1 BLOCK, 2 could not complete or could not record. Previously an
+unhandled error also exited 1, which a caller could not tell apart
+from a recorded BLOCK. The new `--require-db-write` flag (used by
+the DAG) makes a failed `governance_status_log` insert exit 2 and
+fail the task, rather than surfacing two days later as STALE.
+`promote_champion.py` reads the result file, not the exit code, so
+it is unaffected.
+
+`max_active_runs=1` is set, so catch-up runs after downtime no
+longer run concurrently against the same CSV and metadata JSON.
+
+**Timestamps are absolute instants.**
+`governance_status_log.evaluated_at` / `created_at` and
+`feature_drift_log.logged_at` are now `timestamptz`, via
+`sql/reporting/migrations/2026_10_13_timestamptz.sql`. Each existing
+row was converted from the zone it was actually written in,
+established from evidence (Airflow run records for the three
+container runs; host runs for everything else), not assumed.
+
+Writers now send offset-aware values:
+- `approval_gate.py`: `evaluated_at`, and the evidence-age
+  calculation itself
+- `monitor_drift.py`: `generated_at` and `logged_at`
+- `run_id` is now stamped in UTC (`...Z`)
+
+The badge view compares against `now()`. After migration, the host
+run of 12th October 23:54:35 UTC correctly sorts before the
+container runs at 23:59 and 00:00 UTC; previously it sorted after
+them.
+
+**Airflow incident during verification.** The first triggered
+verification run (`manual__2026-10-13T18:13:46`) never started.
+- Airflow's API server had hung. The worker received `ReadTimeout`
+  from `http://api-server:8080/execution/`, and the task sat in
+  `queued` for over three hours.
+- This was unrelated to the DAG change: the task failed before any
+  project code ran.
+- Restarting the `api-server` container restored the execution API
+  (HTTP 200), and the run was cleared via the REST API.
+
+On re-run, `compute_drift` logged run `drift_20261013T214704Z_181478be`
+at 21:47:05 UTC (correct, from the UTC container). The subprocess
+then stalled for about 9.5 minutes in disk I/O (process state `D`,
+wait channel `p9_client_rpc`): a single request to the WSL2 9P file
+server backing the Windows bind mount went unanswered. Fresh reads
+on the same mount, including a full walk of `mlruns/`, completed
+instantly during the stall, and no files were OneDrive cloud-only.
+The stall cleared on its own, and the cause is not established.
+
+**Verified end-to-end (13th October 2026, 21:44–21:58 UTC).**
+- All three tasks succeeded: `compute_drift`, `evaluate_alerts`,
+  `run_approval_gate`.
+- `feature_drift_log` holds 84 rows (6 runs).
+- The gate, running inside the UTC container, wrote
+  `governance_status_log` row 4: PASS at 21:58:20 UTC, evidence age
+  0.03h. That age is correct; before this change, a container gate
+  run would have used naive local times and mis-measured it.
+- `governance_status_latest` reads PASS with evidence 0.0h old.
+
+**Hardening added after the stall.** With `max_active_runs=1`, a
+task that never returns would block every later scheduled run. The
+DAG's `default_args` now set `execution_timeout = 20 minutes`
+(healthy runs take about a minute), so a hung task fails and frees
+the schedule. The badge's STALE logic remains the backstop.
 
 ---
 
@@ -3374,3 +3593,4 @@ Decision 10.
 | 3.23 | 11th August 2026 | Added Decision 20: drift monitoring implemented and verified working end-to-end, closing the Decision 5 item queued since project inception. pipeline/monitor_drift.py compares the canonical training partition against the temporal test split (PSI per feature reusing govern_model_features.py's exact thresholds, null-rate/out-of-range/mean-shift data-quality checks, portfolio bad-rate drift), all logic unit-verified against synthetic data with known shift magnitudes before running against real data. Scheduled daily via infra/dags/monitor_drift_dag.py under local Astro/Airflow (Docker) — Airflow chosen over GitHub Actions after explicit reconsideration, since a real drift pipeline needs DAG-structured task dependencies GitHub Actions handles awkwardly, and apache-airflow was already pinned in requirements.txt before this decision. DAG runs the script as a subprocess (no separate DAG-version logic to drift out of sync) with two deliberately separated tasks: compute_drift fails only on infrastructure problems, evaluate_alerts fails only on genuine drift findings, keeping "pipeline broke" and "pipeline found something" visibly distinct in Airflow's UI. Resolved a cluster of real environment issues along the way: exact package pins conflicting with the Astro Runtime's Airflow 3.3 core and Python 3.14 (loosened to >= bounds, safe given the stable APIs used); an invalid docker-compose.override.yml referencing a nonexistent webserver service; container-to-host DB networking requiring a new SENTINEL_DB_HOST override (added symmetrically with the existing SENTINEL_DB_PASSWORD pattern); a newer MLflow version requiring MLFLOW_ALLOW_FILE_STORE=true to keep the existing file-based mlruns/ store; and a stale Windows-path artifact baked into the sentinel_credit_monitoring MLflow experiment's meta.yaml from an earlier manual Windows-native run, causing a misleading PermissionError inside the Linux container until that one experiment folder was deleted and recreated container-native. Verified via a real triggered DAG run: both tasks succeeded, monitoring_run_metadata.json shows 0 of 14 features alerting, freshly generated. Feeding this evidence into an automated Approval Gate or Champion/Challenger promotion remains future work, not resolved here. |
 | 3.24 | 11th August 2026 | Added Decision 21: champion/challenger promotion workflow implemented (pipeline/promote_champion.py), the first use of MLflow's Model Registry in this project (alias-based, not the deprecated stage API). Champion auto-discovered via the existing is_champion tag; challenger requires explicit run IDs (no safe auto-discovery default exists for "which run is the challenger"). Promotion requires a material Gini win on BOTH splits, matching the temporal-stability standard from Decision 16/18. min_gini_delta left unset deliberately (same reasoning as other illustrative thresholds this project has declined to invent) — verified the script never recommends promotion with no threshold configured, regardless of delta size. --apply refuses outright if criteria aren't met and requires typing PROMOTE verbatim even when they are; config.yaml and champion_metadata.json are explicitly not touched even on a successful apply. Self-tested (no real challenger exists yet) by comparing the champion against itself: delta_gini 0.0000 both splits, correctly recommended against promotion, and successfully created this project's first registered model version. Added Decision 22: portfolio forecasting implemented (forecasting/build_portfolio_timeseries.py, forecasting/forecast_portfolio.py), Prophet only — LSTM explicitly deferred, not silently dropped, given ~34 monthly points is too little history to train a neural sequence model without overfitting to noise. Database checked directly first (four tables: raw.transactions, raw.repayments, raw.customers, feature_store.customer_features) confirming no macro/economic data exists anywhere in the project, splitting "Forecasting" into buildable-now (portfolio time series) versus blocked-on-a-real-data-decision (macro stress testing, IFRS 9 overlay) rather than fabricating either. Default-rate cohort attribution verified against synthetic data with a known unresolved case before running on real data (late-surfacing defaults correctly attributed to origination month, not recording month; unresolved outcomes correctly excluded, not counted as non-defaults). Real run: 34 monthly cohorts Jan 2022-Oct 2024, 0 unresolved (consistent with Decision 16's confirmed 0% right-censoring). Origination-volume forecast carries a caveat verified empirically, not just asserted: growth reflects the synthetic population's fixed onboarding schedule and origination_end_date, and the backtest visibly fails to track the accelerating actual values in the held-out months (MAPE 24.45%), directly evidencing the caveat rather than merely stating it. Default-rate forecast (MAE 0.0016, MAPE ~18.4%) is a more legitimate target, reflecting actual portfolio risk evolution. Reproduced identically across two separate runs (container-relayed and native PowerShell) on real data. |
 | 3.22 | 7th August 2026 | Completed Decision 19's held-out confirmation with the stratified evaluate_models.py run (previously missing in v3.21 — every full output reviewed at that point was confirmed via MLflow tag to be temporal only). Stratified results land close to the OOF selection estimate (recall 54.87% vs 51.55% OOF, flagged rate 15.51% vs 15.00% target, precision 9.60% vs 9.35% OOF) — expected, since stratified is drawn from the same population distribution the cutoff was selected against; temporal's lower recall (38.71%) reflects genuine out-of-time drift, not a selection failure. thin_file_flag=0's 100% FNR confirmed via full evaluate_models.py on both splits (stratified FPR 0.00%, temporal FPR 0.03%), not only via the targeted segment diagnostics — thin_file_flag=1 FPR corrected from an approximate "~33%" to the precise stratified figure (46.53%) alongside temporal's (32.93%). business_cutoff 0.0671 status moved from "confirmed on temporal, stratified outstanding" to fully confirmed on both splits. The separate governance item (segment-aware review capacity, Decision 12) remains open, unaffected by this completion. |
+| 3.25 | 13th October 2026 | Added Decision 24, following the 12th October audit (`docs/audit_findings_2026-10-12.md`). (1) Fixed `log_drift_history()` in `pipeline/monitor_drift.py`: leftover `to_sql`/`create_engine` code made the script crash right after its psycopg2 insert. It now inserts once, writes a per-run `run_id` (also in the metadata JSON and MLflow tags), and the table DDL moved to `sql/reporting/create_feature_drift_log.sql`. The 14 pre-existing rows keep `run_id = NULL`, with no id invented after the fact. (2) `reporting.governance_status_latest` now derives status at read time: a PASS whose evidence age, plus time since evaluation, exceeds the row's own `max_monitoring_age_hours` reads STALE. No new threshold was added, and BLOCK is unaffected. The badge moved from a two-month-old PASS to STALE. (3) `segment_key` folded into `sql/reporting/create_reporting_views.sql`, which now re-applies cleanly against the live views. Added a Decision 20 addendum correcting "scheduled daily" to "scheduled while the local stack is running": Airflow run history shows no runs from 14th August to 11th October because Docker Desktop is not auto-started. The DAG is unpaused, and its Variables are set. October catch-up runs succeeded and logged under the fixed code. Noted that no Decision 23 entry exists despite commit `e59a042` naming one. Open: container/host timestamp skew (UTC vs London) in both `evaluated_at` and `feature_drift_log.logged_at`; concurrent catch-up runs; the gate is not scheduled; five logged runs are value-identical, confirming drift history is not a trend on fixed snapshots. Same day, Decision 24 Addendum: the approval gate is now a DAG task (`run_approval_gate`), and `approval_gate.py` exit codes are unambiguous (0 PASS, 1 BLOCK, 2 could not complete or record; `--require-db-write`). The DAG sets `max_active_runs=1` and a 20-minute `execution_timeout`. `evaluated_at`, `created_at` and `logged_at` are migrated to `timestamptz`, with each row converted from its evidenced zone (`sql/reporting/migrations/2026_10_13_timestamptz.sql`), and writers send offset-aware times. Verified end-to-end in Airflow (all three tasks succeeded; the gate row was written from the container with a correct 0.03h evidence age), after restarting a hung Airflow API server and riding out a 9.5-minute WSL2 9P I/O stall on the bind mount, both recorded as audit findings A20/A21. |
