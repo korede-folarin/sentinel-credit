@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Sentinel Credit | Risk Scoring</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='/score.css') }}"
+    >
+</head>
+
+<body>
+
+<header class="topbar">
+
+    <div class="brand">
+
+        <div class="brand-mark">S</div>
+
+        <div>
+            <div class="brand-name">
+                SENTINEL CREDIT
+            </div>
+
+            <div class="brand-subtitle">
+                Risk Intelligence Platform
+            </div>
+        </div>
+
+    </div>
+
+
+    <div class="model-status">
+        <span class="status-dot"></span>
+        Model {{ model_version }}
+    </div>
+
+</header>
+
+
+<main class="page">
+
+
+    <!-- PAGE HEADING -->
+
+    <section class="page-heading">
+
+        <div>
+
+            <p class="eyebrow">
+                CREDIT RISK ASSESSMENT
+            </p>
+
+            <h1>
+                Customer Risk Scoring
+            </h1>
+
+            <p class="intro">
+                Score an existing customer using governed feature-store
+                history or assess a new customer's first application.
+            </p>
+
+        </div>
+
+
+        <a
+            href="/docs"
+            class="docs-link"
+        >
+            API Documentation
+        </a>
+
+    </section>
+
+
+
+    <div class="workspace">
+
+
+        <!-- =================================================
+             INPUT PANEL
+        ================================================== -->
+
+        <section class="card input-card">
+
+
+            <div class="card-heading">
+
+                <div>
+
+                    <p class="section-number">
+                        01
+                    </p>
+
+                    <h2>
+                        Application details
+                    </h2>
+
+                </div>
+
+
+                <span class="optional-note">
+                    Existing or new customer
+                </span>
+
+            </div>
+
+
+
+            <form id="scoreForm">
+
+
+                <!-- CUSTOMER ID -->
+
+                <div class="field full-width">
+
+                    <label for="customer_id">
+                        Customer ID
+                        <span>Optional</span>
+                    </label>
+
+
+                    <input
+                        id="customer_id"
+                        type="text"
+                        placeholder="e.g. C0001"
+                    >
+
+
+                    <small>
+                        Existing customers use their governed
+                        feature-store history.
+                    </small>
+
+                </div>
+
+
+
+                <!-- APPLICATION CONTEXT -->
+
+                <div class="form-grid">
+
+
+                    <!-- ORDER VALUE -->
+
+                    <div class="field">
+
+                        <label for="order_value_gbp">
+                            Order value
+                        </label>
+
+
+                        <div class="input-prefix">
+
+                            <span>£</span>
+
+                            <input
+                                id="order_value_gbp"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value="500"
+                                required
+                            >
+
+                        </div>
+
+                    </div>
+
+
+
+                    <!-- INSTALMENTS -->
+
+                    <div class="field">
+
+                        <label for="n_instalments">
+                            Instalments
+                        </label>
+
+
+                        <input
+                            id="n_instalments"
+                            type="number"
+                            min="1"
+                            value="4"
+                            required
+                        >
+
+                    </div>
+
+
+
+                    <!-- MERCHANT CATEGORY -->
+
+                    <div class="field full-width">
+
+                        <label for="merchant_category">
+                            Merchant category
+                        </label>
+
+
+                        <select
+                            id="merchant_category"
+                            required
+                        >
+
+                            <option value="Fashion & Clothing">
+                                Fashion & Clothing
+                            </option>
+
+                            <option value="Electronics">
+                                Electronics
+                            </option>
+
+                            <option value="Home">
+                                Home
+                            </option>
+
+                            <option value="Health & Beauty">
+                                Health & Beauty
+                            </option>
+
+                            <option value="Sports">
+                                Sports
+                            </option>
+
+                            <option value="Travel">
+                                Travel
+                            </option>
+
+                            <option value="Food & Grocery">
+                                Food & Grocery
+                            </option>
+
+                            <option value="Other">
+                                Other
+                            </option>
+
+                        </select>
+
+
+                        <small>
+                            Merchant context supplied by the transaction.
+                            Risk grouping is derived internally.
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- NEW CUSTOMER SECTION -->
+
+                <div class="section-divider">
+                    <span>
+                        New customer profile
+                    </span>
+                </div>
+
+
+                <p class="section-help">
+                    Required only when the customer ID is blank or
+                    cannot be found in the feature store.
+                </p>
+
+
+
+                <div class="form-grid">
+
+
+                    <!-- MONTHLY INCOME -->
+
+                    <div class="field">
+
+                        <label for="monthly_income_gbp">
+                            Monthly income
+                        </label>
+
+
+                        <div class="input-prefix">
+
+                            <span>£</span>
+
+                            <input
+                                id="monthly_income_gbp"
+                                type="number"
+                                value="2200"
+                            >
+
+                        </div>
+
+                    </div>
+
+
+
+                    <!-- MONTHLY OBLIGATIONS -->
+
+                    <div class="field">
+
+                        <label for="existing_monthly_obligations_gbp">
+                            Monthly obligations
+                        </label>
+
+
+                        <div class="input-prefix">
+
+                            <span>£</span>
+
+                            <input
+                                id="existing_monthly_obligations_gbp"
+                                type="number"
+                                value="300"
+                            >
+
+                        </div>
+
+                    </div>
+
+
+
+                    <!-- SAVINGS -->
+
+                    <div class="field">
+
+                        <label for="savings_balance_gbp">
+                            Savings balance
+                        </label>
+
+
+                        <div class="input-prefix">
+
+                            <span>£</span>
+
+                            <input
+                                id="savings_balance_gbp"
+                                type="number"
+                                value="150"
+                            >
+
+                        </div>
+
+                    </div>
+
+
+
+                    <!-- CREDIT SCORE -->
+
+                    <div class="field">
+
+                        <label for="credit_score">
+                            Credit score
+                        </label>
+
+
+                        <input
+                            id="credit_score"
+                            type="number"
+                            value="610"
+                        >
+
+                    </div>
+
+
+
+                    <!-- CREDIT HISTORY -->
+
+                    <div class="field">
+
+                        <label for="months_credit_history">
+                            Credit history
+                        </label>
+
+
+                        <div class="input-suffix">
+
+                            <input
+                                id="months_credit_history"
+                                type="number"
+                                value="18"
+                            >
+
+                            <span>
+                                months
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+
+                    <!-- CREDIT ACCOUNTS -->
+
+                    <div class="field">
+
+                        <label for="num_credit_accounts">
+                            Credit accounts
+                        </label>
+
+
+                        <input
+                            id="num_credit_accounts"
+                            type="number"
+                            value="2"
+                        >
+
+                    </div>
+
+
+
+                    <!-- DEFAULTS -->
+
+                    <div class="field">
+
+                        <label for="num_defaults_24m">
+                            Defaults, 24m
+                        </label>
+
+
+                        <input
+                            id="num_defaults_24m"
+                            type="number"
+                            value="0"
+                        >
+
+                    </div>
+
+
+
+                    <!-- THIN FILE -->
+
+                    <div class="field">
+
+                        <label for="thin_file_flag">
+                            Thin-file customer
+                        </label>
+
+
+                        <select id="thin_file_flag">
+
+                            <option value="0">
+                                No
+                            </option>
+
+                            <option value="1">
+                                Yes
+                            </option>
+
+                        </select>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- SUBMIT -->
+
+                <button
+                    class="score-button"
+                    type="submit"
+                    id="scoreButton"
+                >
+                    Run risk assessment
+                </button>
+
+
+            </form>
+
+        </section>
+
+
+
+        <!-- =================================================
+             RESULT PANEL
+        ================================================== -->
+
+        <section class="card result-card">
+
+
+            <div class="card-heading">
+
+                <div>
+
+                    <p class="section-number">
+                        02
+                    </p>
+
+                    <h2>
+                        Risk assessment
+                    </h2>
+
+                </div>
+
+
+                <span
+                    class="result-status waiting"
+                    id="resultStatus"
+                >
+                    Awaiting score
+                </span>
+
+            </div>
+
+
+
+            <!-- EMPTY STATE -->
+
+            <div
+                class="empty-state"
+                id="emptyState"
+            >
+
+                <div class="empty-icon">
+                    ◎
+                </div>
+
+
+                <h3>
+                    No assessment yet
+                </h3>
+
+
+                <p>
+                    Complete the application details and run
+                    the scoring model to view the assessment.
+                </p>
+
+            </div>
+
+
+
+            <!-- RESULTS -->
+
+            <div
+                id="results"
+                class="results hidden"
+            >
+
+
+                <!-- PRIMARY RESULT -->
+
+                <div class="primary-result">
+
+                    <p class="metric-label">
+                        Predicted probability of default
+                    </p>
+
+
+                    <div class="pd-row">
+
+                        <span
+                            class="pd-value"
+                            id="probability"
+                        >
+                            -
+                        </span>
+
+
+                        <span
+                            class="risk-pill"
+                            id="riskTier"
+                        >
+                            -
+                        </span>
+
+                    </div>
+
+
+
+                    <div class="probability-track">
+
+                        <div
+                            class="probability-fill"
+                            id="probabilityBar"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- MODEL METRICS -->
+
+                <div class="metric-grid">
+
+
+                    <div class="metric">
+
+                        <span class="metric-label">
+                            Decision
+                        </span>
+
+                        <strong id="decision">
+                            -
+                        </strong>
+
+                    </div>
+
+
+
+                    <div class="metric">
+
+                        <span class="metric-label">
+                            Customer type
+                        </span>
+
+                        <strong id="customerType">
+                            -
+                        </strong>
+
+                    </div>
+
+
+
+                    <div class="metric">
+
+                        <span class="metric-label">
+                            Business cutoff
+                        </span>
+
+                        <strong id="cutoff">
+                            {{ "%.2f"|format(business_cutoff * 100) }}%
+                        </strong>
+
+                    </div>
+
+
+
+                    <div class="metric">
+
+                        <span class="metric-label">
+                            Model version
+                        </span>
+
+                        <strong>
+                            {{ model_version }}
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- GOVERNANCE NOTE -->
+
+                <div class="governance-box">
+
+                    <p class="governance-title">
+                        Model scope
+                    </p>
+
+
+                    <p id="scopeWarning">
+                        Sentinel Credit v1 is validated as a
+                        customer-level portfolio-risk model.
+                    </p>
+
+                </div>
+
+
+
+                <!-- FEATURES -->
+
+                <details class="feature-details">
+
+                    <summary>
+                        Features used in assessment
+                    </summary>
+
+
+                    <div
+                        class="feature-list"
+                        id="featureValues"
+                    ></div>
+
+                </details>
+
+
+            </div>
+
+
+
+            <!-- ERROR -->
+
+            <div
+                id="errorBox"
+                class="error-box hidden"
+            ></div>
+
+
+        </section>
+
+    </div>
+
+
+
+    <!-- FOOTER -->
+
+    <footer>
+
+        <span>
+            Sentinel Credit
+        </span>
+
+        <span>
+            Research-informed credit risk engineering
+        </span>
+
+    </footer>
+
+
+</main>
+
+
+
+<script>
+
+
+const form = document.getElementById("scoreForm");
+
+
+function nullableNumber(id) {
+
+    const value =
+        document.getElementById(id).value;
+
+    if (value === "") {
+        return null;
+    }
+
+    return Number(value);
+}
+
+
+
+form.addEventListener(
+    "submit",
+    async function(event) {
+
+        event.preventDefault();
+
+
+        const button =
+            document.getElementById("scoreButton");
+
+        const results =
+            document.getElementById("results");
+
+        const emptyState =
+            document.getElementById("emptyState");
+
+        const errorBox =
+            document.getElementById("errorBox");
+
+        const status =
+            document.getElementById("resultStatus");
+
+
+        button.disabled = true;
+
+        button.textContent =
+            "Scoring...";
+
+
+        errorBox.classList.add("hidden");
+
+
+        const customerId =
+            document
+                .getElementById("customer_id")
+                .value
+                .trim();
+
+
+
+        const payload = {
+
+            customer_id:
+                customerId === ""
+                    ? null
+                    : customerId,
+
+
+            order_value_gbp:
+                Number(
+                    document
+                        .getElementById("order_value_gbp")
+                        .value
+                ),
+
+
+            n_instalments:
+                Number(
+                    document
+                        .getElementById("n_instalments")
+                        .value
+                ),
+
+
+            merchant_category:
+                document
+                    .getElementById("merchant_category")
+                    .value,
+
+
+            monthly_income_gbp:
+                nullableNumber(
+                    "monthly_income_gbp"
+                ),
+
+
+            existing_monthly_obligations_gbp:
+                nullableNumber(
+                    "existing_monthly_obligations_gbp"
+                ),
+
+
+            savings_balance_gbp:
+                nullableNumber(
+                    "savings_balance_gbp"
+                ),
+
+
+            credit_score:
+                nullableNumber(
+                    "credit_score"
+                ),
+
+
+            months_credit_history:
+                nullableNumber(
+                    "months_credit_history"
+                ),
+
+
+            num_credit_accounts:
+                nullableNumber(
+                    "num_credit_accounts"
+                ),
+
+
+            num_defaults_24m:
+                nullableNumber(
+                    "num_defaults_24m"
+                ),
+
+
+            thin_file_flag:
+                nullableNumber(
+                    "thin_file_flag"
+                )
+
+        };
+
+
+
+        try {
+
+
+            const response =
+                await fetch(
+                    "/score",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body:
+                            JSON.stringify(payload)
+                    }
+                );
+
+
+            const data =
+                await response.json();
+
+
+
+            if (!response.ok) {
+
+                let message =
+                    "Unable to complete assessment.";
+
+
+                if (data.detail) {
+
+                    if (
+                        typeof data.detail
+                        === "string"
+                    ) {
+
+                        message =
+                            data.detail;
+
+                    } else {
+
+                        message =
+                            JSON.stringify(
+                                data.detail
+                            );
+                    }
+                }
+
+
+                throw new Error(message);
+            }
+
+
+
+            emptyState
+                .classList
+                .add("hidden");
+
+
+            results
+                .classList
+                .remove("hidden");
+
+
+
+            const probability =
+                data.calibrated_probability
+                * 100;
+
+
+
+            document
+                .getElementById("probability")
+                .textContent =
+                    probability.toFixed(2)
+                    + "%";
+
+
+
+            document
+                .getElementById("probabilityBar")
+                .style.width =
+                    Math.min(
+                        probability,
+                        100
+                    )
+                    + "%";
+
+
+
+            document
+                .getElementById("decision")
+                .textContent =
+                    data.decision
+                    === "flag_high_risk"
+                        ? "Review"
+                        : "Pass";
+
+
+
+            document
+                .getElementById("customerType")
+                .textContent =
+                    data.customer_type
+                    === "existing"
+                        ? "Existing"
+                        : "New";
+
+
+
+            document
+                .getElementById("cutoff")
+                .textContent =
+                    (
+                        data.business_cutoff
+                        * 100
+                    )
+                    .toFixed(2)
+                    + "%";
+
+
+
+            document
+                .getElementById("scopeWarning")
+                .textContent =
+                    data.scope_warning;
+
+
+
+            const riskTier =
+                document.getElementById(
+                    "riskTier"
+                );
+
+
+
+            if (
+                data.calibrated_probability
+                >= data.business_cutoff
+            ) {
+
+
+                riskTier.textContent =
+                    "HIGHER RISK";
+
+
+                riskTier.className =
+                    "risk-pill high";
+
+
+                status.textContent =
+                    "Review required";
+
+
+                status.className =
+                    "result-status review";
+
+
+            } else {
+
+
+                riskTier.textContent =
+                    "LOWER RISK";
+
+
+                riskTier.className =
+                    "risk-pill low";
+
+
+                status.textContent =
+                    "Assessment complete";
+
+
+                status.className =
+                    "result-status complete";
+
+            }
+
+
+
+            const featureContainer =
+                document.getElementById(
+                    "featureValues"
+                );
+
+
+            featureContainer.innerHTML = "";
+
+
+
+            Object.entries(
+                data.feature_values_used
+            ).forEach(
+                ([key, value]) => {
+
+
+                    const item =
+                        document.createElement(
+                            "div"
+                        );
+
+
+                    item.className =
+                        "feature-item";
+
+
+                    item.innerHTML = `
+                        <span>${key}</span>
+                        <strong>${value}</strong>
+                    `;
+
+
+                    featureContainer
+                        .appendChild(item);
+
+                }
+            );
+
+
+        } catch (error) {
+
+
+            errorBox.textContent =
+                error.message;
+
+
+            errorBox
+                .classList
+                .remove("hidden");
+
+
+        } finally {
+
+
+            button.disabled = false;
+
+
+            button.textContent =
+                "Run risk assessment";
+
+        }
+
+    }
+);
+
+
+</script>
+
+
+</body>
+</html>
