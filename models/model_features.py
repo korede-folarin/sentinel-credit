@@ -7,7 +7,8 @@ MODEL_FEATURES defines the fields permitted for model training.
 Exclusion decisions and supporting evidence are documented in:
 - Decision 12: leakage and resolution-tied features
 - Decision 14: exposure-time feature investigation
-- Decision 18: v1 scope and final 14-feature freeze
+- Decision 18: v1 scope and 14-feature freeze
+- Decision 27: pct_late_payments removed for leakage (v1.1, 13 features)
 """
 
 # ── TARGET AND FILTER ──────────────────────────────────────
@@ -39,14 +40,13 @@ MODEL_FEATURES = [
     "avg_n_instalments",
     "pct_high_risk_category",
     "pct_medium_risk_category",
-
-    # Late-payment path
-    "pct_late_payments",
 ]
-# Retained for the v1 customer-level portfolio-risk scope.
-# The exposure-window diagnostic found no material association,
-# but this is not evidence of application-time availability.
-# See Decision 18.
+# v1.1: 13 features. pct_late_payments removed for leakage
+# (Decision 27); see RESOLUTION_ADJACENT_EXCLUDED below. The
+# August 2026 v1 champion (14 features, models/artifacts/) was
+# trained with it; its feature list is saved in that package.
+# Remaining features retained for the v1 customer-level
+# portfolio-risk scope (Decision 18).
 
 
 # ── EXCLUDED — kept in the table, never fed to the model ───
@@ -79,6 +79,10 @@ RESOLUTION_ADJACENT_EXCLUDED = [
     "avg_days_late",
     "max_days_late",
     "total_days_late",
+    # 'Late' also records full/partial arrears-cure payments (the
+    # process default emerges from), and post-default 'Defaulted'
+    # rows sit in its denominator. Decisions 26-27.
+    "pct_late_payments",
 ]
 
 # Confirmed exposure-time contaminated: value grows with how

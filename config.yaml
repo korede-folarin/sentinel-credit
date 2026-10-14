@@ -189,20 +189,20 @@ model:
   # Business cutoff is a configurable POLICY parameter belonging
   # to the decision engine, not a property of any individual model.
   #
-  # For v1, the cutoff was recalibrated using training-only
-  # out-of-fold predictions from the XGBoost champion.
-  # A 15% review-capacity constraint produced a threshold of
-  # 0.0671, capturing 51.55% of observed defaults at 9.35%
-  # precision in the OOF calibration population.
+  # v1.1 (13 features, Decision 27): recalibrated on promotion, same
+  # method as Decision 19: training-only calibrated out-of-fold
+  # predictions from the champion, 15% review-capacity constraint
+  # (still a placeholder figure). Threshold 0.0657, capturing 50.11%
+  # of observed defaults at 9.09% precision in the OOF population.
+  # F1-optimal (0.0764) and Youden (0.0400) retained as comparators.
   #
-  # F1-optimal and Youden thresholds were retained as statistical
-  # comparators but not selected because they do not reflect the
-  # stated operational review constraint.
+  # v1 (14 features, August 2026) used 0.0671 (51.55% / 9.35%).
+  # Restore it together with the v1 identity on any rollback.
   #
   # Any future champion promotion requires threshold
   # recalibration because score distributions differ by model.
-  # See Decision 18 and threshold recalibration evidence.
-  business_cutoff: 0.0671
+  # See Decisions 19 and 27.
+  business_cutoff: 0.0657
 
   # Out-of-time split, in use: first_transaction_date >= this
   # date is the temporal test set (4,857 customers, 124 defaults
@@ -223,28 +223,31 @@ mlflow:
   experiment_name: "sentinel_credit_baseline"
 
 model_governance:
-  # IDENTITY VALUES, stamped into models/artifacts/champion_metadata.json
-  # at training time. explain_models.py and govern_model_features.py
-  # refuse to run if these differ from the saved champion, so they
-  # are NOT updated to track later progress: they describe the
-  # August 2026 v1 champion. pipeline_stage and decision_log_version
-  # read stale (the log is now well past 3.20) but changing them
-  # without retraining would break the identity check. Update them
-  # only together with a retrain. (Audit B9.)
+  # IDENTITY VALUES, stamped into the champion package's
+  # champion_metadata.json at training time. explain_models.py and
+  # govern_model_features.py refuse to run if these differ from the
+  # saved champion, so change them only together with a retrain.
+  # (Audit B9.)
   champion_model: "xgboost"
   # Where the governed champion package lives. Every script and the
   # scoring API read the champion from here. Each champion gets its own
   # folder and older ones are never overwritten (train_baseline_models.py
-  # refuses to write into a folder holding a different identity), so
-  # rolling back = pointing this at the previous folder together with
-  # the identity values below. models/artifacts/ = the August 2026 v1
-  # (14-feature) champion. See Decision 27.
-  artifacts_dir: "models/artifacts"
-  model_version: "v1"
+  # refuses to write into a folder holding a different identity).
+  #
+  # ROLLBACK to the August 2026 v1 (14-feature) champion: set
+  #   artifacts_dir "models/artifacts", model_version "v1",
+  #   feature_set_label "14_features_v1_frozen",
+  #   pipeline_stage "post_scope_decision_pending_retrain",
+  #   decision_log_version "3.20", model.business_cutoff 0.0671,
+  # restore pct_late_payments to MODEL_FEATURES (git e42c108), and
+  # move the registry 'champion' alias back to v1's run.
+  # See Decision 27.
+  artifacts_dir: "models/artifacts_v1_1"
+  model_version: "v1.1"
   dataset_version: "full_horizon_2025_v1"
-  feature_set_label: "14_features_v1_frozen"
-  pipeline_stage: "post_scope_decision_pending_retrain"
-  decision_log_version: "3.20"
+  feature_set_label: "13_features_v1_1"
+  pipeline_stage: "v1_1_validity_promotion"
+  decision_log_version: "3.27"
 
 
   

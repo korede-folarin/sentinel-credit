@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.27
-**Last Updated:** 14th October 2026 (v3.27)
+**Version:** 3.28
+**Last Updated:** 14th October 2026 (v3.28)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -3633,6 +3633,78 @@ their intended use. An input that partly encodes the outcome is not,
 however much it helps a metric. The override keeps that judgement
 bounded by evidence and by a recorded human decision.
 
+### Outcome — v1.1 Live (14th October 2026)
+**Promotion.** The owner ran the validity-override promotion and
+typed `PROMOTE` at 22:58. Registry `sentinel_credit_champion`
+version 3 (run `936b28cf`) holds the `champion` alias, tagged:
+- `promotion_path=validity_override`
+- `decision_ref=Decision 27`
+- `removed_feature=pct_late_payments`
+- `replaced_champion_run_stratified=3d169840`
+
+**Switch (one change set):**
+- **Features.** `MODEL_FEATURES` 14 → 13. `pct_late_payments` moved to
+  `RESOLUTION_ADJACENT_EXCLUDED`; the column stays in the feature store.
+- **Config identity.** `v1.1`, `13_features_v1_1`,
+  `v1_1_validity_promotion`, `artifacts_dir: models/artifacts_v1_1`.
+- **Retrain.** `train_baseline_models.py --pin-xgboost-params` from the
+  v1 metadata. XGBoost held at the v1 settings; logistic regression
+  and decision tree re-searched. The new package's XGBoost reproduces
+  the promoted challenger exactly (Gini 0.5618 stratified, 0.5611
+  temporal), so the served model is the approved model.
+- **v1 preserved.** `models/artifacts/` unchanged (checksums verified
+  before and after). v1's report evidence copied to
+  `reports/_archive_v1_14f_2026-08/` before regeneration.
+- **Cutoff.** Recalibrated by the Decision 19 method (training-only
+  OOF, 15% review capacity, still a placeholder): **0.0657** (v1:
+  0.0671). OOF recall 50.11% at 9.09% precision. F1 (0.0764) and
+  Youden (0.0400) kept as comparators.
+
+**Held-out results at the operating cutoff:**
+
+| | v1 (14 features, 0.0671) | v1.1 (13 features, 0.0657) |
+|---|---|---|
+| Stratified Gini / PR-AUC | 0.5656 / 0.0897 | 0.5618 / 0.0909 |
+| Stratified recall / precision | 54.87% / 9.60% | 57.96% / 9.90% |
+| Temporal Gini | 0.5675 | 0.5611 |
+| Temporal recall / precision | 38.71% / — | 40.32% / 8.65% |
+| Calibration (ECE uniform bins, stratified) | 0.0008 | 0.0015 |
+
+**Unchanged.** The Decision 19 operating-policy finding persists:
+`thin_file_flag=0` defaulters are still 100% missed on both splits
+(FNR 1.0000). That governance item stays open.
+
+**SHAP (v1.1).** Additivity passes (max error 1.8e-06). Ranking:
+`thin_file_flag` 29.0%, `savings_balance_gbp` 18.4%,
+`avg_n_instalments` 12.1%, `avg_order_value_gbp` 11.3%,
+`pct_high_risk_category` 10.4%, then the rest.
+`existing_monthly_obligations_gbp` is lowest at 0.33%, and the
+governance review flags it as a `simplification_candidate`.
+
+**Governance review.** Regenerated for the 13-feature set
+(`reports/feature_governance/feature_governance_review.md`). Every
+feature is `PENDING_MANUAL_REVIEW` **by design**: final retain/remove
+decisions are the owner's to sign off and are not taken here (audit
+A13, still open). Segment diagnostics were also regenerated.
+
+**Downstream:**
+- **API.** Serves v1.1 (smoke-tested: `/model/info` reports v1.1, 13
+  features, cutoff 0.0657; new- and existing-customer scoring return
+  200).
+- **API code.** The hardcoded new-customer `pct_late_payments = 0.0`
+  is removed. If a future package expects a feature the API can't
+  build, it now fails with a clear error.
+- **Monitoring.** Drift monitoring runs on 13 features (0 alerts); the
+  gate is PASS.
+- **Power BI view.** `customer_risk_snapshot` still carries
+  `pct_late_payments` as a known, documented exception until the
+  report is confirmed not to use it (audit A26).
+
+**Rollback** to v1 is documented in `config.yaml` next to
+`artifacts_dir`. It means restoring the v1 identity values and cutoff
+0.0671, restoring the feature in `MODEL_FEATURES` (git `e42c108`), and
+moving the registry alias back.
+
 ---
 
 ## Summary Table
@@ -4042,3 +4114,4 @@ Decision 10.
 | 3.25 | 13th October 2026 | Added Decision 24, following the 12th October audit (`docs/audit_findings_2026-10-12.md`). (1) Fixed `log_drift_history()` in `pipeline/monitor_drift.py`: leftover `to_sql`/`create_engine` code made the script crash right after its psycopg2 insert. It now inserts once, writes a per-run `run_id` (also in the metadata JSON and MLflow tags), and the table DDL moved to `sql/reporting/create_feature_drift_log.sql`. The 14 pre-existing rows keep `run_id = NULL`, with no id invented after the fact. (2) `reporting.governance_status_latest` now derives status at read time: a PASS whose evidence age, plus time since evaluation, exceeds the row's own `max_monitoring_age_hours` reads STALE. No new threshold was added, and BLOCK is unaffected. The badge moved from a two-month-old PASS to STALE. (3) `segment_key` folded into `sql/reporting/create_reporting_views.sql`, which now re-applies cleanly against the live views. Added a Decision 20 addendum correcting "scheduled daily" to "scheduled while the local stack is running": Airflow run history shows no runs from 14th August to 11th October because Docker Desktop is not auto-started. The DAG is unpaused, and its Variables are set. October catch-up runs succeeded and logged under the fixed code. Noted that no Decision 23 entry exists despite commit `e59a042` naming one. Open: container/host timestamp skew (UTC vs London) in both `evaluated_at` and `feature_drift_log.logged_at`; concurrent catch-up runs; the gate is not scheduled; five logged runs are value-identical, confirming drift history is not a trend on fixed snapshots. Same day, Decision 24 Addendum: the approval gate is now a DAG task (`run_approval_gate`), and `approval_gate.py` exit codes are unambiguous (0 PASS, 1 BLOCK, 2 could not complete or record; `--require-db-write`). The DAG sets `max_active_runs=1` and a 20-minute `execution_timeout`. `evaluated_at`, `created_at` and `logged_at` are migrated to `timestamptz`, with each row converted from its evidenced zone (`sql/reporting/migrations/2026_10_13_timestamptz.sql`), and writers send offset-aware times. Verified end-to-end in Airflow (all three tasks succeeded; the gate row was written from the container with a correct 0.03h evidence age), after restarting a hung Airflow API server and riding out a 9.5-minute WSL2 9P I/O stall on the bind mount, both recorded as audit findings A20/A21. |
 | 3.26 | 14th October 2026 | Audit clean-up and two new decisions. Added Decision 23 retrospectively (automated approval gate, built 11th August in `e59a042` but never logged; scope stated as an evidence gate, not Decision 9's human approval). Added dated Implementation Status notes to Decisions 3 (local PostgreSQL, not RDS), 5, 6, 7, 8 and 9, marking what is built, partly built, and planned-not-built, plus a filename note on Decision 2. Extended the Summary Table to Decision 26. Added Decision 25: the drift comparison now excludes customers in the training reference (previously 79.3% overlap), and a new informational origination-quarter cohort view (`reporting.feature_drift_by_cohort`) gives drift a real time axis with a per-cohort noise floor. Added Decision 26: `pct_late_payments` removal evidence via `models/evaluate_feature_removal.py`. The feature mixes cure events and post-default rows. Removal costs −0.0054 repeated-CV Gini, with a held-out difference of −0.0038 (95% CI includes 0), and calibration is unchanged. The challenger is registered as v2; the promotion rule returned "not supported", exposing a conflict between Decision 21's Gini-win rule and validity-driven removals. The decision is left open. The champion's artifacts were verified unchanged by checksum. `config.yaml` comments only: the temporal-split note was corrected, and the identity values are documented as load-bearing (they were not edited). |
 | 3.27 | 14th October 2026 | Added Decision 27: the owner ruled that `pct_late_payments` is removed because it leaks outcome information. Superseding Decision 18's frozen set is pending the owner's typed promotion. Added a validity promotion path to `promote_champion.py` (`--validity-override`): it is allowed only when the cited decision exists, the evidence matches the exact challenger runs, and on both splits the 95% paired-bootstrap CI of the Gini difference reaches zero (stratified −0.0038 [−0.0148, +0.0079]; temporal −0.0015 [−0.0164, +0.0150]). The dry run returned "supported"; both refusal paths were tested. Package location is now `config.yaml model_governance.artifacts_dir`, read by all scripts and the API. Training refuses to overwrite a package with a different identity and gains `--pin-xgboost-params` and `--no-prompt`. Added a Decision 21 addendum: champion run selection with rollback (same Gini → latest; latest worse → previous). Decision 26 marked decided. |
+| 3.28 | 14th October 2026 | Decision 27 carried out: v1.1 is the live champion. The owner typed `PROMOTE` (registry v3, tagged `validity_override` / Decision 27). `MODEL_FEATURES` 14 → 13. Config identity switched to v1.1, with the package in `models/artifacts_v1_1/`; v1 is untouched and its reports are archived. The pinned retrain reproduces the promoted challenger exactly (0.5618 / 0.5611). Cutoff recalibrated by the Decision 19 method: 0.0657 (was 0.0671). Stratified recall 57.96% vs 54.87%, precision 9.90% vs 9.60%. SHAP, the governance review (13 features, pending owner sign-off) and segment diagnostics regenerated. The API serves v1.1 without the hardcoded `pct_late_payments` default. Monitoring and the gate pass on 13 features. The thin-file FNR finding is unchanged. |

@@ -263,9 +263,13 @@ FEATURE_CATALOGUE = {
     "pct_late_payments": {
         "source": "repayment-history",
         "definition": "Share of prior observable repayments recorded as late.",
-        "decision_time_status": "conditional_as_of_logic",
+        "decision_time_status": "excluded_leakage",
         "business_rationale": "Normalises late-payment behaviour for differing repayment volumes.",
-        "key_governance_risk": "Denominator maturity and as-of treatment must be consistent.",
+        "key_governance_risk": (
+            "EXCLUDED in v1.1 (Decision 27): 'Late' also records arrears-cure "
+            "payments, the process default emerges from, and post-default rows "
+            "sit in the denominator, so the feature partly encodes the outcome."
+        ),
         "fairness_consideration": "Review minimum-history requirements and thin-file stability.",
     },
     "bnpl_exposure_to_monthly_income_ratio": {

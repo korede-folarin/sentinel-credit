@@ -19,13 +19,14 @@ New customer, no row in feature_store.customer_features yet:
 the caller must supply the eight profile fields directly
 (income, savings, credit score, and so on, exactly as a real
 merchant integration or bureau pull would provide at the point
-of application). The six behavioral aggregate features default
-to sensible first-application values rather than an invented
-average: avg_order_value_gbp and avg_n_instalments equal this
-single order, pct_high_risk_category and pct_medium_risk_category
-reflect this order's own category, pct_late_payments defaults to
-zero, no history to suggest otherwise, and max_affordability_ratio
-is computed from this application itself.
+of application). The five behavioral aggregate features default
+to first-application values computed from this order, not an
+invented average: avg_order_value_gbp and avg_n_instalments equal
+this single order, pct_high_risk_category and
+pct_medium_risk_category reflect this order's own category, and
+max_affordability_ratio is computed from this application itself.
+(v1 also needed pct_late_payments, which the API had to fill with
+an assumed 0.0; v1.1 removed that feature for leakage, Decision 27.)
 
 Known scope limitation, stated here and in every response, not
 hidden
@@ -326,8 +327,6 @@ def build_new_customer_features(request: ScoreRequest) -> dict:
             if request.merchant_category in MEDIUM_RISK_CATEGORIES
             else 0.0
         ),
-
-        "pct_late_payments": 0.0,
     }
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -381,6 +380,15 @@ def score(request: ScoreRequest):
         feature_values = build_new_customer_features(request)
         customer_type = "new"
 
+    missing = [f for f in MODEL_FEATURES if f not in feature_values]
+    if missing:
+        # The loaded champion needs a feature this API cannot supply
+        # (e.g. after a rollback to a package with a different feature
+        # list). Fail clearly instead of a bare KeyError.
+        raise HTTPException(
+            status_code=500,
+            detail=f"Champion package expects features this API does not build: {missing}",
+        )
     X = pd.DataFrame([{f: feature_values[f] for f in MODEL_FEATURES}])
     calibrated_probability = float(MODEL.predict_proba(X)[0, 1])
     decision = "flag_high_risk" if calibrated_probability >= BUSINESS_CUTOFF else "pass"

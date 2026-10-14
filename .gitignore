@@ -57,3 +57,5 @@ models/artifacts/
 # Challenger packages: same rule as the champion's; the models are
 # also logged to MLflow (see models/evaluate_feature_removal.py).
 models/challengers/
+# Every champion package folder (Decision 27): models/artifacts_v1_1/ etc.
+models/artifacts_*/

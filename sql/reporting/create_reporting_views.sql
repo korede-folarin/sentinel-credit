@@ -83,11 +83,16 @@ WHERE has_outcome = 1
 GROUP BY thin_file_flag, is_vulnerable
 ORDER BY thin_file_flag, is_vulnerable;
 
--- Customer level snapshot for drillthrough, restricted to the 14
--- frozen model features plus identifiers and outcome, not the
+-- Customer level snapshot for drillthrough, restricted to the
+-- governed model features plus identifiers and outcome, not the
 -- full 64 column feature store. Deliberately excludes any feature
 -- that is not in the governed model, so a Power BI user cannot
 -- accidentally build a report on a leaked or excluded field.
+--
+-- KNOWN EXCEPTION (Decision 27): pct_late_payments was removed from
+-- the model in v1.1 for leakage but is still in this view, because
+-- dropping a column breaks any Power BI visual bound to it. To be
+-- removed once the report is confirmed not to use it (audit A26).
 CREATE OR REPLACE VIEW reporting.customer_risk_snapshot AS
 SELECT
     customer_id,

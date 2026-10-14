@@ -250,6 +250,35 @@ The owner ruled that leakage is a valid reason for removal. Choices:
 - **Temporal CI.** `evaluate_feature_removal.py` now also computes the
   temporal paired-bootstrap CI and writes `promotion_evidence.json`.
 
+**Switched (v1.1 live, Decision 27 outcome):**
+- **Promotion.** The owner typed `PROMOTE`; registry v3 is champion.
+- **Package and cutoff.** The v1.1 package is in
+  `models/artifacts_v1_1/`; v1 is untouched (checksums). The cutoff is
+  0.0657.
+- **A6 closed.** `pct_late_payments` is out of the model and out of
+  the API.
+- **A25 partly closed.** Training can no longer overwrite another
+  champion's package. The API still loads files, not the registry
+  alias.
+
+**New findings (not fixed):**
+- **A26.** `reporting.customer_risk_snapshot` still exposes
+  `pct_late_payments`, contrary to the view's own "no excluded fields"
+  rule. Kept until the Power BI report is confirmed not to bind to it,
+  then drop it.
+- **A27. Narrative docs still describe v1** (14 features, 0.0671):
+  - `docs/shap_explainability_report.md`
+  - `docs/model_evaluation_report.md`
+  - `docs/training_summary.md`
+  - `docs/feature_governance_report.md`
+  - possibly `README.md`
+
+  The generated evidence in `reports/` is v1.1, and v1's is archived
+  in `reports/_archive_v1_14f_2026-08/`.
+- **Still open:** A13 (the owner's sign-off of the 13-feature
+  governance review) and the thin-file FNR governance item
+  (Decision 19).
+
 ---
 
 ## Findings that could change the "Remaining work" priorities
