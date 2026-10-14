@@ -56,7 +56,6 @@ from model_features import (  # noqa: E402
 )
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 SHAP_DIR = os.path.join(PROJECT_ROOT, "reports", "shap")
 
 with open(
@@ -65,6 +64,11 @@ with open(
     encoding="utf-8",
 ) as file:
     CONFIG = yaml.safe_load(file)
+
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
 
 MODEL_CFG = CONFIG["model"]
 GOV_CFG = CONFIG["model_governance"]

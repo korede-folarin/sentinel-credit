@@ -75,13 +75,17 @@ OUT_DIR = os.path.join(PROJECT_ROOT, "reports", "feature_set_ab")
 with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
 
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
+
 DB = CONFIG["database"]
 MODEL_CFG = CONFIG.get("model", {})
 RANDOM_SEED = MODEL_CFG.get("random_seed", 42)
 TEST_SIZE = MODEL_CFG.get("test_size", 0.2)
 BUSINESS_CUTOFF = MODEL_CFG.get("business_cutoff", 0.145)
 
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 
 
 def load_champion_config() -> dict:

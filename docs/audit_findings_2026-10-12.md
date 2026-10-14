@@ -155,6 +155,101 @@ no longer claims daily monitoring.
 - **A22. Deprecation.** The DAG uses `airflow.models.Variable`, which
   Airflow 3 warns is deprecated in favour of `airflow.sdk.Variable`.
 
+### 14th October 2026: decision-log clean-up, drift overlap, pct_late_payments evidence
+
+**Fixed:**
+- **B1.** Decision 23 was written retrospectively. The Summary Table now
+  runs to Decision 26, and the log is at v3.26.
+- **B2–B5.** Decisions 3, 5, 6, 7, 8 and 9 now have dated
+  Implementation Status notes. Decision 2 has a filename note.
+- **B9.** The stale temporal-split comment in `config.yaml` was
+  corrected, and a stale `recalibrate_threshold.py` reference in
+  `train_baseline_models.py` was fixed.
+  - **Not changed, deliberately:** `model_governance.pipeline_stage`
+    and `decision_log_version`. `explain_models.py` and
+    `govern_model_features.py` check them against
+    `champion_metadata.json` and refuse to run on a mismatch, so they
+    are documented as identity values that change only with a retrain.
+- **A2.** The drift comparison now excludes reference customers:
+  1,003 unseen customers instead of 4,857, of whom 3,854 overlapped.
+  Several PSI values rose once self-comparison was removed. All are
+  still stable.
+- **A3 (partly).** A new `reporting.feature_drift_by_cohort` view gives
+  per-quarter PSI with a noise floor, keyed by origination quarter.
+  `feature_drift_log` itself is unchanged, and its rows are still not
+  a trend. Decision 25.
+- **A7.** Closed as checked, no change warranted (Decision 26):
+  - the champion's train/test gap is 0.067, 95% CI [0.001, 0.137]
+  - the champion's fixed hyperparameters beat depth 2/3 × learning
+    rate 0.005/0.01 with early stopping on validation PR-AUC
+
+**Evidence complete, decision open:**
+- **A6.** The 13-feature challenger is registered as v2. Removal costs
+  −0.0054 repeated-CV Gini; the held-out difference is −0.0038, and its
+  CI includes 0. Decision 21's Gini-win rule cannot promote a
+  validity fix. Decision 26 lists what needs deciding.
+
+**New findings (not fixed):**
+- **A23 (c): intended behaviour, confirmed by the owner 14 Oct.**
+  `promote_champion.py` found 3 matching champion runs per split and
+  used the latest. This is by design: re-running the same champion
+  should reproduce the same result, so the latest run stands for all
+  of them.
+  - **Verified 14 Oct:** all 3 runs per split have identical Gini
+    (stratified 0.5656, temporal 0.5675) and the same `git_commit`
+    (`0aeceb3`).
+  - One run per split has no `eval_*` metrics, because evaluation was
+    never logged on it. If it were the latest,
+    `get_run_metrics()` would raise an error rather than use it, so
+    the failure mode is loud, not silent.
+  - **Rollback rule added 14 Oct (owner's rule, Decision 21
+    addendum).** Same Gini → latest; latest worse → roll back to the
+    previous run; latest better → latest, flagged. Unscored runs are
+    skipped. Tested on fake runs (7/7 pass) and on the real store,
+    where the selection is unchanged.
+- **A25. A worse rerun is already the served model.** The rollback
+  above only affects the promotion comparison. `serving/app.py`
+  serves `models/artifacts/champion_calibrated.joblib`, and
+  `train_baseline_models.py` overwrites that file on every rerun.
+  Not fixed. Options: serve the registry `champion` alias, or have
+  training refuse to overwrite the package when the result is worse.
+- **A24.** The 2024Q4 cohort shows moderate PSI (0.106) on
+  merchant-category mix. It is plausibly a short-history artefact of
+  the partial final quarter, but this is not verified.
+
+### 14th October 2026 (later): owner decision, remove pct_late_payments (Decision 27)
+
+The owner ruled that leakage is a valid reason for removal. Choices:
+- **promotion:** an evidence override
+- **model:** the champion's hyperparameters, held fixed
+- **files:** a new package folder selected by config
+
+**Built (the active champion is unchanged until the switch):**
+- **Package location is a setting.** `config.yaml`
+  `model_governance.artifacts_dir`, read by all 10 scripts and the
+  API, which previously hardcoded `models/artifacts`. All modules
+  import cleanly and still resolve to `models/artifacts`.
+- **Partly closes A25.** `train_baseline_models.py` refuses to write
+  into a package folder that belongs to a different champion identity.
+  The August package can no longer be overwritten by a retrain under
+  a new identity.
+- **Pinned settings.** `train_baseline_models.py --pin-xgboost-params
+  <champion_metadata.json>` holds XGBoost to a given champion's
+  settings, recorded as the `xgboost_params_source` tag and metadata.
+- **A14 (prompt).** `--no-prompt` removes the blocking `input()` for
+  non-interactive runs.
+- **Override path.** `promote_champion.py --validity-override
+  "<Decision N>" --validity-evidence <file>`:
+  - permitted only if the decision-log heading exists and the evidence
+    file describes these exact challenger runs
+  - and if, on BOTH splits, the 95% paired-bootstrap CI of the Gini
+    difference reaches zero or above
+  - the approval gate and typed `PROMOTE` still apply
+  - on apply, the registry version is tagged with the path, decision
+    and removed feature
+- **Temporal CI.** `evaluate_feature_removal.py` now also computes the
+  temporal paired-bootstrap CI and writes `promotion_evidence.json`.
+
 ---
 
 ## Findings that could change the "Remaining work" priorities

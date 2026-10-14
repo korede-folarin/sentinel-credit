@@ -36,8 +36,14 @@ Checks
 
 This script does not retrain, does not change MODEL_FEATURES, and
 does not gate deployment by itself — it produces evidence and
-alerts. Feeding that evidence into an automated Approval Gate is
-future work (Intelligence Core / Governance Layer, not yet built).
+alerts. pipeline/approval_gate.py (Decision 23) reads that evidence
+and decides PASS/BLOCK; the Airflow DAG runs both (Decision 24).
+
+Comparison customers who are also in the training reference are
+excluded, so the population is not compared with itself.
+Origination-quarter cohort PSI (held-out customers only) is
+written to reporting.feature_drift_by_cohort as an informational
+view with a real time axis; it does not affect alerts or the gate.
 
 Each run is logged to its own MLflow experiment
 (sentinel_credit_monitoring), separate from the training/governance
@@ -65,7 +71,6 @@ import yaml
 warnings.filterwarnings("ignore")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "reports", "monitoring")
 
 # model_features.py lives in models/, not necessarily next to this
@@ -78,6 +83,11 @@ from model_features import MODEL_FEATURES, TARGET_COLUMN, FILTER_COLUMN, FILTER_
 
 with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
+
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
 
 DB = CONFIG["database"]
 GOV_CFG = CONFIG["model_governance"]
@@ -103,6 +113,12 @@ MONITORING_EXPERIMENT = "sentinel_credit_monitoring"
 NULL_RATE_DELTA_ALERT = 0.02        # +2pp null rate vs. training triggers a flag
 OUT_OF_RANGE_RATE_ALERT = 0.01      # >1% of values outside training min/max
 MEAN_SHIFT_SIGMA_ALERT = 0.5        # mean moved more than 0.5 training std devs
+
+# Origination-quarter cohorts smaller than this are listed but not
+# PSI-scored: at n=200 the sampling-noise PSI is already ~0.05, half
+# the "moderate" band. Informational only — cohort results do not
+# feed the alert count or the approval gate.
+MIN_COHORT_N = 200
 
 
 def load_full_population() -> pd.DataFrame:
@@ -146,13 +162,20 @@ def load_reference_population(frame: pd.DataFrame) -> pd.DataFrame:
     return indexed.loc[train_ids.values].reset_index()
 
 
-def load_comparison_population(frame: pd.DataFrame, source: str) -> pd.DataFrame:
+def load_comparison_population(
+    frame: pd.DataFrame, source: str, reference_ids: pd.Series
+) -> tuple[pd.DataFrame, int]:
     """
-    source: 'temporal_test' (default, uses split_ids_test.csv is
-    the STRATIFIED test set — temporal comparison instead uses the
-    temporal split date directly, since no separate temporal test
-    ID file is persisted) or a path to a CSV of customer_ids to
-    treat as the scoring population.
+    source: 'temporal_test' (default: customers whose
+    first_transaction_date is on or after model.temporal_split_date)
+    or a path to a CSV of customer_ids to treat as the scoring
+    population.
+
+    Customers that are also in the reference (training) population
+    are removed and counted. Comparing a population with itself pulls
+    PSI toward zero: before this change about 79% of the temporal
+    comparison customers were also training customers (audit A2).
+    Returns (comparison, n_overlap_excluded).
     """
     if source == "temporal_test":
         model_cfg = CONFIG.get("model", {})
@@ -164,19 +187,94 @@ def load_comparison_population(frame: pd.DataFrame, source: str) -> pd.DataFrame
             )
         split_date = pd.Timestamp(split_date)
         first_tx = pd.to_datetime(frame["first_transaction_date"])
-        return frame[first_tx >= split_date].copy()
+        candidates = frame[first_tx >= split_date].copy()
+    else:
+        if not os.path.exists(source):
+            raise FileNotFoundError(f"Comparison population file not found: {source}")
+        ids = pd.read_csv(source)["customer_id"].astype(str)
+        indexed = frame.set_index("customer_id")
+        missing = ids[~ids.isin(indexed.index)]
+        if len(missing):
+            raise ValueError(
+                f"{len(missing):,} IDs from {source} are missing from the "
+                "current feature store."
+            )
+        candidates = indexed.loc[ids.values].reset_index()
 
-    if not os.path.exists(source):
-        raise FileNotFoundError(f"Comparison population file not found: {source}")
-    ids = pd.read_csv(source)["customer_id"].astype(str)
-    indexed = frame.set_index("customer_id")
-    missing = ids[~ids.isin(indexed.index)]
-    if len(missing):
-        raise ValueError(
-            f"{len(missing):,} IDs from {source} are missing from the "
-            "current feature store."
-        )
-    return indexed.loc[ids.values].reset_index()
+    in_reference = candidates["customer_id"].isin(set(reference_ids))
+    return candidates[~in_reference].copy(), int(in_reference.sum())
+
+
+def check_cohort_drift(reference: pd.DataFrame, frame: pd.DataFrame) -> pd.DataFrame:
+    """
+    PSI per feature for each ORIGINATION QUARTER of held-out
+    customers (never in the training reference) against the
+    training reference.
+
+    This gives drift a real time axis: when customers arrived, not
+    when the script ran. Runs on an unchanged snapshot reproduce the
+    same values; that is expected, since the cohorts themselves do
+    not change. It is not a run history and is not written as one.
+
+    Quarters with fewer than MIN_COHORT_N held-out customers are
+    listed but not scored. psi_noise_floor is the PSI expected from
+    sampling alone for two samples of these sizes drawn from the
+    same distribution, approximately (bins - 1) * (1/n + 1/N), so a
+    small cohort's PSI can be read against its own noise level.
+    """
+    held_out = frame[~frame["customer_id"].isin(set(reference["customer_id"]))]
+    period = pd.to_datetime(held_out["first_transaction_date"]).dt.to_period("Q").astype(str)
+    n_ref = len(reference)
+    rows = []
+    for cohort, group in held_out.groupby(period):
+        n = len(group)
+        scored = n >= MIN_COHORT_N
+        bad_rate = float(group[TARGET_COLUMN].mean()) if TARGET_COLUMN in group else None
+        for feature in MODEL_FEATURES:
+            psi = (population_stability_index(reference[feature], group[feature], PSI_BINS)
+                   if scored else None)
+            rows.append({
+                "cohort_period": cohort,
+                "n_customers": n,
+                "scored": scored,
+                "feature": feature,
+                "psi": round(psi, 4) if psi is not None else None,
+                "psi_band": psi_band(psi) if psi is not None else None,
+                "psi_noise_floor": round((PSI_BINS - 1) * (1 / n + 1 / n_ref), 4),
+                "cohort_bad_rate": round(bad_rate, 4) if bad_rate is not None else None,
+            })
+    return pd.DataFrame(rows)
+
+
+def write_cohort_drift(cohort_df: pd.DataFrame, run_id: str) -> None:
+    """
+    Replaces reporting.feature_drift_by_cohort with this run's
+    computation. Cohort results are a property of the data, not of
+    the run, so the table holds the latest computation (with the
+    run_id and time that produced it) rather than accumulating
+    identical copies. DDL: sql/reporting/create_feature_drift_by_cohort.sql.
+    """
+    df = cohort_df.copy()
+    df["run_id"] = run_id
+    df["computed_at"] = datetime.now().astimezone()
+    df = df.astype(object).where(df.notna(), None)
+    cols = list(df.columns)
+    conn = psycopg2.connect(
+        host=os.environ.get("SENTINEL_DB_HOST", DB["host"]), port=DB["port"],
+        dbname=DB["name"], user="postgres",
+        password=os.environ.get("SENTINEL_DB_PASSWORD", ""),
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM reporting.feature_drift_by_cohort")
+            cur.executemany(
+                f"INSERT INTO reporting.feature_drift_by_cohort ({', '.join(cols)}) "
+                f"VALUES ({', '.join(['%s'] * len(cols))})",
+                list(df.itertuples(index=False, name=None)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def population_stability_index(
@@ -386,10 +484,13 @@ def main() -> None:
 
     frame = load_full_population()
     reference = load_reference_population(frame)
-    comparison = load_comparison_population(frame, args.population)
+    comparison, n_overlap = load_comparison_population(
+        frame, args.population, reference["customer_id"]
+    )
 
     print(f"Reference population (canonical training): {len(reference):,} customers")
-    print(f"Comparison population ({args.population}): {len(comparison):,} customers")
+    print(f"Comparison population ({args.population}): {len(comparison):,} customers "
+          f"({n_overlap:,} also in the reference excluded)")
 
     if comparison.empty:
         raise RuntimeError(
@@ -434,6 +535,29 @@ def main() -> None:
     drift.to_csv(drift_path, index=False)
     log_drift_history(drift, run_id)
 
+    # Origination-quarter view: informational, does not change
+    # n_alerts or the approval gate.
+    cohorts = check_cohort_drift(reference, frame)
+    cohort_path = os.path.join(OUTPUT_DIR, "feature_drift_by_cohort.csv")
+    cohorts.to_csv(cohort_path, index=False)
+    write_cohort_drift(cohorts, run_id)
+    scored = cohorts[cohorts["scored"]]
+    print("\n" + "-" * 62)
+    print(f"ORIGINATION-QUARTER COHORTS (held-out customers, n >= {MIN_COHORT_N})")
+    print("-" * 62)
+    if scored.empty:
+        print("  No cohort large enough to score.")
+    else:
+        view = scored.groupby("cohort_period").agg(
+            n=("n_customers", "first"), max_psi=("psi", "max"),
+            noise_floor=("psi_noise_floor", "first"),
+            bad_rate=("cohort_bad_rate", "first"),
+        )
+        print(view.to_string())
+    skipped = cohorts.loc[~cohorts["scored"], "cohort_period"].unique()
+    if len(skipped):
+        print(f"  Not scored (n < {MIN_COHORT_N}): {', '.join(skipped)}")
+
     champion_run_id = find_champion_run_id()
 
     metadata = {
@@ -443,6 +567,14 @@ def main() -> None:
         "comparison_population_source": args.population,
         "n_reference": int(len(reference)),
         "n_comparison": int(len(comparison)),
+        "n_comparison_overlap_excluded": n_overlap,
+        "cohort_view": {
+            "table": "reporting.feature_drift_by_cohort",
+            "grain": "origination quarter, held-out customers only",
+            "min_cohort_n": MIN_COHORT_N,
+            "n_cohorts_scored": int(scored["cohort_period"].nunique()),
+            "gates_anything": False,
+        },
         "model_version": MODEL_VERSION,
         "feature_set_label": FEATURE_SET_LABEL,
         "dataset_version": DATASET_VERSION,
@@ -458,11 +590,10 @@ def main() -> None:
         "n_features_total": len(drift),
         "note": (
             "This run does not gate deployment or trigger retraining by "
-            "itself. It is evidence for the not-yet-built Approval Gate "
-            "(Governance Layer) and Champion/Challenger promotion "
-            "workflow. Comparison population is a proxy (temporal test "
-            "split) in the absence of a live scoring stream — see module "
-            "docstring."
+            "itself. It is the evidence approval_gate.py (Decision 23) "
+            "evaluates. Comparison population is a proxy (later-"
+            "originating customers not in the training reference) in "
+            "the absence of a live scoring stream — see module docstring."
         ),
     }
     metadata_path = os.path.join(OUTPUT_DIR, "monitoring_run_metadata.json")
@@ -489,6 +620,7 @@ def main() -> None:
             if target_shift["absolute_delta"] is not None:
                 mlflow.log_metric("bad_rate_absolute_delta", target_shift["absolute_delta"])
             mlflow.log_artifact(drift_path)
+            mlflow.log_artifact(cohort_path)
             mlflow.log_artifact(metadata_path)
         print(f"\nLogged to MLflow experiment: {MONITORING_EXPERIMENT}")
 

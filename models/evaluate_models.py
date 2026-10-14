@@ -59,10 +59,14 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__))))
 from model_features import TARGET_COLUMN, FILTER_COLUMN, FILTER_VALUE
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 
 with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
+
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
 
 DB = CONFIG["database"]
 MODEL_CFG = CONFIG["model"]

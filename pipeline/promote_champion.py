@@ -96,15 +96,31 @@ CHAMPION_ALIAS = "champion"
 CHALLENGER_ALIAS = "challenger"
 
 
-def find_champion_run(split: str) -> str:
+# Two champion reruns count as "the same Gini" when they agree to
+# the 4 decimal places evaluate_models.py logs eval_gini at. This is
+# rounding precision, not a business threshold.
+RERUN_GINI_TOLERANCE = 0.0001
+
+
+def find_champion_run(split: str) -> tuple[str, dict]:
     """
-    Finds the current champion's training run for one split, via
-    the is_champion tag train_baseline_models.py already sets,
-    combined with the governance identity every other script in
-    this project checks against. Multiple matches (reruns without
-    an intervening commit) are tolerated — latest wins, same
-    pattern as evaluate_models.py / govern_model_features.py /
-    explain_models.py.
+    Finds the current champion's run for one split, via the
+    is_champion tag train_baseline_models.py sets, combined with the
+    governance identity every other script in this project checks
+    against.
+
+    Several matching runs are expected: re-running the same champion
+    should reproduce it. Only runs evaluate_models.py has scored
+    (eval_gini logged) are considered. Selection rule, comparing the
+    latest evaluated run with the one before it:
+      - same Gini (within rounding): use the latest.
+      - latest Gini LOWER: roll back — use the previous run. A worse
+        rerun of the same champion means something changed (data,
+        code, environment) and is not adopted silently.
+      - latest Gini HIGHER: use the latest, flagged, since reruns of
+        the same champion are expected to match.
+    Returns (run_id, selection) where selection records which rule
+    applied, for the recommendation file. See Decision 21 addendum.
     """
     client = MlflowClient()
     experiment = client.get_experiment_by_name(MLFLOW_EXPERIMENT)
@@ -123,7 +139,7 @@ def find_champion_run(split: str) -> str:
         experiment_ids=[experiment.experiment_id],
         filter_string=filter_string,
         order_by=["attributes.start_time DESC"],
-        max_results=5,
+        max_results=50,
     )
     if not runs:
         raise RuntimeError(
@@ -131,10 +147,64 @@ def find_champion_run(split: str) -> str:
             f"governance identity (feature_set={FEATURE_SET_LABEL}, "
             f"dataset_version={DATASET_VERSION}, model_version={MODEL_VERSION})."
         )
-    if len(runs) > 1:
-        print(f"  {len(runs)} matching champion runs found for split={split}; "
-              f"using latest.")
-    return runs[0].info.run_id
+
+    evaluated = [r for r in runs if "eval_gini" in r.data.metrics]
+    skipped = [r.info.run_id for r in runs if "eval_gini" not in r.data.metrics]
+    if not evaluated:
+        raise RuntimeError(
+            f"{len(runs)} champion run(s) found for split={split}, but none "
+            "has eval_* metrics. Run evaluate_models.py first."
+        )
+
+    latest = evaluated[0]
+    selection = {
+        "n_matching_runs": len(runs),
+        "n_evaluated_runs": len(evaluated),
+        "skipped_unevaluated_run_ids": skipped,
+        "latest_run_id": latest.info.run_id,
+        "latest_gini": latest.data.metrics["eval_gini"],
+    }
+
+    if len(evaluated) == 1:
+        selection["rule"] = "single_evaluated_run"
+        chosen = latest
+    else:
+        previous = evaluated[1]
+        delta = latest.data.metrics["eval_gini"] - previous.data.metrics["eval_gini"]
+        selection.update({
+            "previous_run_id": previous.info.run_id,
+            "previous_gini": previous.data.metrics["eval_gini"],
+            "latest_minus_previous_gini": round(delta, 4),
+        })
+        if abs(delta) <= RERUN_GINI_TOLERANCE:
+            selection["rule"] = "reruns_match_latest_used"
+            chosen = latest
+        elif delta < 0:
+            selection["rule"] = "ROLLED_BACK_latest_worse"
+            chosen = previous
+            print(
+                f"  WARNING ({split}): latest champion run "
+                f"{latest.info.run_id[:8]} has Gini "
+                f"{latest.data.metrics['eval_gini']:.4f}, LOWER than the previous "
+                f"run {previous.info.run_id[:8]} "
+                f"({previous.data.metrics['eval_gini']:.4f}). Rolled back to the "
+                "previous run. Investigate why a rerun of the same champion "
+                "got worse before relying on either."
+            )
+        else:
+            selection["rule"] = "latest_better_flagged"
+            chosen = latest
+            print(
+                f"  NOTE ({split}): latest champion run {latest.info.run_id[:8]} "
+                f"has Gini {delta:+.4f} above the previous run. Using the latest, "
+                "but reruns of the same champion are expected to match."
+            )
+
+    print(f"  split={split}: {len(runs)} matching champion run(s), "
+          f"{len(evaluated)} evaluated; rule: {selection['rule']}; "
+          f"using {chosen.info.run_id[:8]}.")
+    selection["chosen_run_id"] = chosen.info.run_id
+    return chosen.info.run_id, selection
 
 
 def get_run_metrics(run_id: str) -> dict:
@@ -218,6 +288,59 @@ def check_approval_gate() -> dict:
     ]}
 
 
+def check_validity_override(decision_ref: str, evidence_path: str,
+                            run_id_stratified: str, run_id_temporal: str) -> dict:
+    """
+    Second promotion path, for a challenger that removes a feature
+    found to be INVALID (e.g. leaking the outcome). Removing leakage
+    usually costs a little apparent Gini, so the Gini-win rule above
+    can never approve it (Decision 26). This path replaces "material
+    Gini win" with "the Gini loss is not distinguishable from zero":
+    on BOTH splits, the 95% paired-bootstrap CI of (challenger minus
+    champion) Gini must reach zero or above. No new threshold is
+    introduced; the CI comes from the evidence file.
+
+    Refuses (SystemExit) rather than degrading silently if:
+      - decision_ref is not a heading in the decision log,
+      - the evidence file is missing, or describes different runs.
+    The approval gate and typed PROMOTE still apply on --apply.
+    """
+    log_path = os.path.join(PROJECT_ROOT, "docs", "engineering_decision_log.md")
+    with open(log_path, "r", encoding="utf-8") as f:
+        headings = [line for line in f if line.startswith("## ")]
+    if not any(line.startswith(f"## {decision_ref} ") for line in headings):
+        raise SystemExit(
+            f"--validity-override {decision_ref!r}: no heading '## {decision_ref} ...' "
+            "in docs/engineering_decision_log.md. Write the decision first."
+        )
+    if not evidence_path or not os.path.exists(evidence_path):
+        raise SystemExit("--validity-override requires --validity-evidence pointing at "
+                         "promotion_evidence.json from evaluate_feature_removal.py.")
+    with open(evidence_path, "r", encoding="utf-8") as f:
+        evidence = json.load(f)
+
+    expected = {"stratified": run_id_stratified, "temporal": run_id_temporal}
+    if evidence.get("challenger_run_ids") != expected:
+        raise SystemExit(
+            "Evidence file describes challenger runs "
+            f"{evidence.get('challenger_run_ids')}, not {expected}. "
+            "Re-run evaluate_feature_removal.py --log-challenger and use its run IDs."
+        )
+
+    splits = {}
+    for split in ("stratified", "temporal"):
+        d = evidence["gini_difference_challenger_minus_champion_arm"][split]
+        splits[split] = {**d, "non_inferior": bool(d["ci95"][1] >= 0)}
+    return {
+        "decision_ref": decision_ref,
+        "evidence_path": os.path.relpath(evidence_path, PROJECT_ROOT),
+        "removed_feature": evidence.get("removed_feature"),
+        "rule": "95% CI of Gini difference reaches >= 0 on both splits",
+        "splits": splits,
+        "passed": all(s["non_inferior"] for s in splits.values()),
+    }
+
+
 def evaluate_promotion(champion: dict, challenger: dict) -> dict:
     delta_gini = round(challenger["gini"] - champion["gini"], 4)
     delta_auc = round(challenger["auc"] - champion["auc"], 4)
@@ -250,6 +373,22 @@ def main() -> None:
         help="MLflow run_id for the challenger's temporal evaluation.",
     )
     parser.add_argument(
+        "--validity-override", metavar="DECISION_REF",
+        help=(
+            "Promote a challenger that removes an INVALID feature (e.g. "
+            "leakage) without a Gini win. Value is the decision-log "
+            "heading authorising it, e.g. 'Decision 27'; it must exist in "
+            "docs/engineering_decision_log.md. Requires --validity-evidence. "
+            "Allowed only if, on BOTH splits, the 95%% CI of the Gini "
+            "difference (challenger minus champion) reaches zero or above. "
+            "Approval gate and typed PROMOTE still apply."
+        ),
+    )
+    parser.add_argument(
+        "--validity-evidence", metavar="PATH",
+        help="promotion_evidence.json written by models/evaluate_feature_removal.py.",
+    )
+    parser.add_argument(
         "--apply", action="store_true",
         help=(
             "Set the 'champion' alias to the challenger if BOTH splits "
@@ -280,8 +419,8 @@ def main() -> None:
     print(f"Current champion: {CHAMPION_MODEL} "
           f"(feature_set={FEATURE_SET_LABEL}, dataset={DATASET_VERSION})")
 
-    champion_run_stratified = find_champion_run("stratified")
-    champion_run_temporal = find_champion_run("temporal")
+    champion_run_stratified, selection_stratified = find_champion_run("stratified")
+    champion_run_temporal, selection_temporal = find_champion_run("temporal")
 
     champion_metrics_stratified = get_run_metrics(champion_run_stratified)
     champion_metrics_temporal = get_run_metrics(champion_run_temporal)
@@ -314,11 +453,37 @@ def main() -> None:
 
     both_material = result_stratified["material_win"] and result_temporal["material_win"]
 
+    validity = None
+    if args.validity_override:
+        validity = check_validity_override(
+            args.validity_override, args.validity_evidence,
+            args.challenger_run_id_stratified, args.challenger_run_id_temporal,
+        )
+
     print("\n" + "-" * 64)
     if both_material:
+        promotion_supported, promotion_path = True, "gini_win"
         print("RECOMMENDATION: promotion supported — material Gini improvement "
               "on BOTH splits.")
+    elif validity is not None:
+        promotion_supported = validity["passed"]
+        promotion_path = "validity_override"
+        print(f"VALIDITY OVERRIDE ({validity['decision_ref']}): removes "
+              f"'{validity['removed_feature']}' without a Gini win.")
+        for split in ("stratified", "temporal"):
+            s = validity["splits"][split]
+            print(f"  {split}: Gini difference {s['point']:+.4f}, 95% CI "
+                  f"[{s['ci95'][0]:+.4f}, {s['ci95'][1]:+.4f}] -> "
+                  f"{'loss could be zero' if s['non_inferior'] else 'loss is REAL'}")
+        if promotion_supported:
+            print("RECOMMENDATION: promotion supported under validity override — "
+                  "the Gini loss is not distinguishable from zero on either split.")
+        else:
+            print("RECOMMENDATION: promotion NOT supported — validity override "
+                  "refused: the Gini loss is distinguishable from zero on at "
+                  "least one split.")
     else:
+        promotion_supported, promotion_path = False, "gini_win"
         print("RECOMMENDATION: promotion NOT supported — requires a material "
               "Gini improvement on both stratified and temporal, not just one.")
     print("-" * 64)
@@ -338,15 +503,19 @@ def main() -> None:
         "min_gini_delta_threshold": MIN_GINI_DELTA,
         "stratified": {
             "champion_run_id": champion_run_stratified,
+            "champion_run_selection": selection_stratified,
             "challenger_run_id": args.challenger_run_id_stratified,
             **result_stratified,
         },
         "temporal": {
             "champion_run_id": champion_run_temporal,
+            "champion_run_selection": selection_temporal,
             "challenger_run_id": args.challenger_run_id_temporal,
             **result_temporal,
         },
-        "promotion_recommended": both_material,
+        "promotion_recommended": promotion_supported,
+        "promotion_path": promotion_path,
+        "validity_override": validity,
         "applied": False,
         "note": (
             "Promotion changes which model governs real decisions. This "
@@ -357,7 +526,7 @@ def main() -> None:
     }
 
     if args.apply:
-        if not both_material:
+        if not promotion_supported:
             print("\n--apply was set, but promotion criteria are not met. "
                   "Refusing — no alias change made.")
         else:
@@ -387,6 +556,22 @@ def main() -> None:
                     client.set_registered_model_alias(
                         REGISTERED_MODEL_NAME, CHAMPION_ALIAS, challenger_version
                     )
+                    # Record WHY this version became champion on the
+                    # registry entry itself, not only in the JSON file.
+                    version_tags = {
+                        "promotion_path": promotion_path,
+                        "promoted_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                        "replaced_champion_run_stratified": champion_run_stratified,
+                    }
+                    if validity is not None:
+                        version_tags.update({
+                            "decision_ref": validity["decision_ref"],
+                            "removed_feature": validity["removed_feature"],
+                        })
+                    for key, value in version_tags.items():
+                        client.set_model_version_tag(
+                            REGISTERED_MODEL_NAME, challenger_version, key, str(value)
+                        )
                     recommendation["applied"] = True
                     recommendation["approval_gate"] = gate_result
                     print(f"\nApplied: {REGISTERED_MODEL_NAME} version "

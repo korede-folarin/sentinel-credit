@@ -64,7 +64,6 @@ from model_features import MODEL_FEATURES, TARGET_COLUMN, FILTER_COLUMN, FILTER_
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 SHAP_DIR = os.path.join(PROJECT_ROOT, "reports", "shap")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "reports", "feature_governance")
 
@@ -73,6 +72,11 @@ PARAMS_PATH = os.path.join(PROJECT_ROOT, "params.yaml")
 
 with open(CONFIG_PATH, "r", encoding="utf-8") as file:
     CONFIG = yaml.safe_load(file)
+
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
 
 with open(PARAMS_PATH, "r", encoding="utf-8") as file:
     PARAMS = yaml.safe_load(file)

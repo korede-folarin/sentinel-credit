@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.25
-**Last Updated:** 13th October 2026 (v3.25)
+**Version:** 3.27
+**Last Updated:** 14th October 2026 (v3.27)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -232,6 +232,11 @@ widen the gap without indicating a broken generator.
 unimplemented, tied to the internal consistency
 check noted as planned, not done, above.
 
+### File Name Note (audit, 12th October 2026)
+`validate_synthetic.py`, named throughout this
+decision and in Appendices B/D, is
+`validation/validation.py` in the repository.
+
 *With validated data available, the next decision
 was how to engineer features consistently across
 training and production.*
@@ -279,6 +284,14 @@ SS1/23 Principle 3. It does not itself satisfy
 regulatory requirements — it provides the
 infrastructure that makes documentation and
 consistency achievable in practice.
+
+### Implementation Status (audit, 12th October 2026)
+**Not on AWS RDS.** The feature store is a local
+PostgreSQL 18 instance (`localhost:5432`). Nothing in
+this project is deployed to AWS. The design above
+(SQL-built features shared by training and scoring)
+is implemented; the hosting is not. Any move to RDS
+needs its own decision entry.
 
 *With consistent features available, the next
 decision was which models to build and how to
@@ -437,6 +450,23 @@ PRA SS1/23 Principle 4 requires ongoing
 independent validation — automated monthly
 revalidation implements this continuously.
 
+### Implementation Status (audit, 12th October 2026)
+Decision 20 implemented part of this design:
+- **Built:** data drift (feature PSI), data-quality
+  checks, and a portfolio bad-rate delta, run by the
+  Airflow DAG while the local stack is up.
+
+**Planned, not built:**
+- concept drift
+- prediction drift (PSI on model scores)
+- weekly cohort comparisons
+- monthly revalidation including fairness
+- automatic escalation
+
+The `psi_threshold` / `drift_alert_threshold` keys
+shown above do not exist in `config.yaml`. The PSI
+bands live under `feature_governance.thresholds`.
+
 *Detecting drift is only useful if it triggers
 the right response. That required connecting
 monitoring to governance automatically.*
@@ -515,6 +545,18 @@ any specific firm's implementation. The FCA did
 not prescribe this architecture — reading FCA
 publications helped clarify what well-governed
 credit systems require.
+
+### Implementation Status (audit, 12th October 2026)
+| Step | Status |
+|---|---|
+| 1. Drift detected | **Built** (Decision 20) |
+| 2. Airflow DAG | **Built** (daily setting only; runs while the local stack is up, Decision 24) |
+| 3. Error classifier | Planned, not built |
+| 4. Adaptive LLM engine | Planned, not built |
+| 5. Human approval gate | **Partly built**: typed `PROMOTE` confirmation plus an automated evidence gate (Decision 23); no approver identity recorded |
+| 6. MLflow governance log | **Partly built**: Model Registry aliases (Decision 21); no approver or rationale recorded |
+| 7. Audit-trail PDF export | Planned, not built |
+| 8. Deploy (BentoML, Docker, AWS) | Planned, not built. The scoring API runs locally only. |
 
 *With the governance loop in place, the next
 decision was how to make individual decisions
@@ -599,6 +641,14 @@ in Demajo et al. 2020 further support
 audience-appropriate explanations in credit
 decisions.
 
+### Implementation Status (audit, 12th October 2026)
+**Planned, not built.** The SHAP foundation exists
+(Decision 14). No error-type detection, genre
+selection, or three-audience output exists in the
+code; Decision 14 already records the audience layer
+as "not yet built". The design above is the intended
+next layer, not a description of current behaviour.
+
 *With explainability producing three audience
 outputs, the next challenge was ensuring every
 model version and governance decision was
@@ -654,6 +704,19 @@ identification and inventory — the MLflow
 registry is that inventory. Principle 6 requires
 internal audit evidence — MLflow logs and audit
 export provide that evidence.
+
+### Implementation Status (audit, 12th October 2026)
+- **Built:** MLflow tracking of every training and
+  evaluation run, and the alias-based Model Registry
+  (Decision 21).
+- **Superseded without note until now:** Decision 21
+  narrowed the promotion rule to a material Gini win on
+  both splits. KS and PR-AUC are reported as
+  corroborating evidence. ECE and fairness are not
+  promotion criteria.
+- **Planned, not built:** registry records of approver,
+  methodology divergence and rejection reason, and the
+  audit export.
 
 *With governance records in place, the next
 decision was how to ensure no model reaches
@@ -732,6 +795,24 @@ independent validation and senior management
 ownership. Principle 4 requires the approving
 body to ensure validation recommendations are
 actioned before deployment.
+
+### Implementation Status (audit, 12th October 2026)
+**Partly built:**
+- `promote_champion.py --apply` refuses unless the
+  evidence supports promotion, and then requires typing
+  `PROMOTE`.
+- An automated evidence gate (Decision 23) blocks on
+  stale or drifting monitoring.
+
+**Not built:**
+- BentoML deployment (there is nothing to prevent
+  deploying, because nothing is deployed)
+- approver ID, rationale and rejection reason logged
+  to MLflow
+- separate first and second line roles
+
+The current gate is a single-person confirmation, not
+independent challenge.
 
 *With every deployment gated on human review,
 the final open question was whether the
@@ -2904,6 +2985,44 @@ exercised against a genuine challenger, since none currently
 exists. `min_gini_delta` remains unset until a real promotion
 decision requires it — recorded as an open input, not a defect.
 
+### Addendum — Champion Run Selection and Rollback (14th October 2026)
+Re-running training for the same champion creates more runs carrying
+the same champion tags; three per split existed by October. Selecting
+the latest is intended: a rerun of the same champion should reproduce
+it. The owner set the rule explicitly: **if the reruns have the same
+Gini, use the latest; if the latest has worse Gini, roll back to the
+previous run and do not adopt the latest.**
+
+`find_champion_run()` now implements it:
+- Only runs with `eval_gini` logged (scored by `evaluate_models.py`)
+  are considered. Unscored runs are skipped and listed.
+- **Same Gini** (within 0.0001, the 4 decimal places `eval_gini` is
+  logged at, i.e. rounding, not a threshold): use the latest.
+- **Latest lower:** use the previous run, with a warning. The rollback
+  is recorded in `promotion_recommendation.json` under
+  `champion_run_selection.rule = ROLLED_BACK_latest_worse`.
+- **Latest higher:** use the latest, flagged, because reruns of the
+  same champion are expected to match.
+
+Tested on fake runs for every case, and on the real store, where it
+selects the same runs as before (`3d169840` stratified, `e97c1eee`
+temporal; all reruns 0.5656 / 0.5675 from git `0aeceb3`).
+
+**Scope limit.** This rollback governs which run the promotion
+comparison treats as the champion. It does **not** roll back the
+served model. `serving/app.py` loads
+`models/artifacts/champion_calibrated.joblib`, which
+`train_baseline_models.py` overwrites on every rerun, so a worse
+rerun is already the live model before this rule runs. Rolling back
+what is served would need the API to load a registry version (the
+`champion` alias), or training to refuse to overwrite the package
+when the result is worse. Recorded as open (audit A25).
+
+Caveat: choosing between two runs by their test-set Gini is a
+selection on the test set. It is acceptable here only because the
+runs are meant to be identical, so a difference signals a fault to
+investigate, not a better model to prefer.
+
 ---
 
 ## Decision 22 — Portfolio Forecasting (Prophet), LSTM Explicitly Deferred
@@ -2998,13 +3117,70 @@ decision — neither fabricated to appear complete.
 
 ---
 
+## Decision 23 — Automated Approval Gate (Evidence Gate on Promotion)
+
+> **Written retrospectively, 14th October 2026.** The gate was built
+> and committed on 11th August 2026 (`e59a042`, whose message names
+> "Decision 23"), but its log entry was never written. The 12th
+> October audit found the gap (B1). This entry records what the code
+> committed on 11th August actually does, read from
+> `pipeline/approval_gate.py` and `pipeline/promote_champion.py`. It
+> does not reconstruct reasoning that was not written down at the
+> time. Later changes to the gate are recorded in Decision 24.
+
+### Challenge
+Decision 21's promotion workflow compared a challenger's Gini against
+the champion's, but nothing connected that comparison to monitoring.
+A challenger with a material Gini win could have been promoted while
+the population it would score was drifting, or while the monitoring
+evidence was weeks old. Decision 20's own entry left "feeding this
+evidence into an automated Approval Gate" as future work.
+
+### Decision
+`pipeline/approval_gate.py` reads the evidence `monitor_drift.py`
+already writes (`reports/monitoring/monitoring_run_metadata.json`)
+and returns PASS or BLOCK. It recomputes nothing. Gating checks:
+1. **Monitoring evidence exists.**
+2. **The evidence is recent:** no older than
+   `approval_gate.max_monitoring_age_hours` (48h). This is the one
+   governance threshold in the project that is defaulted rather than
+   left unset, because it is derived from an operational fact already
+   decided (the DAG's `@daily` schedule, tolerating one missed run),
+   not from a business judgement nobody has made.
+3. **Zero active drift or data-quality alerts.**
+
+Portfolio bad-rate shift is **reported, not gated**. No defensible
+threshold for acceptable bad-rate drift exists, and inventing one is
+the same mistake already declined for `cost_assumptions` and
+`min_gini_delta`.
+
+**Wiring:** `promote_champion.py` runs the gate as a subprocess
+(`check_approval_gate()`) and reads its result file. A PASS is
+**necessary, not sufficient**: Decision 21's Gini criteria still apply
+independently. A BLOCK overrides everything, so an otherwise-material
+Gini improvement is not applied during active drift.
+
+### Scope, stated plainly
+This is an **automated evidence gate**, not the human approval
+Decision 9 describes. Human approval in the current code is the
+typed `PROMOTE` confirmation in `promote_champion.py --apply`. That
+confirmation records no approver identity, so Decision 9's "approver
+ID logged in MLflow" is not implemented (audit B5).
+
+### Regulatory Context
+PRA SS1/23 Principle 4 expects model use to be challenged by current
+evidence. The gate makes stale or drifting monitoring evidence block
+a promotion mechanically, rather than relying on a reviewer to
+notice it.
+
+---
+
 ## Decision 24 — Drift History Logging Fixed, and Gate Status Derived at Read Time
 
 > **Numbering note.** Commit `e59a042` describes "Decision 23:
-> automated approval gate", but no Decision 23 entry was ever
-> written to this log. That gap is recorded as an open item in
-> `docs/audit_findings_2026-10-12.md` (B1) and is deliberately not
-> back-filled here; this entry takes the next unused number.
+> automated approval gate", but no Decision 23 entry had been written
+> when this entry was created. Decision 23 was back-filled
+> retrospectively on 14th October 2026 (above).
 
 ### Challenge
 The 12th October 2026 audit (`docs/audit_findings_2026-10-12.md`)
@@ -3204,13 +3380,268 @@ the schedule. The badge's STALE logic remains the backstop.
 
 ---
 
+## Decision 25 — Drift Comparison Without Self-Overlap, and a Cohort Time Axis
+
+### Challenge
+The 12th October audit found two reasons the drift monitor said
+less than it appeared to (A2, A3):
+1. **79.3% of the comparison population was also in the reference.**
+   3,854 of the 4,857 "temporal test" customers were in the
+   champion's stratified training partition. PSI between a
+   population and a largely identical copy of itself is pulled
+   toward zero.
+2. **Both populations were fixed snapshots.** Five logged runs two
+   months apart had exactly one distinct PSI value per feature.
+   Accumulated rows in `feature_drift_log` were therefore not a trend.
+
+### Decision
+1. **Overlap excluded.** `load_comparison_population()` now removes
+   any customer that is also in the training reference, and reports
+   the count (`n_comparison_overlap_excluded`). The default comparison
+   is now the 1,003 later-originating customers the model never saw.
+
+   Effect on the 13th October data:
+   - every feature still "stable", 0 alerts
+   - several PSI values rose once self-comparison was removed:
+     `avg_order_value_gbp` 0.042 → 0.063, `savings_balance_gbp`
+     0.003 → 0.016, `num_credit_accounts` 0.002 → 0.016
+   - the previous numbers understated drift
+2. **Origination-quarter cohort view.** Each run also computes PSI
+   per feature for every origination quarter of held-out customers
+   (the stratified test partition) against the training reference.
+   - Written to `reporting.feature_drift_by_cohort`, keyed by
+     `cohort_period`, so the time axis is when customers arrived.
+     That is real variation in the data, computed from actual cohorts.
+   - It is not a run history and is not backfilled. Each run replaces
+     the table with its own computation, identified by `run_id`.
+   - Quarters under 200 held-out customers are listed, not scored.
+   - Each row carries `psi_noise_floor`, the PSI expected from
+     sampling alone at that size (~(bins−1)·(1/n + 1/N)), so a small
+     cohort's PSI can be read against its own noise level.
+   - Informational only: it does not change the alert count or the
+     approval gate.
+
+### First reading (13th October 2026, observation not conclusion)
+- 11 quarters scored; 2022Q1 is too small.
+- Most quarters sit at 2–5× their noise floor, with max PSI 0.02–0.08.
+- **2024Q4 reaches the moderate band:**
+  - `pct_medium_risk_category` 0.106, `pct_high_risk_category` 0.098
+  - about 6× its noise floor
+  - 2024Q4 is a partial quarter (origination ends 31st October 2024)
+- A plausible but unverified explanation: customers who have made
+  only one or two purchases have category percentages at 0 or 1
+  rather than averages. That would make this a short-history effect,
+  the same family as the exposure-time problem (Decisions 12/14), not
+  market drift.
+
+### Regulatory Context
+PRA SS1/23 Principle 4 expects monitoring to be capable of detecting
+change. A comparison that overlaps its reference by four-fifths
+cannot, and a log of identical rows can be mistaken for evidence of
+stability. Both are corrected here, and the remaining limits are
+stated rather than implied.
+
+---
+
+## Decision 26 — pct_late_payments: Removal Evidence (Decision Pending)
+
+> **Status: decided 14th October 2026 — remove (see Decision 27).**
+> The owner ruled that leaking outcome information into the model is
+> a valid reason for removal, independent of the small Gini cost.
+> The three choices below were resolved in Decision 27. The evidence
+> in this entry stands as recorded.
+
+### Challenge
+Audit finding A6: the generator writes `payment_status = 'Late'` for
+three different events:
+- the independent 5% late draw
+- **full cure payments** from arrears
+- **partial cure payments** from arrears
+
+Instalments after default are written as `Defaulted` and sit in the
+`AVG()` denominator. Decomposed on the modelable population:
+- **39%** of defaulters' `Late` rows are cure events (23% for
+  non-defaulters)
+- defaulters carry 723 post-default rows in the denominator
+
+So `pct_late_payments` partly measures the arrears process default
+emerges from, and partly information that only exists after the
+outcome. Decision 12's claim that late-payment features are
+"independent of the default path" no longer holds under the
+Decision 10 generator. This is the same mixed-event basis on which
+`avg/max/total_days_late` were excluded as resolution-adjacent.
+
+### How it was judged
+On **feature validity**: would this information exist at decision
+time, independent of the outcome? A leaky feature usually looks good
+in cross-validation, so a Gini drop on removal is **not** a reason to
+keep it. Performance was measured to quantify the cost of removal,
+not to decide it. Script: `models/evaluate_feature_removal.py`.
+Evidence: `reports/feature_removal/pct_late_payments/`.
+
+### Evidence (champion hyperparameters held fixed)
+| | 14 features (champion) | 13 features (no `pct_late_payments`) |
+|---|---|---|
+| Repeated CV Gini (5×3) | 0.5533 | 0.5479 (lower in 14/15 folds, mean −0.0054) |
+| Repeated CV PR-AUC | 0.0911 | 0.0928 (higher in 10/15 folds) |
+| Held-out stratified Gini [95% bootstrap CI] | 0.5656 [0.500, 0.626] | 0.5618 [0.494, 0.622] |
+| Gini difference, paired bootstrap | — | −0.0038 [−0.0148, +0.0079], includes 0 |
+| Held-out temporal Gini | 0.5675 | 0.5611 (−0.0064) |
+| Temporal PR-AUC | 0.0876 | 0.0782 |
+| Train/test Gini gap [95% CI] | 0.0665 [0.001, 0.137] | 0.0625 [−0.003, 0.135] |
+| ECE, decile bins / Brier | 0.0040 / 0.0254 | 0.0037 / 0.0254 |
+| Decisions flipping at 0.0671 | — | 135 of 8,321 (1.62%) |
+
+The cost of removal is small, consistent in repeated CV, and not
+distinguishable from zero on the held-out split. Calibration is
+unaffected.
+
+**Train/test gap (audit A7).** The champion's 0.067 gap has a 95%
+CI of [0.001, 0.137]. It only just excludes zero, and its width is
+dominated by the 226 test defaults. This is not evidence of material
+overfitting.
+
+**Hyperparameter check (audit A7).** 5-fold CV on the training
+partition; early stopping on an inner 15% slice of each fold.
+- The champion's fixed configuration had the best validation PR-AUC
+  (the selection metric) for both feature sets: 0.096–0.099, against
+  0.081–0.088 for depth 2/3 × learning rate 0.005/0.01 with early
+  stopping.
+- Depth 2 roughly halves the train/validation Gini gap (≈0.04–0.05
+  vs ≈0.096) at similar validation Gini, but with lower PR-AUC.
+- Early stopping chose 118–565 trees, not more than 300.
+- Caveat: the early-stopped configurations trained on 85% of each
+  fold, a small handicap.
+- Conclusion: the grid-edge selection is not leaving an obvious gain
+  on the table. A7 is closed as "checked, no change warranted",
+  with depth 2 noted as the lower-variance alternative if
+  generalisation becomes the priority.
+
+### Workflow outcome
+`promote_champion.py` (Decision 21) registered the challenger and
+returned **"promotion NOT supported"**. The rule requires a material
+Gini **win** on both splits, and `min_gini_delta` is unset.
+
+### Open for decision
+1. **Rule conflict.** Decision 21's promotion rule can only promote a
+   model that is *better* on Gini. A validity-driven removal will
+   almost always cost a little Gini, so under the current rule a
+   validity fix can never be promoted. Adopting the 13-feature model
+   needs either an amendment to Decision 21 (for example, a
+   non-inferiority criterion, a pre-declared maximum acceptable Gini
+   loss when removing an invalid feature, approved by a human) or an
+   explicit, logged override. This is a governance choice and is not
+   made here.
+2. **If adopted:**
+   - recalibrate the business cutoff for the new score distribution
+     (Decision 13/19)
+   - regenerate SHAP and the 14→13 governance review, then sign it off
+     (still pending for the 14-feature set, audit A13)
+   - remove `pct_late_payments` from `serving/app.py`, where the API
+     hardcodes `0.0` for new customers, from the
+     `customer_risk_snapshot` view comment ("the 14 frozen model
+     features"), and from `govern_model_features.py`'s per-feature
+     metadata
+   - write a Decision 18 supersession entry
+3. **Longer term:** a point-in-time late-payment feature computed from
+   instalments before the first miss would not have this problem. That
+   belongs to the v2 application-time redesign (Decision 18), not to
+   v1.
+
+---
+
+## Decision 27 — Remove pct_late_payments (Leakage); v1.1 Champion via a Validity Promotion Path
+
+> **Supersedes Decision 18's frozen feature set** (14 → 13 features).
+> Amends Decision 21 by adding a second, evidence-bound promotion path.
+
+### Decision
+**`pct_late_payments` is removed from the model** because it leaks
+outcome information (Decision 26):
+- part of what it counts is the arrears-cure process default emerges
+  from
+- part is post-default rows that only exist after the outcome
+
+The owner ruled on 14th October 2026 that leakage is a valid reason
+for removal on its own. A small Gini cost on removal is the leakage's
+contribution disappearing, not lost signal. The feature stays in the
+feature store, moved to `RESOLUTION_ADJACENT_EXCLUDED` alongside the
+`days_late` features excluded on the same mixed-event grounds.
+
+### How it is applied (owner's choices)
+1. **Promotion path: evidence override.** Decision 21's rule promotes
+   only on a material Gini win, which a validity removal can never
+   meet. `promote_champion.py` gains `--validity-override "<Decision
+   N>" --validity-evidence <file>`, allowed only if all of these hold:
+   - the cited decision exists in this log
+   - the evidence file describes these exact challenger runs
+   - on **both** splits, the 95% paired-bootstrap CI of the Gini
+     difference (challenger minus champion) reaches zero or above,
+     i.e. the loss is not distinguishable from zero
+
+   The approval gate and typed `PROMOTE` still apply. No new numeric
+   threshold is introduced; the bar is the evidence's own confidence
+   interval. A removal with a real, measurable Gini loss is refused.
+2. **Model: champion settings held fixed** (learning rate 0.01,
+   depth 3, 300 trees), so the change is attributable to the feature
+   alone. The Decision 26 hyperparameter check found these settings
+   still best on the selection metric.
+   `train_baseline_models.py --pin-xgboost-params` reproduces this in
+   the governed training pipeline. Logistic regression and decision
+   tree are re-searched as usual, as comparators.
+3. **Files: new package folder.** The v1.1 champion is written to
+   `models/artifacts_v1_1/`, selected by `config.yaml`
+   `model_governance.artifacts_dir`, which every script and the API now
+   read. The August v1 package in `models/artifacts/` is never
+   overwritten: training refuses to write into a folder holding a
+   different champion identity. Rolling back means pointing
+   `artifacts_dir` and the identity values back at v1.
+
+### Evidence for the override (`promotion_evidence.json`)
+Challenger runs `936b28cf` (stratified) and `2fa5d7af` (temporal):
+
+| Split | Gini difference | 95% CI | Loss distinguishable from zero? |
+|---|---|---|---|
+| Stratified | −0.0038 | [−0.0148, +0.0079] | No |
+| Temporal | −0.0015 | [−0.0164, +0.0150] | No |
+
+The temporal figure here pairs both arms at identical settings. The
+−0.0064 shown by the plain promotion comparison is against the
+champion's temporal run, whose hyperparameters were searched
+separately on the temporal training set, so it mixes the feature
+change with a settings difference.
+
+### Sequence and status
+1. Evidence: done.
+2. **Owner runs** `promote_champion.py --validity-override "Decision 27" ... --apply`
+   and types `PROMOTE`. This is the human approval step; it is not
+   performed on the owner's behalf.
+3. Then, in one change set:
+   - `MODEL_FEATURES` 14 → 13
+   - config identity (v1.1, `13_features_v1_1`, `artifacts_dir`)
+   - pinned retrain into the new folder
+   - evaluation on both splits
+   - business cutoff recalibrated (training-only OOF, Decision 19
+     method)
+   - SHAP and governance review regenerated
+   - API's hardcoded `pct_late_payments = 0.0` removed
+   - monitoring and the gate re-run
+
+### Regulatory Context
+PRA SS1/23 Principle 3 requires model inputs to be appropriate for
+their intended use. An input that partly encodes the outcome is not,
+however much it helps a metric. The override keeps that judgement
+bounded by evidence and by a recorded human decision.
+
+---
+
 ## Summary Table
 
 | # | Decision | Challenge | Key Evidence | Component |
 |---|---|---|---|---|
 | 1 | Synthetic data | No UK BNPL dataset | Khalili 2026, Kiran 2024 | bnpl_data_generator.py |
 | 2 | Validation | Unvalidated data untrustworthy | FCA/ICO/Turing 2023 | validate_synthetic.py |
-| 3 | Feature store | Training-serving skew | Immaneni 2022 | sql/ AWS RDS |
+| 3 | Feature store | Training-serving skew | Immaneni 2022 | sql/ (local PostgreSQL; RDS not built) |
 | 4 | Three models | Performance-interpretability-fairness tradeoff | Demajo 2020 | models/ |
 | 5 | Drift monitoring | Models degrade post-deployment | Kurian 2024 | pipeline/dags/ |
 | 6 | Closed loop | Disconnected tools create gaps | Kurshan 2020, Immaneni 2022, Brahmandam 2025 | Full platform |
@@ -3220,6 +3651,21 @@ the schedule. The badge's STALE logic remains the backstop.
 | 10 | Hazard-based default | Default assigned before repayment behaviour inverted causality, making repayment features leakage | CRR/EBA default definition, IFRS 9, Klarna Wikipink 2024, Woolard Review 2021 | bnpl_data_generator.py, raw.repayments, validate_synthetic.py, config.yaml |
 | 11 | Automated audit-trail enforcement | Decision log accuracy depended on human memory | FCA CRA Review May 2026, PRA SS1/23 Principle 6 | .git/hooks/pre-commit, .git/hooks/post-commit, docs/audit_trail.log |
 | 12 | Feature store Stage 3 | Repayment features were proxy leakage until default became emergent | Decision 10 (hazard rewrite) | sql/02_feature_store.sql |
+| 13 | Training, evaluation, cutoff as policy | Undefendable hand-picked models and thresholds | PRA SS1/23, SR 11-7 | train_baseline_models.py, evaluate_models.py, params.yaml |
+| 14 | SHAP and exposure-time exclusion | Model leaned on observation-time-confounded features | Demajo 2020; repeated-CV ablation | explain_models.py, compare_feature_sets.py |
+| 15 | A/B analysis, maturity collapse | has_outcome is post-treatment; underpowered test | Causal selection reasoning | analyse_ab_test.py, sql/diagnostics/ |
+| 16 | Extended observation horizon | Right-censoring | Decision 15 diagnostic | config.yaml data_end_date |
+| 17 | Feature store inventory | Allowlist never derived from a full inventory | — | sql/diagnostics/check_feature_store_inventory.sql |
+| 18 | v1 scope and 14-feature freeze | Portfolio-risk vs application-time conflated | Point-in-time diagnostic, Equality Act 2010 | models/model_features.py |
+| 19 | Business cutoff 0.0671 | Configured cutoff non-functional | Training-only OOF, review capacity | select_business_cutoff.py, segment_threshold_diagnostics.py |
+| 20 | Drift monitoring | No repeatable drift check | Kurian and Allali 2024 | monitor_drift.py, monitor_drift_dag.py |
+| 21 | Champion/challenger workflow | No registry, no governed comparison | PRA SS1/23 Principle 1 | promote_champion.py |
+| 22 | Portfolio forecasting | Forecasting capability, no macro data | Prophet backtest | forecasting/ |
+| 23 | Automated approval gate (retrospective) | Promotion not tied to monitoring evidence | PRA SS1/23 Principle 4 | approval_gate.py |
+| 24 | Drift logging fix, read-time gate status | Crashing drift log; frozen PASS badge | PRA SS1/23 Principle 4 | monitor_drift.py, sql/reporting/, DAG |
+| 25 | Drift overlap removed, cohort time axis | Self-overlapping comparison; identical runs | PRA SS1/23 Principle 4 | monitor_drift.py, feature_drift_by_cohort |
+| 26 | pct_late_payments removal evidence | Feature mixes cure events and post-default rows | Validity-first ablation, bootstrap CI | evaluate_feature_removal.py, models/challengers/ |
+| 27 | Remove pct_late_payments; v1.1 via validity path | Gini-win rule cannot approve a leakage fix | Owner decision; paired-bootstrap CIs | promote_champion.py, train_baseline_models.py, config artifacts_dir |
 
 ---
 
@@ -3594,3 +4040,5 @@ Decision 10.
 | 3.24 | 11th August 2026 | Added Decision 21: champion/challenger promotion workflow implemented (pipeline/promote_champion.py), the first use of MLflow's Model Registry in this project (alias-based, not the deprecated stage API). Champion auto-discovered via the existing is_champion tag; challenger requires explicit run IDs (no safe auto-discovery default exists for "which run is the challenger"). Promotion requires a material Gini win on BOTH splits, matching the temporal-stability standard from Decision 16/18. min_gini_delta left unset deliberately (same reasoning as other illustrative thresholds this project has declined to invent) — verified the script never recommends promotion with no threshold configured, regardless of delta size. --apply refuses outright if criteria aren't met and requires typing PROMOTE verbatim even when they are; config.yaml and champion_metadata.json are explicitly not touched even on a successful apply. Self-tested (no real challenger exists yet) by comparing the champion against itself: delta_gini 0.0000 both splits, correctly recommended against promotion, and successfully created this project's first registered model version. Added Decision 22: portfolio forecasting implemented (forecasting/build_portfolio_timeseries.py, forecasting/forecast_portfolio.py), Prophet only — LSTM explicitly deferred, not silently dropped, given ~34 monthly points is too little history to train a neural sequence model without overfitting to noise. Database checked directly first (four tables: raw.transactions, raw.repayments, raw.customers, feature_store.customer_features) confirming no macro/economic data exists anywhere in the project, splitting "Forecasting" into buildable-now (portfolio time series) versus blocked-on-a-real-data-decision (macro stress testing, IFRS 9 overlay) rather than fabricating either. Default-rate cohort attribution verified against synthetic data with a known unresolved case before running on real data (late-surfacing defaults correctly attributed to origination month, not recording month; unresolved outcomes correctly excluded, not counted as non-defaults). Real run: 34 monthly cohorts Jan 2022-Oct 2024, 0 unresolved (consistent with Decision 16's confirmed 0% right-censoring). Origination-volume forecast carries a caveat verified empirically, not just asserted: growth reflects the synthetic population's fixed onboarding schedule and origination_end_date, and the backtest visibly fails to track the accelerating actual values in the held-out months (MAPE 24.45%), directly evidencing the caveat rather than merely stating it. Default-rate forecast (MAE 0.0016, MAPE ~18.4%) is a more legitimate target, reflecting actual portfolio risk evolution. Reproduced identically across two separate runs (container-relayed and native PowerShell) on real data. |
 | 3.22 | 7th August 2026 | Completed Decision 19's held-out confirmation with the stratified evaluate_models.py run (previously missing in v3.21 — every full output reviewed at that point was confirmed via MLflow tag to be temporal only). Stratified results land close to the OOF selection estimate (recall 54.87% vs 51.55% OOF, flagged rate 15.51% vs 15.00% target, precision 9.60% vs 9.35% OOF) — expected, since stratified is drawn from the same population distribution the cutoff was selected against; temporal's lower recall (38.71%) reflects genuine out-of-time drift, not a selection failure. thin_file_flag=0's 100% FNR confirmed via full evaluate_models.py on both splits (stratified FPR 0.00%, temporal FPR 0.03%), not only via the targeted segment diagnostics — thin_file_flag=1 FPR corrected from an approximate "~33%" to the precise stratified figure (46.53%) alongside temporal's (32.93%). business_cutoff 0.0671 status moved from "confirmed on temporal, stratified outstanding" to fully confirmed on both splits. The separate governance item (segment-aware review capacity, Decision 12) remains open, unaffected by this completion. |
 | 3.25 | 13th October 2026 | Added Decision 24, following the 12th October audit (`docs/audit_findings_2026-10-12.md`). (1) Fixed `log_drift_history()` in `pipeline/monitor_drift.py`: leftover `to_sql`/`create_engine` code made the script crash right after its psycopg2 insert. It now inserts once, writes a per-run `run_id` (also in the metadata JSON and MLflow tags), and the table DDL moved to `sql/reporting/create_feature_drift_log.sql`. The 14 pre-existing rows keep `run_id = NULL`, with no id invented after the fact. (2) `reporting.governance_status_latest` now derives status at read time: a PASS whose evidence age, plus time since evaluation, exceeds the row's own `max_monitoring_age_hours` reads STALE. No new threshold was added, and BLOCK is unaffected. The badge moved from a two-month-old PASS to STALE. (3) `segment_key` folded into `sql/reporting/create_reporting_views.sql`, which now re-applies cleanly against the live views. Added a Decision 20 addendum correcting "scheduled daily" to "scheduled while the local stack is running": Airflow run history shows no runs from 14th August to 11th October because Docker Desktop is not auto-started. The DAG is unpaused, and its Variables are set. October catch-up runs succeeded and logged under the fixed code. Noted that no Decision 23 entry exists despite commit `e59a042` naming one. Open: container/host timestamp skew (UTC vs London) in both `evaluated_at` and `feature_drift_log.logged_at`; concurrent catch-up runs; the gate is not scheduled; five logged runs are value-identical, confirming drift history is not a trend on fixed snapshots. Same day, Decision 24 Addendum: the approval gate is now a DAG task (`run_approval_gate`), and `approval_gate.py` exit codes are unambiguous (0 PASS, 1 BLOCK, 2 could not complete or record; `--require-db-write`). The DAG sets `max_active_runs=1` and a 20-minute `execution_timeout`. `evaluated_at`, `created_at` and `logged_at` are migrated to `timestamptz`, with each row converted from its evidenced zone (`sql/reporting/migrations/2026_10_13_timestamptz.sql`), and writers send offset-aware times. Verified end-to-end in Airflow (all three tasks succeeded; the gate row was written from the container with a correct 0.03h evidence age), after restarting a hung Airflow API server and riding out a 9.5-minute WSL2 9P I/O stall on the bind mount, both recorded as audit findings A20/A21. |
+| 3.26 | 14th October 2026 | Audit clean-up and two new decisions. Added Decision 23 retrospectively (automated approval gate, built 11th August in `e59a042` but never logged; scope stated as an evidence gate, not Decision 9's human approval). Added dated Implementation Status notes to Decisions 3 (local PostgreSQL, not RDS), 5, 6, 7, 8 and 9, marking what is built, partly built, and planned-not-built, plus a filename note on Decision 2. Extended the Summary Table to Decision 26. Added Decision 25: the drift comparison now excludes customers in the training reference (previously 79.3% overlap), and a new informational origination-quarter cohort view (`reporting.feature_drift_by_cohort`) gives drift a real time axis with a per-cohort noise floor. Added Decision 26: `pct_late_payments` removal evidence via `models/evaluate_feature_removal.py`. The feature mixes cure events and post-default rows. Removal costs −0.0054 repeated-CV Gini, with a held-out difference of −0.0038 (95% CI includes 0), and calibration is unchanged. The challenger is registered as v2; the promotion rule returned "not supported", exposing a conflict between Decision 21's Gini-win rule and validity-driven removals. The decision is left open. The champion's artifacts were verified unchanged by checksum. `config.yaml` comments only: the temporal-split note was corrected, and the identity values are documented as load-bearing (they were not edited). |
+| 3.27 | 14th October 2026 | Added Decision 27: the owner ruled that `pct_late_payments` is removed because it leaks outcome information. Superseding Decision 18's frozen set is pending the owner's typed promotion. Added a validity promotion path to `promote_champion.py` (`--validity-override`): it is allowed only when the cited decision exists, the evidence matches the exact challenger runs, and on both splits the 95% paired-bootstrap CI of the Gini difference reaches zero (stratified −0.0038 [−0.0148, +0.0079]; temporal −0.0015 [−0.0164, +0.0150]). The dry run returned "supported"; both refusal paths were tested. Package location is now `config.yaml model_governance.artifacts_dir`, read by all scripts and the API. Training refuses to overwrite a package with a different identity and gains `--pin-xgboost-params` and `--no-prompt`. Added a Decision 21 addendum: champion run selection with rollback (same Gini → latest; latest worse → previous). Decision 26 marked decided. |

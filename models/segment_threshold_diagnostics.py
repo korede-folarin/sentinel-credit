@@ -56,7 +56,6 @@ import yaml
 from sklearn.metrics import roc_auc_score
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 OUT_DIR = os.path.join(
     PROJECT_ROOT, "reports", "threshold_selection", "segment_diagnostics"
 )
@@ -66,6 +65,11 @@ from model_features import TARGET_COLUMN  # noqa: E402
 
 with open(os.path.join(PROJECT_ROOT, "config.yaml"), "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
+
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
 
 BUSINESS_CUTOFF = CONFIG["model"]["business_cutoff"]
 CHAMPION_MODEL = CONFIG["model_governance"]["champion_model"]

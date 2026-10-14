@@ -54,3 +54,6 @@ reports/
 __pycache__/
 *.pyc
 models/artifacts/
+# Challenger packages: same rule as the champion's; the models are
+# also logged to MLflow (see models/evaluate_feature_removal.py).
+models/challengers/

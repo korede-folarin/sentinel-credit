@@ -52,7 +52,6 @@ from xgboost import XGBClassifier
 warnings.filterwarnings("ignore")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "artifacts")
 REPORT_DIR = os.path.join(PROJECT_ROOT, "reports", "threshold_selection")
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -69,6 +68,11 @@ with open(
     encoding="utf-8",
 ) as file:
     CONFIG = yaml.safe_load(file)
+
+ARTIFACTS_DIR = os.path.join(
+    PROJECT_ROOT,
+    CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
+)  # the governed champion package; see config.yaml model_governance
 
 with open(
     os.path.join(PROJECT_ROOT, "params.yaml"),
