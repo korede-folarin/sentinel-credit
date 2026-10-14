@@ -1,0 +1,105 @@
+{
+  "model": "xgboost",
+  "model_version": "v1.1",
+  "feature_set": "13_features_v1_1",
+  "trained_at": "2026-10-14T23:00:21",
+  "calibration": "sigmoid (Platt), 5-fold CalibratedClassifierCV, averaged",
+  "features": [
+    "monthly_income_gbp",
+    "existing_monthly_obligations_gbp",
+    "savings_balance_gbp",
+    "credit_score",
+    "months_credit_history",
+    "num_credit_accounts",
+    "num_defaults_24m",
+    "thin_file_flag",
+    "max_affordability_ratio",
+    "avg_order_value_gbp",
+    "avg_n_instalments",
+    "pct_high_risk_category",
+    "pct_medium_risk_category"
+  ],
+  "input_name": "input",
+  "probability_output": "probabilities",
+  "cutoff": 0.0657,
+  "cutoff_rule": "PD >= cutoff -> refer for manual review",
+  "training_ranges": {
+    "monthly_income_gbp": {
+      "min": 669.44,
+      "median": 2444.91,
+      "max": 16512.39
+    },
+    "existing_monthly_obligations_gbp": {
+      "min": 0.99,
+      "median": 512.97,
+      "max": 8821.74
+    },
+    "savings_balance_gbp": {
+      "min": 5.38,
+      "median": 2150.825,
+      "max": 9941.37
+    },
+    "credit_score": {
+      "min": 300.0,
+      "median": 637.0,
+      "max": 998.0
+    },
+    "months_credit_history": {
+      "min": 0.0,
+      "median": 58.0,
+      "max": 179.0
+    },
+    "num_credit_accounts": {
+      "min": 0.0,
+      "median": 2.0,
+      "max": 7.0
+    },
+    "num_defaults_24m": {
+      "min": 0.0,
+      "median": 0.0,
+      "max": 2.0
+    },
+    "thin_file_flag": {
+      "min": 0.0,
+      "median": 0.0,
+      "max": 1.0
+    },
+    "max_affordability_ratio": {
+      "min": 0.0067,
+      "median": 0.3945,
+      "max": 1.3338
+    },
+    "avg_order_value_gbp": {
+      "min": 13.61,
+      "median": 583.19,
+      "max": 1979.9
+    },
+    "avg_n_instalments": {
+      "min": 3.0,
+      "median": 3.0,
+      "max": 12.0
+    },
+    "pct_high_risk_category": {
+      "min": 0.0,
+      "median": 0.1667,
+      "max": 1.0
+    },
+    "pct_medium_risk_category": {
+      "min": 0.0,
+      "median": 0.5,
+      "max": 1.0
+    }
+  },
+  "scope": "Customer-level portfolio-risk model (Decision 18). For a new applicant the score illustrates the mechanism; it is not a validated application-time underwriting decision.",
+  "data": "Synthetic. No real customer data.",
+  "parity": {
+    "modelable_population": {
+      "max_abs_diff": 5.960464477539063e-08,
+      "decision_flips": 0
+    },
+    "edge_cases": {
+      "max_abs_diff": 8.940696717696373e-09,
+      "decision_flips": 0
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-10-14T23:58:43+01:00",
+  "model_version": "v1.1",
+  "feature_set": "13_features_v1_1",
+  "cutoff": 0.0657,
+  "rule": {
+    "max_abs_diff_below": 1e-05,
+    "decision_flips_allowed": 0
+  },
+  "onnx_outputs": [
+    "label",
+    "probabilities"
+  ],
+  "sets": {
+    "modelable_population": {
+      "n": 41604,
+      "max_abs_diff": 5.960464477539063e-08,
+      "mean_abs_diff": 3.3934635392717573e-09,
+      "decision_flips": 0,
+      "closest_python_score_to_cutoff": 5.001544952365489e-07,
+      "pass": true
+    },
+    "edge_cases": {
+      "n": 529,
+      "max_abs_diff": 8.940696717696373e-09,
+      "mean_abs_diff": 1.655342250919156e-09,
+      "decision_flips": 0,
+      "closest_python_score_to_cutoff": 0.017979658615589138,
+      "pass": true
+    }
+  },
+  "passed": true
+}
