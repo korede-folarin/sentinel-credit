@@ -121,6 +121,75 @@ def edge_cases(features, ranges):
     return pd.DataFrame(rows)[features]
 
 
+def generated_vectors(model, features, ranges, n_random, n_boundary):
+    """Synthetic test inputs that are not customer records."""
+    rng = np.random.default_rng(RANDOM_SEED + 1)
+    lo, hi = ranges["min"].to_numpy(float), ranges["max"].to_numpy(float)
+
+    def score(arr):
+        return model.predict_proba(pd.DataFrame(arr, columns=features))[:, 1]
+
+    # Uniform random applicants almost never reach the cutoff (measured: 0 of
+    # 20,000; risk depends on feature combinations, not single extremes). So
+    # high-risk anchors are FOUND: greedy coordinate ascent from random starts —
+    # repeatedly set the one feature (over an 11-point grid of its range) that
+    # raises the score most — until the score passes the cutoff. Then jittered
+    # copies of the anchors that stay above it add diversity. Bounded throughout.
+    grid = np.linspace(0, 1, 11)
+    anchors = []
+    for _ in range(40):                                      # bounded number of starts
+        x = rng.uniform(lo, hi)
+        for _step in range(len(features) * 2):
+            cands = np.repeat(x[None, :], len(features) * len(grid), axis=0)
+            for j in range(len(features)):
+                cands[j * len(grid):(j + 1) * len(grid), j] = lo[j] + grid * (hi[j] - lo[j])
+            p = score(cands)
+            best = int(np.argmax(p))
+            if p[best] <= score(x[None, :])[0] + 1e-12:
+                break
+            x = cands[best]
+            if p[best] >= CUTOFF:
+                anchors.append(x.copy())
+                break
+        if len(anchors) >= 20:
+            break
+    if not anchors:
+        raise RuntimeError("No high-risk anchors found; cannot build boundary vectors.")
+    anchors = np.array(anchors)
+    high = anchors.copy()
+    for _ in range(30):                                      # bounded jitter rounds
+        base = anchors[rng.integers(0, len(anchors), size=4 * n_boundary)]
+        cand = np.clip(base + rng.normal(0, 0.03, base.shape) * (hi - lo), lo, hi)
+        high = np.vstack([high, cand[score(cand) >= CUTOFF]])
+        if len(high) >= n_boundary:
+            break
+    if len(high) < n_boundary:
+        raise RuntimeError(f"Only {len(high)} high-risk anchors found; cannot build boundary vectors.")
+    high = high[rng.permutation(len(high))[:n_boundary]]
+    low = rng.uniform(lo, hi, size=(n_boundary, len(features)))
+    low_p = score(low)
+    low = low[low_p < CUTOFF][:n_boundary]
+    high = high[:len(low)]
+
+    # Vectorised bisection on every pair at once: score(low) < cutoff <= score(high).
+    t_lo, t_hi = np.zeros(len(low)), np.ones(len(low))
+    for _ in range(50):
+        t = (t_lo + t_hi) / 2
+        p_t = score(low + t[:, None] * (high - low))
+        below = p_t < CUTOFF
+        t_lo, t_hi = np.where(below, t, t_lo), np.where(below, t_hi, t)
+    # Keep the endpoint whose score is nearer the cutoff (trees are step functions,
+    # so the exact cutoff may sit on a jump between the two).
+    a_pts, b_pts = low + t_lo[:, None] * (high - low), low + t_hi[:, None] * (high - low)
+    pa, pb = score(a_pts), score(b_pts)
+    boundary = np.where((np.abs(pa - CUTOFF) <= np.abs(pb - CUTOFF))[:, None], a_pts, b_pts)
+
+    frame = pd.concat([pd.DataFrame(boundary, columns=features),
+                       pd.DataFrame(rng.uniform(lo, hi, size=(n_random, len(features))),
+                                    columns=features)], ignore_index=True)
+    return frame.astype(np.float32).astype(float)   # exactly representable in float32
+
+
 def main():
     features, meta, model = load_package()
     print(f"Champion {meta['model_name']} {meta['model_version']} · {len(features)} features "
@@ -167,18 +236,28 @@ def main():
         print(f"  {name:<22} n={len(frame):>6,}  max|Δ|={diff.max():.2e}  "
               f"mean|Δ|={diff.mean():.2e}  flips={flips}  -> {'PASS' if ok else 'FAIL'}")
 
-    # Vectors for the browser: random customers plus every customer whose
-    # score sits closest to the cutoff (where a flip would show first).
-    p_all = model.predict_proba(X)[:, 1]
-    near = np.argsort(np.abs(p_all - CUTOFF))[:200]
-    rand = np.random.default_rng(RANDOM_SEED).choice(len(X), N_BROWSER_VECTORS - 200,
-                                                    replace=False)
-    idx = np.unique(np.concatenate([near, rand]))
+    # Vectors for the browser parity page. GENERATED inputs only, never
+    # customer rows (the repository never publishes data rows):
+    # - random applicants inside the training ranges;
+    # - applicants constructed to sit at the cutoff, by bisecting the line
+    #   between a generated low-risk and high-risk profile (the score is a
+    #   step function, so they land as close to it as the trees allow) —
+    #   where a decision flip would show first.
+    gen = generated_vectors(model, features, ranges, n_random=N_BROWSER_VECTORS - 400,
+                            n_boundary=400)
+    gen_p = model.predict_proba(gen)[:, 1]
     vectors = {"features": features, "cutoff": CUTOFF,
-               "rows": X.iloc[idx].to_numpy(float).round(6).tolist(),
-               "expected": p_all[idx].round(10).tolist()}
+               "source": "generated inputs only (no customer rows)",
+               "n_at_cutoff": int(len(gen) - (N_BROWSER_VECTORS - 400)),
+               "rows": gen.to_numpy(float).tolist(),
+               "expected": gen_p.round(12).tolist()}
     with open(os.path.join(OUT_DIR, "parity_vectors.json"), "w", encoding="utf-8") as f:
         json.dump(vectors, f)
+    near = np.abs(gen_p - CUTOFF)
+    n_b = vectors["n_at_cutoff"]
+    print(f"  browser vectors: {len(gen):,} generated ({n_b} at the cutoff); closest |p − c| = "
+          f"{near.min():.1e}, median of boundary set {np.median(np.sort(near)[:n_b]):.1e}")
+    idx = gen.index
 
     contract = {
         "model": meta["model_name"], "model_version": meta["model_version"],
@@ -202,7 +281,7 @@ def main():
         json.dump(report, f, indent=2)
 
     print(f"\nPython parity: {'PASS' if passed else 'FAIL'} "
-          f"(browser vectors: {len(idx):,}, incl. 200 closest to the cutoff)")
+          f"(browser vectors: {len(idx):,}, incl. {vectors['n_at_cutoff']} on the decision boundary)")
     if not passed:
         os.remove(model_path)
         sys.exit("Parity failed: ONNX model removed, nothing to publish.")

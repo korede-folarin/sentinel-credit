@@ -59,9 +59,13 @@ models/artifacts/
 models/challengers/
 # Every champion package folder (Decision 27): models/artifacts_v1_1/ etc.
 models/artifacts_*/
-# The public demo's model contract and parity report contain no data rows
-# (feature list, cutoff, aggregate ranges, test statistics), so they ship
-# with the site. parity_vectors.json holds synthetic customer rows and stays
-# excluded under the data rule above (Decision 29).
+# Public demo site files that ship with it (Decision 29). None are data rows:
+# the model contract and parity report hold the feature list, cutoff,
+# aggregate ranges and test statistics; parity_vectors.json and
+# feature_examples.json hold GENERATED test inputs, not customer records;
+# cutoff_simulator.json holds aggregated counts per score band.
 !website/public/model/model_contract.json
 !website/public/model/python_parity_report.json
+!website/public/model/parity_vectors.json
+!website/public/model/feature_examples.json
+!website/public/data/cutoff_simulator.json

@@ -1,0 +1,67 @@
+# Sentinel Credit — publish the public demo site (website/public) to GitHub Pages.
+#
+# Deploys only after the headless browser checks pass (website/tests/browser_check.py):
+# the in-browser model must match the Python champion's answers, the JavaScript
+# feature construction must match serving/features.py, and the simulator must
+# reproduce the saved evaluation. A failing check blocks the deploy. Decision 29.
+#
+# One-time setup: repository Settings -> Pages -> Build and deployment ->
+# Source: "GitHub Actions".
+
+name: Publish demo site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/public/**"
+      - "website/tests/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: pip install "websocket-client==1.9.0"   # same version the local checks ran with
+      - name: Serve the site and run the browser checks
+        run: |
+          python -m http.server 8600 --bind 127.0.0.1 --directory website/public &
+          sleep 2
+          python website/tests/browser_check.py --base http://127.0.0.1:8600/ --out site_check
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-check-screenshots
+          path: site_check/
+          if-no-files-found: ignore
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/public
+      - id: deployment
+        uses: actions/deploy-pages@v4

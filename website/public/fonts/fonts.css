@@ -1,0 +1,16 @@
+/* Self-hosted so the site makes no third-party requests (Decision 29).
+   Latin subset only. Both families: SIL Open Font License 1.1, see OFL.md. */
+@font-face {
+  font-family: "Cormorant Garamond";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("cormorant-garamond-600-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 600;          /* variable font: one file, all weights */
+  font-display: swap;
+  src: url("inter-latin-var.woff2") format("woff2");
+}

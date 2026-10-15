@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel Credit · Live Risk Assessment</title>
+<meta name="description" content="A closed-loop ML platform for BNPL credit risk. Score an application with the governed champion model, entirely in your browser. Synthetic data.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="./">Sentinel Credit</a>
+  <nav class="top" aria-label="Site">
+    <a href="./" aria-current="page">Assessment</a>
+    <a href="simulator.html">Cutoff &amp; fairness</a>
+    <a href="parity.html">Verification</a>
+    <a href="https://github.com/korede-folarin/sentinel-credit">Source</a>
+  </nav>
+</div></header>
+
+<main><div class="wrap">
+  <section>
+    <div class="kicker">BNPL credit risk · governed model · v1.1</div>
+    <h1>Sentinel Credit</h1>
+    <p class="lede">A closed-loop ML platform for BNPL credit risk integrating synthetic data
+      generation, model governance, explainability, drift monitoring, and audit evidence.
+      This page runs the platform's governed champion model, in your browser.</p>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <div class="banner" role="note"><b>Demonstration on synthetic data.</b> Do not enter real
+    personal or financial details. The model runs entirely in this browser: nothing you type
+    is sent anywhere, stored or logged.</div>
+
+  <section style="margin-top:32px">
+    <h2>Assess an application</h2>
+    <p class="note" style="margin-top:0">A new applicant's profile and one order. Starting values
+      are the training population's medians.</p>
+    <form id="form" class="panel" novalidate>
+      <div class="grid two">
+        <div>
+          <h3>Income and commitments</h3>
+          <div class="fields">
+            <div><label for="monthly_income_gbp">Monthly income (£)</label>
+              <input type="number" id="monthly_income_gbp" min="1" max="50000" step="10" required></div>
+            <div><label for="existing_monthly_obligations_gbp">Existing monthly obligations (£)</label>
+              <input type="number" id="existing_monthly_obligations_gbp" min="0" max="50000" step="5" required></div>
+            <div><label for="savings_balance_gbp">Savings balance (£)</label>
+              <input type="number" id="savings_balance_gbp" min="0" max="1000000" step="50" required></div>
+          </div>
+          <h3 style="margin-top:22px">Credit file</h3>
+          <div class="fields">
+            <div><label for="credit_score">Credit score</label>
+              <input type="number" id="credit_score" min="0" max="1000" step="1" required></div>
+            <div><label for="months_credit_history">Months of credit history</label>
+              <input type="number" id="months_credit_history" min="0" max="720" step="1" required></div>
+            <div><label for="num_credit_accounts">Credit accounts</label>
+              <input type="number" id="num_credit_accounts" min="0" max="50" step="1" required></div>
+            <div><label for="num_defaults_24m">Defaults in last 24 months</label>
+              <input type="number" id="num_defaults_24m" min="0" max="20" step="1" required></div>
+          </div>
+          <label class="check"><input type="checkbox" id="thin_file_flag"> Thin credit file (limited bureau history)</label>
+        </div>
+        <div>
+          <h3>This order</h3>
+          <div class="fields" style="grid-template-columns:1fr">
+            <div><label for="order_value_gbp">Order value (£)</label>
+              <input type="number" id="order_value_gbp" min="1" max="20000" step="5" value="250" required></div>
+            <div><label for="n_instalments">Instalments</label>
+              <select id="n_instalments"><option>3</option><option>6</option><option>12</option></select></div>
+            <div><label for="merchant_category">Merchant category</label>
+              <select id="merchant_category"></select></div>
+          </div>
+          <div style="margin-top:22px"><button class="primary" id="submit" type="submit" disabled>Loading model…</button></div>
+          <div class="field-error" id="form-error" role="alert"></div>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <section id="result" class="hidden" aria-live="polite">
+    <div class="surface">
+      <div class="kicker">Assessment · new applicant</div>
+      <div class="result-row">
+        <div><div class="result-label">Probability of default</div><div class="result-value" id="r-pd"></div></div>
+        <div><div class="result-label">Recommendation</div><div style="margin-top:10px" id="r-rec"></div></div>
+        <div><div class="result-label">Relative risk</div><div class="result-text" id="r-rank"></div></div>
+        <div><div class="result-label">Affordability ratio</div><div class="result-text" id="r-aff"></div></div>
+      </div>
+      <p class="note" id="r-cutoff" style="margin:14px 0 0"></p>
+    </div>
+    <div class="banner hidden" id="r-range" style="margin-top:14px"></div>
+
+    <div class="grid half" style="margin-top:28px">
+      <div class="panel">
+        <h3>Compared with a typical applicant</h3>
+        <p class="note" style="margin-top:0">How much each input moves this applicant's probability
+          of default, against the same input set to the training median (category: the most common).</p>
+        <div class="bars" id="r-drivers"></div>
+      </div>
+      <div class="panel">
+        <h3>What would change the recommendation</h3>
+        <p class="note" style="margin-top:0">The smallest single change, within the range seen in
+          training, that moves this applicant across the review cutoff.</p>
+        <ul class="changes" id="r-changes"></ul>
+        <p class="note">One input at a time, everything else unchanged. This describes how the model
+          responds; it is not causal and not financial advice.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:18px" id="r-scope"></p>
+  </section>
+
+  <section>
+    <h2>How this is built</h2>
+    <div class="grid half">
+      <div class="panel"><h3>A governed champion</h3>
+        <p class="note">Calibrated XGBoost, 13 features, selected and promoted through a champion /
+          challenger workflow with an automated evidence gate. One feature was removed because it
+          leaked the outcome, a decision taken on validity even though it cost a little Gini.</p></div>
+      <div class="panel"><h3>Verified, not assumed</h3>
+        <p class="note">The browser model was converted to ONNX and checked against the Python
+          champion before publishing: zero decisions changed across 41,604 customers.
+          <a href="parity.html">Re-run the check in your browser.</a></p></div>
+      <div class="panel"><h3>Honest about scope</h3>
+        <p class="note">A customer-level portfolio-risk model, not a validated application-time
+          underwriting model. It returns a probability and a review recommendation, never an
+          invented credit score or limit.</p></div>
+      <div class="panel"><h3>Every decision on record</h3>
+        <p class="note">Each consequential choice, including the mistakes found and fixed, is in the
+          <a href="https://github.com/korede-folarin/sentinel-credit/blob/main/docs/engineering_decision_log.md">Engineering Decision Log</a>.</p></div>
+    </div>
+  </section>
+</div></main>
+
+<footer><div class="wrap">
+  <div>Sentinel Credit · synthetic data only · no data leaves your browser.</div>
+  <div>Model scoring: onnxruntime-web (MIT). Fonts: Cormorant Garamond, Inter (SIL OFL).</div>
+</div></footer>
+
+<script src="vendor/onnxruntime-web-1.19.2/ort.min.js"></script>
+<script type="module" src="assets/assess.js"></script>
+</body>
+</html>

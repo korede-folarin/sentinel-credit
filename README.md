@@ -4,6 +4,8 @@
 
 Every major engineering decision is linked to published research or regulatory guidance and documented in the accompanying Engineering Decision Log.
 
+**Live demo:** [korede-folarin.github.io/sentinel-credit](https://korede-folarin.github.io/sentinel-credit/). Score an application with the governed champion model, entirely in your browser, and explore the cutoff and fairness trade-off. It runs on synthetic data, and nothing you type leaves the page. The site re-checks itself against the Python champion before every deploy ([how](docs/engineering_decision_log.md), Decision 29).
+
 ---
 
 ## Architecture

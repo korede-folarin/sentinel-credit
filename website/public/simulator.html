@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cutoff &amp; Fairness Simulator · Sentinel Credit</title>
+<meta name="description" content="Move the review cutoff of a BNPL credit-risk model and see recall, workload and error rates by customer segment change. Real held-out results, synthetic data.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="./">Sentinel Credit</a>
+  <nav class="top" aria-label="Site">
+    <a href="./">Assessment</a>
+    <a href="simulator.html" aria-current="page">Cutoff &amp; fairness</a>
+    <a href="parity.html">Verification</a>
+    <a href="https://github.com/korede-folarin/sentinel-credit">Source</a>
+  </nav>
+</div></header>
+
+<main><div class="wrap">
+  <section>
+    <div class="kicker">Decision policy · held-out evidence</div>
+    <h1>Where should the line be drawn?</h1>
+    <p class="lede">A model produces a probability; the business decides the cutoff. Move it and
+      watch the trade-off: how many applications go to manual review, how many defaults are
+      caught, and who bears the errors. Results are the champion's real held-out test outcomes,
+      aggregated into score bands.</p>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section class="panel">
+    <div class="slider-head">
+      <div><div class="kicker" style="margin:0">Review cutoff</div>
+        <div class="slider-value" id="cut-value"></div></div>
+      <div class="note" id="cut-label"></div>
+    </div>
+    <input type="range" id="cut" min="0" max="1" step="1" aria-label="Review cutoff">
+    <div class="marks" id="marks"></div>
+  </section>
+
+  <section>
+    <div class="stats">
+      <div class="stat"><div class="label">Sent to review</div><div class="value" id="s-flag"></div></div>
+      <div class="stat"><div class="label">Defaults caught</div><div class="value" id="s-recall"></div></div>
+      <div class="stat"><div class="label">Precision</div><div class="value" id="s-prec"></div></div>
+      <div class="stat"><div class="label">Bad rate, not reviewed</div><div class="value" id="s-bad"></div></div>
+    </div>
+  </section>
+
+  <section class="grid half">
+    <div class="panel"><h3>Workload against defaults caught</h3>
+      <svg class="chart" id="chart-tradeoff" viewBox="0 0 520 300" role="img"
+           aria-label="Share sent to review and share of defaults caught, by cutoff"></svg>
+      <p class="note">Gold: defaults caught. Grey: applications sent to review.</p></div>
+    <div class="panel"><h3>Defaulters missed, by credit-file depth</h3>
+      <svg class="chart" id="chart-fnr" viewBox="0 0 520 300" role="img"
+           aria-label="False negative rate by credit-file segment, by cutoff"></svg>
+      <p class="note">Gold: thin credit file. Grey: established credit file.</p></div>
+  </section>
+
+  <section>
+    <h3>Error rates by segment at this cutoff</h3>
+    <div class="table-scroll"><table class="data" id="seg-table"></table></div>
+    <p class="note">Missed = defaulters scored below the cutoff (false-negative rate). Wrongly
+      reviewed = non-defaulters sent to review (false-positive rate). Vulnerability is a
+      monitoring label, never a model input.</p>
+  </section>
+
+  <section class="panel">
+    <h3>What this shows</h3>
+    <p id="finding"></p>
+    <p class="note">This is why the cutoff is treated as policy, not a model setting: the trade-off
+      between workload, losses and who carries the errors needs an owner. Segment-specific
+      thresholds were considered and deliberately not built without that sign-off.
+      The configured cutoff assumes a 15% review capacity, which is still a placeholder.</p>
+  </section>
+</div></main>
+
+<footer><div class="wrap">
+  <div>Synthetic data. Counts per score band from the champion's held-out test set; no customer
+    records are published. Metrics are exact at band edges, including every marked cutoff.</div>
+</div></footer>
+<script type="module" src="assets/simulator.js"></script>
+</body>
+</html>

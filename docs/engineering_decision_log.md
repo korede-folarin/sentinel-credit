@@ -4,8 +4,8 @@
 **Project:** Sentinel Credit — Research-Informed CreditOps
 Architecture for BNPL Lending
 **Author:** Sentinel Credit Project
-**Version:** 3.30
-**Last Updated:** 15th October 2026 (v3.30)
+**Version:** 3.31
+**Last Updated:** 15th October 2026 (v3.31)
 **Status:** Living document — updated as decisions are made
 
 ---
@@ -3913,6 +3913,76 @@ credit score, limit or approval is invented.
   check has run in Chromium only. Firefox and Safari should be checked
   before launch.
 
+### Addendum — Site Built, Hosted on GitHub Pages, Deploys Gated on Browser Checks (15th October 2026)
+**Hosting: GitHub Pages** (owner's choice). The repository is public,
+so Pages is free. The site is fully static, which suits Pages: the
+model runs in the visitor's browser, and no request reaches a server,
+database or API.
+
+**No third-party requests.** onnxruntime-web 1.19.2 (MIT) is bundled
+from the npm package, with its integrity checked against the registry
+checksum. The fonts are self-hosted (SIL OFL). A visit loads only the
+site's own files.
+
+**The repository's no-data rule is respected.** Nothing published is a
+customer record:
+- the parity vectors are **generated** applicants
+- the simulator ships **aggregated counts** per score band × segment ×
+  outcome (8 KB), whose rebuilt confusion matrix and segment error
+  rates at the cutoff **exactly** equal `evaluate_models.py`'s
+- the full-population parity evidence stays offline
+
+**Pages:**
+- **Live assessment:** the score, a comparison with a typical
+  applicant, and the smallest single change that crosses the cutoff.
+  All are real model evaluations in the browser.
+- **Cutoff and fairness simulator:** workload, recall and segment error
+  rates at any cutoff, using Decision 19's evidence.
+- **Verification:** re-runs both parity checks for any visitor.
+
+The JavaScript feature construction is a port of `serving/features.py`,
+checked on 240 generated applications: **zero feature mismatches** and
+no decision changed.
+
+**Bugs found and fixed while verifying:**
+1. **The browser model never loaded.** onnxruntime-web resolves a
+   relative `wasmPaths` against its own script, not the page, so the
+   page waited forever without an error. Fixed with an absolute URL,
+   plus a 45-second load timeout that surfaces an error instead of
+   hanging.
+2. **Comparator buttons jumped to 0%.** Band edges are stored to 8
+   decimal places while thresholds are not, so an exact-match lookup
+   returned −1. Fixed with nearest-edge matching. The configured cutoff
+   (0.0657) and the review-capacity threshold it was rounded from
+   (0.065738) are now one button rather than two near-duplicates.
+3. **The first boundary-vector generator could never finish.**
+   0 of 20,000 uniformly random applicants scored above the cutoff,
+   because risk depends on combinations of features. It was replaced by
+   a bounded search: greedy coordinate ascent to find high-risk anchors,
+   then a vectorised bisection. It now fails loudly if anchors cannot be
+   found.
+
+The first two would have shipped a broken site, and the browser check
+caught both. That is why deploys are gated on it.
+
+**Deploys are gated.** `.github/workflows/pages.yml` runs
+`website/tests/browser_check.py` in headless Chrome before every
+deploy. Any failure blocks publication. The checks cover:
+- both parity checks
+- an assessment matching the Python champion to six decimal places
+  (0.031834)
+- invalid input being rejected
+- the simulator matching the saved evaluation
+- each comparator landing on its threshold
+- no horizontal overflow at 1,440 px or 390 px
+
+All 12 checks pass locally.
+
+**Still open:**
+- Firefox and Safari have not been checked; CI runs Chromium.
+- The Pages source must be set to "GitHub Actions" once, in the
+  repository settings, by the owner.
+
 ---
 
 ## Summary Table
@@ -4004,3 +4074,4 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.28 | 14th October 2026 | Decision 27 carried out: v1.1 is the live champion. The owner typed `PROMOTE` (registry v3, tagged `validity_override` / Decision 27). `MODEL_FEATURES` 14 → 13. Config identity switched to v1.1, with the package in `models/artifacts_v1_1/`; v1 is untouched and its reports are archived. The pinned retrain reproduces the promoted challenger exactly (0.5618 / 0.5611). Cutoff recalibrated by the Decision 19 method: 0.0657 (was 0.0671). Stratified recall 57.96% vs 54.87%, precision 9.90% vs 9.60%. SHAP, the governance review (13 features, pending owner sign-off) and segment diagnostics regenerated. The API serves v1.1 without the hardcoded `pct_late_payments` default. Monitoring and the gate pass on 13 features. The thin-file FNR finding is unchanged. |
 | 3.29 | 15th October 2026 | Documentation separated from the decision record. Appendices A–D and the Regulatory Reference Summary moved verbatim: A and D plus the summary to `project_rationale.md` (Research and Regulatory Foundations), B to `validation_results.md`, C to `model_evaluation_report.md`. A Reference Material pointer table replaces them, and the in-text references are now links. Added a Decision 10 addendum on identifier design: pseudonymised customer IDs (owner's account, corroborated by the generator docstring and the README's record of a collision caught by the database), natural composite keys below them, and uniqueness verified on all three tables. Added Decision 28: one feature-construction module shared by the FastAPI service and the dashboard, and the Streamlit dashboard rebuilt as seven evidence-only sections with a central design system; verified headless and rendered. |
 | 3.30 | 15th October 2026 | Added Decision 29: the public demo scores in the visitor's browser via ONNX (owner's choice, route 2), gated on parity with the Python champion under a pass rule fixed in advance (max \|Δ\| < 1e-5, zero decision flips). Results: Python onnxruntime on 41,604 customers, max \|Δ\| 5.96e-08, 0 flips; edge cases 8.94e-09, 0 flips; browser onnxruntime-web (WASM) on 1,988 vectors including the 200 nearest the cutoff, 2.53e-08, 0 flips. Conversion lesson recorded (XGBoost feature names stripped on a copy, parity measured against the original). Hosting and cross-browser checks remain open. |
+| 3.31 | 15th October 2026 | Decision 29 addendum. The public demo site is built (live assessment with a typical-applicant comparison and a what-if search, a cutoff and fairness simulator, and a verification page) and hosted on GitHub Pages, chosen by the owner. No third-party requests: onnxruntime-web is bundled after an integrity check, and the fonts are self-hosted. No customer rows are published: test inputs are generated, and the simulator uses aggregated counts that exactly reproduce the saved evaluation. The JavaScript feature port matches `serving/features.py` on 240 generated applications. Three bugs were found and fixed while verifying: a relative wasm path that hung the page, rounding that sent comparator buttons to 0%, and a boundary generator that could never finish. Deploys are gated on 12 headless browser checks, all passing. |

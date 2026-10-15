@@ -3,88 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Model Parity Check · Sentinel Credit</title>
-<style>
-  :root { --bg:#151719; --panel:#202326; --line:#2E3236; --text:#F5F1E9; --stone:#A8A49D;
-          --gold:#B89A61; --ok:#438B73; --bad:#C4545C; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font:15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width:760px; margin:0 auto; padding:40px 16px; }
-  h1 { font:600 2rem Georgia, serif; margin:0 0 6px; }
-  .kicker { color:var(--gold); font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; }
-  p { color:var(--stone); }
-  table { width:100%; border-collapse:collapse; margin-top:18px; background:var(--panel); }
-  td { padding:9px 12px; border-bottom:1px solid var(--line); }
-  td:first-child { color:var(--stone); }
-  .pill { display:inline-block; padding:2px 10px; border:1px solid; font-weight:600;
-          letter-spacing:.06em; font-size:.8rem; }
-  .pass { color:var(--ok); } .fail { color:var(--bad); }
-</style>
+<title>Model Verification · Sentinel Credit</title>
+<meta name="description" content="Re-run, in your own browser, the checks proving this site's model scores exactly like the governed Python champion.">
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-<main>
-  <div class="kicker">Verification</div>
-  <h1>Browser model parity</h1>
-  <p>Scores the parity vectors with the published ONNX model in this browser (onnxruntime-web)
-     and compares each result with the probability the Python champion produced. The website is
-     only published if this passes.</p>
-  <table id="out"><tr><td>Status</td><td id="status">Running…</td></tr></table>
-</main>
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
-<script>
-const MAX_ABS_DIFF = 1e-5;   // same rule as website/tools/export_model.py
+<header class="top"><div class="wrap">
+  <a class="brand" href="./">Sentinel Credit</a>
+  <nav class="top" aria-label="Site">
+    <a href="./">Assessment</a>
+    <a href="simulator.html">Cutoff &amp; fairness</a>
+    <a href="parity.html" aria-current="page">Verification</a>
+    <a href="https://github.com/korede-folarin/sentinel-credit">Source</a>
+  </nav>
+</div></header>
 
-function row(label, value) {
-  const tr = document.createElement("tr");
-  tr.innerHTML = `<td>${label}</td><td>${value}</td>`;
-  document.getElementById("out").appendChild(tr);
+<main><div class="wrap">
+  <section>
+    <div class="kicker">Verification · runs in your browser</div>
+    <h1>Does this site score like the real model?</h1>
+    <p class="lede">The model on this site was converted from the governed Python champion to ONNX.
+      These checks run now, in your browser, and compare against answers the Python champion
+      produced. Pass rule, fixed before the first run: every probability within 0.00001 and no
+      decision changed at the cutoff.</p>
+  </section>
+
+  <section class="grid half">
+    <div class="panel">
+      <h3>1 · The model</h3>
+      <p class="note" style="margin-top:0">Generated applicants (none are customer records), including
+        400 placed exactly on the decision boundary: an infinitesimal change in their inputs flips
+        the recommendation, so any rounding difference between engines would show here first.</p>
+      <table class="data" id="t-model"><tr><td>Status</td><td>Running…</td></tr></table>
+    </div>
+    <div class="panel">
+      <h3>2 · Building the inputs</h3>
+      <p class="note" style="margin-top:0">Raw applications turned into model features by this site's
+        JavaScript, then scored, against the same applications run through the Python feature code
+        and champion.</p>
+      <table class="data" id="t-features"><tr><td>Status</td><td>Running…</td></tr></table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3>Evidence from the full check</h3>
+    <p class="note" id="python-evidence">Loading…</p>
+  </section>
+</div></main>
+
+<footer><div class="wrap">
+  <div>Scoring engine: onnxruntime-web 1.19.2, bundled with this site (MIT). Exported by
+    <code>website/tools/export_model.py</code>; see Decision 29 in the decision log.</div>
+</div></footer>
+
+<script src="vendor/onnxruntime-web-1.19.2/ort.min.js"></script>
+<script type="module">
+import { loadModel, buildFeatures, scoreMany } from "./assets/model.js";
+const MAX_ABS_DIFF = 1e-5;
+const pill = ok => `<span class="pill ${ok ? "ok" : "refer"}">${ok ? "Pass" : "Fail"}</span>`;
+const sci = x => x === 0 ? "0" : x.toExponential(2);
+
+function table(id, rows) {
+  document.getElementById(id).innerHTML = rows.map(([k, v]) =>
+    `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join("");
 }
 
+window.__parity = {};
 (async () => {
+  let contract;
+  try { ({ contract } = await loadModel()); }
+  catch (e) { table("t-model", [["Status", `Error: ${e.message}`]]); window.__parity.error = String(e); return; }
+
+  // 1 · model parity on generated vectors
   try {
-    ort.env.wasm.numThreads = 1;
-    const [contract, vectors] = await Promise.all([
-      fetch("model/model_contract.json").then(r => r.json()),
-      fetch("model/parity_vectors.json").then(r => r.json()),
-    ]);
-    if (JSON.stringify(vectors.features) !== JSON.stringify(contract.features))
-      throw new Error("feature order in vectors does not match the model contract");
-
-    const session = await ort.InferenceSession.create("model/sentinel_champion.onnx",
-                                                      { executionProviders: ["wasm"] });
-    const n = vectors.rows.length, k = contract.features.length;
-    const flat = new Float32Array(n * k);
-    vectors.rows.forEach((r, i) => flat.set(r, i * k));
+    const v = await fetch("model/parity_vectors.json").then(r => r.json());
+    if (JSON.stringify(v.features) !== JSON.stringify(contract.features))
+      throw new Error("feature order differs from the model contract");
+    const objs = v.rows.map(r => Object.fromEntries(v.features.map((f, j) => [f, r[j]])));
     const t0 = performance.now();
-    const out = await session.run({ [contract.input_name]:
-                                    new ort.Tensor("float32", flat, [n, k]) });
+    const probs = await scoreMany(objs);
     const ms = performance.now() - t0;
-    const probs = out[contract.probability_output].data;   // [n, 2], row-major
+    let max = 0, flips = 0;
+    probs.forEach((p, i) => {
+      max = Math.max(max, Math.abs(p - v.expected[i]));
+      if ((p >= contract.cutoff) !== (v.expected[i] >= contract.cutoff)) flips++;
+    });
+    const ok = max < MAX_ABS_DIFF && flips === 0;
+    window.__parity.model = { ok, n: probs.length, max, flips, ms };
+    table("t-model", [["Status", pill(ok)], ["Applicants scored", probs.length.toLocaleString()],
+      ["Largest difference", sci(max)], ["Decisions changed", flips],
+      ["Time, all applicants", `${ms.toFixed(0)} ms`]]);
+  } catch (e) { table("t-model", [["Status", `Error: ${e.message}`]]); window.__parity.modelError = String(e); }
 
-    let maxDiff = 0, sumDiff = 0, flips = 0, worst = -1;
-    for (let i = 0; i < n; i++) {
-      const pBrowser = probs[i * 2 + 1], pPython = vectors.expected[i];
-      const d = Math.abs(pBrowser - pPython);
-      sumDiff += d;
-      if (d > maxDiff) { maxDiff = d; worst = i; }
-      if ((pBrowser >= contract.cutoff) !== (pPython >= contract.cutoff)) flips++;
-    }
-    const passed = maxDiff < MAX_ABS_DIFF && flips === 0;
-    window.__parity = { passed, n, maxDiff, meanDiff: sumDiff / n, flips, ms,
-                        backend: "wasm", ortVersion: ort.env.versions?.web || "1.19.2",
-                        userAgent: navigator.userAgent };
-    document.getElementById("status").innerHTML =
-      `<span class="pill ${passed ? "pass" : "fail"}">${passed ? "PASS" : "FAIL"}</span>`;
-    row("Model", `${contract.model} ${contract.model_version} · ${contract.feature_set}`);
-    row("Vectors scored", n.toLocaleString());
-    row("Max |Δ| vs Python", maxDiff.toExponential(2) + `  (rule: below ${MAX_ABS_DIFF})`);
-    row("Mean |Δ|", (sumDiff / n).toExponential(2));
-    row("Decision flips at cutoff " + contract.cutoff, flips);
-    row("Inference time (all vectors)", ms.toFixed(0) + " ms");
-  } catch (err) {
-    window.__parity = { passed: false, error: String(err) };
-    document.getElementById("status").innerHTML =
-      `<span class="pill fail">ERROR</span> ${String(err)}`;
+  // 2 · feature construction (JS port of serving/features.py) end to end
+  try {
+    const ex = await fetch("model/feature_examples.json").then(r => r.json());
+    let featMax = 0, featMismatch = 0;
+    const built = ex.examples.map(e => {
+      const f = buildFeatures(e.profile, e.order_value_gbp, e.n_instalments, e.merchant_category);
+      let bad = false;
+      for (const k of ex.features) {
+        const d = Math.abs(f[k] - e.expected_features[k]);
+        featMax = Math.max(featMax, d);
+        if (d > 1e-9) bad = true;
+      }
+      if (bad) featMismatch++;
+      return f;
+    });
+    const probs = await scoreMany(built);
+    let max = 0, flips = 0;
+    probs.forEach((p, i) => {
+      const q = ex.examples[i].expected_probability;
+      max = Math.max(max, Math.abs(p - q));
+      if ((p >= contract.cutoff) !== (q >= contract.cutoff)) flips++;
+    });
+    const ok = featMismatch === 0 && max < MAX_ABS_DIFF && flips === 0;
+    window.__parity.features = { ok, n: probs.length, featMismatch, featMax, max, flips };
+    table("t-features", [["Status", pill(ok)], ["Applications", probs.length.toLocaleString()],
+      ["Applications with a feature mismatch", featMismatch], ["Largest feature difference", sci(featMax)],
+      ["Largest probability difference", sci(max)], ["Decisions changed", flips]]);
+  } catch (e) { table("t-features", [["Status", `Error: ${e.message}`]]); window.__parity.featureError = String(e); }
+
+  // Full-population evidence from the export (Python onnxruntime)
+  try {
+    const rep = await fetch("model/python_parity_report.json").then(r => r.json());
+    const pop = rep.sets.modelable_population, edge = rep.sets.edge_cases;
+    document.getElementById("python-evidence").textContent =
+      `Before publishing, the same model was checked on all ${pop.n.toLocaleString()} customers in `
+      + `the feature store (largest difference ${sci(pop.max_abs_diff)}, ${pop.decision_flips} `
+      + `decisions changed) and ${edge.n.toLocaleString()} input-extreme cases (${sci(edge.max_abs_diff)}, `
+      + `${edge.decision_flips} changed): ${rep.passed ? "passed" : "FAILED"}. That check runs offline, `
+      + "because customer records are never published.";
+  } catch (e) {
+    document.getElementById("python-evidence").textContent = "Full-population evidence unavailable.";
   }
 })();
 </script>
