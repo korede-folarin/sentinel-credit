@@ -1,0 +1,104 @@
+{
+  "_about": "Plain-English reason wording for a new applicant (Decision 30). Single source of truth for the API (serving/app.py), the dashboard (dashboard/scoring.py) and the public site (website/public/assets/reasons.js). Each input has wording for when the applicant's value is lower or higher than the typical applicant's. Wording describes what the model links to risk; it never claims cause and never mentions the review cutoff.",
+  "fields": {
+    "monthly_income_gbp": {
+      "label": "your monthly income",
+      "lower": "Your monthly income of {value} is lower than is typical for applicants ({typical}).",
+      "higher": "Your monthly income of {value} is higher than is typical for applicants ({typical})."
+    },
+    "existing_monthly_obligations_gbp": {
+      "label": "your existing monthly repayments",
+      "lower": "You pay {value} a month towards other commitments, less than is typical ({typical}).",
+      "higher": "You already pay {value} a month towards other commitments, more than is typical ({typical})."
+    },
+    "savings_balance_gbp": {
+      "label": "your savings",
+      "lower": "Your savings of {value} are lower than is typical ({typical}), leaving less to fall back on if money gets tight.",
+      "higher": "Your savings of {value} are higher than is typical ({typical})."
+    },
+    "credit_score": {
+      "label": "your credit score",
+      "lower": "Your credit score of {value} is lower than is typical for applicants ({typical}).",
+      "higher": "Your credit score of {value} is higher than is typical for applicants ({typical})."
+    },
+    "months_credit_history": {
+      "label": "the length of your credit history",
+      "lower": "Your credit history covers {value}, shorter than is typical ({typical}).",
+      "higher": "Your credit history covers {value}, longer than is typical ({typical})."
+    },
+    "num_credit_accounts": {
+      "label": "your number of credit accounts",
+      "lower": "You have {value}, fewer than is typical ({typical}).",
+      "higher": "You have {value}, more than is typical ({typical})."
+    },
+    "num_defaults_24m": {
+      "label": "your recent repayment record",
+      "lower": "Your credit file shows {value} in the last two years, fewer than is typical ({typical}).",
+      "higher": "Your credit file shows {value} in the last two years."
+    },
+    "thin_file_flag": {
+      "label": "the depth of your credit file",
+      "lower": "Your credit file has a full borrowing history.",
+      "higher": "Your credit file has limited borrowing history, so there is less evidence of how you manage repayments."
+    },
+    "order_value_gbp": {
+      "label": "the size of this order",
+      "lower": "This order of {value} is smaller than a typical order ({typical}).",
+      "higher": "This order of {value} is larger than a typical order ({typical})."
+    },
+    "n_instalments": {
+      "label": "the repayment plan",
+      "lower": "You chose to repay over {value}, fewer than is typical ({typical}).",
+      "higher": "You chose to spread repayments over {value}, more than is typical ({typical})."
+    },
+    "merchant_category": {
+      "label": "the type of purchase",
+      "lower": "This purchase is in the {value} category.",
+      "higher": "This purchase is in the {value} category, which the model links to more missed repayments than {typical} purchases."
+    }
+  },
+  "units": {
+    "months_credit_history": [
+      "month",
+      "months"
+    ],
+    "num_credit_accounts": [
+      "credit account",
+      "credit accounts"
+    ],
+    "num_defaults_24m": [
+      "default",
+      "defaults"
+    ],
+    "n_instalments": [
+      "instalment",
+      "instalments"
+    ]
+  },
+  "refer": {
+    "title": "Why this application was referred for review",
+    "intro": "The application has been passed to a person to review; it has not been declined. The details that counted most against it were:",
+    "link": "The model links each of these to a higher chance of falling behind on repayments.",
+    "none": "No single detail stood out; it was the combination of details that the model linked to a higher chance of falling behind on repayments.",
+    "favour_intro": "Counting in its favour:"
+  },
+  "pass": {
+    "title": "Why this application was not referred",
+    "intro": "The model did not flag this application for review. The details that counted most in its favour were:",
+    "none": "No single detail stood out; the details taken together were not flagged.",
+    "against_intro": "Details the model linked to higher risk, though not enough to flag it:"
+  },
+  "next_steps": {
+    "refer": [
+      "Check these details are correct. If any are wrong, ask for them to be corrected before the review.",
+      "A referral is not a decline: a reviewer looks at the whole application.",
+      "This explains how the model scored these details on synthetic data. It is not financial advice."
+    ],
+    "pass": [
+      "This explains how the model scored these details on synthetic data. It is not financial advice."
+    ]
+  },
+  "max_reasons": 3,
+  "max_favourable": 2,
+  "numerical_tolerance": 1e-06
+}

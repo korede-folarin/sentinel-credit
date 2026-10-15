@@ -1,6 +1,11 @@
 # Sentinel Credit - SHAP Explainability Report
 
-**Report status:** Complete for the frozen 14-feature v1 champion
+> **Current champion: v1.1 (14th October 2026).** This report documents the **August 2026 v1** champion (14 features, cutoff 0.0671) and is kept as the historical record of it. v1.1 removed `pct_late_payments` for leaking outcome information and is otherwise the same model (identical hyperparameters, split and calibration). See [Decision 27](engineering_decision_log.md). Live v1.1 evidence is regenerated under `reports/`; v1's is archived in `reports/_archive_v1_14f_2026-08/`.
+>
+> v1.1 SHAP (additivity max error 1.8e-06): thin_file_flag 29.0%, savings_balance_gbp 18.4%, avg_n_instalments 12.1%, avg_order_value_gbp 11.3%, pct_high_risk_category 10.4%, pct_medium_risk_category 6.6%, max_affordability_ratio 3.0%, credit_score 3.0%, then under 2% each; existing_monthly_obligations_gbp 0.33%. Global importance and local cases are on the dashboard's Explainability page.
+
+
+**Report status:** Historical: describes the v1 champion, superseded by v1.1 on 14 October 2026 (see the box above).
 **Dataset version:** `full_horizon_2025_v1`
 **Feature-set label:** `14_features_v1_frozen`
 **Model version:** `v1`

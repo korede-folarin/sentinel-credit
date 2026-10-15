@@ -15,7 +15,10 @@ Context added to a score is drawn only from real evidence:
   this score (models/<package>/test_predictions_stratified.csv);
 - drivers: SHAP values from the champion's explanation model (raw risk
   margin, not the calibrated probability; stated wherever shown);
-- range checks: inputs outside the training population's observed range.
+- range checks: inputs outside the training population's observed range;
+- explanation (new applicants): plain-English reasons from
+  serving/reasons.py, the same module and wording the API and the public
+  site use (Decision 30).
 """
 
 import json
@@ -34,10 +37,11 @@ if PROJECT_ROOT not in sys.path:
 from serving.features import (  # noqa: E402
     MERCHANT_CATEGORIES, PROFILE_FIELDS, build_new_customer_features,
 )
+from serving.reasons import explain as _explain_reasons, load_typical  # noqa: E402
 from utils import load_config, query_db  # noqa: E402
 
 __all__ = ["MERCHANT_CATEGORIES", "PROFILE_FIELDS", "champion", "score",
-           "lookup_customer", "training_ranges"]
+           "lookup_customer", "training_ranges", "explain_new", "typical_applicant"]
 
 
 def _package_dir() -> str:
@@ -136,3 +140,28 @@ def new_customer(profile: dict, order_value_gbp: float, n_instalments: int,
                  merchant_category: str) -> dict:
     return build_new_customer_features(profile, order_value_gbp, n_instalments,
                                        merchant_category)
+
+
+def typical_applicant() -> dict:
+    """The typical applicant the reasons compare against (serving/typical_applicant.json)."""
+    return load_typical()
+
+
+def explain_new(inputs: dict) -> dict:
+    """Plain-English reasons for a new applicant (Decision 30).
+
+    `inputs` holds the PROFILE_FIELDS plus order_value_gbp, n_instalments and
+    merchant_category. Each input is compared with the typical applicant by
+    changing that one input and re-scoring with the champion.
+    """
+    champ = champion()
+    feats = champ["features"]
+
+    def score_many(feature_dicts):
+        frame = pd.DataFrame([{f: d[f] for f in feats} for d in feature_dicts])
+        return champ["model"].predict_proba(frame)[:, 1].tolist()
+
+    cutoff = float(load_config()["model"]["business_cutoff"])
+    explanation = _explain_reasons(inputs, score_many, cutoff)
+    explanation.pop("probability", None)   # the score itself is reported separately
+    return explanation

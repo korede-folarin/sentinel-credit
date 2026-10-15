@@ -58,8 +58,10 @@ refer to the [Engineering Decision Log](docs/engineering_decision_log.md).
 | Scoring API | FastAPI, runs locally (`serving/app.py`) | ✅ |
 | Streamlit dashboard | Risk officer interface (`dashboard/`) | ✅ |
 | Power BI report | DirectQuery against local PostgreSQL (`dashboard/powerbi/`) | ✅ |
-| Adaptive explanation engine | Audience-aware explanations (D7) | ⬜ |
-| Deployment / AWS | BentoML · Docker · AWS RDS. Nothing is deployed; everything runs locally (D3, D6) | ⬜ |
+| Plain-English reasons | Applicants are told why, in plain English: API, dashboard and demo site, one shared wording (D30) | ✅ |
+| Adaptive explanation engine | Error-type detection and genre selection; regulatory output (D7). Customer output built (D30) | 🟡 |
+| Public demo site | In-browser ONNX champion on GitHub Pages, gated on parity and browser checks (D29, D30) | ✅ |
+| Cloud deployment / AWS | BentoML · Docker · AWS RDS. The API, database and dashboard run locally (D3, D6) | ⬜ |
 
 ---
 
@@ -187,21 +189,23 @@ applicant identically (Decision 28).
 | [Project Rationale](docs/project_rationale.md) | Why the project exists, plus research and regulatory foundations (calibration assumptions, regulatory source mapping) |
 | [Engineering Decision Log](docs/engineering_decision_log.md) | Record of consequential engineering decisions, their evidence and outcomes |
 | [Database Design](docs/database_design.md) | Schema, integrity constraints, and feature engineering |
+| [Model Results Summary](docs/model_results_summary.md) | One-page results for the current champion (v1.1) |
 | [Validation Results](docs/validation_results.md) | Synthetic-data validation results and methodology |
+| [Forecasting Summary](docs/forecasting_summary.md) | Prophet portfolio forecasts, backtests and caveats |
 | [Model Evaluation Report](docs/model_evaluation_report.md) | Model evaluation results and metric definitions |
 | [Audit Findings](docs/audit_findings_2026-10-12.md) | October 2026 audit of the documentation against the code |
 | [Power BI Setup](dashboard/powerbi/README.md) | How the Power BI report connects to the reporting views |
 | [References](docs/references.md) | Regulatory publications, academic research, and calibration sources |
 
-Some narrative reports (SHAP explainability, training summary, feature
-governance) still describe the August 2026 v1 champion. The live v1.1
-evidence is regenerated under `reports/`; see Decision 27.
+The detailed model reports (training, evaluation, SHAP, cutoff selection, feature
+governance) are the historical record of the August 2026 v1 champion; each opens
+with a summary of the current v1.1 champion and links to its evidence.
 
 ---
 
 ## Current Status
 
-The modelling, monitoring and governance loop runs end to end on a local stack. The live champion is **v1.1**, a calibrated XGBoost on 13 features. It was promoted in October 2026 after `pct_late_payments` was removed for leaking outcome information (Decision 27). Drift monitoring and the approval gate run under Airflow while the local stack is up, and a Power BI badge shows STALE when monitoring evidence lapses. Nothing is deployed to the cloud yet. Open items are tracked in the [Audit Findings](docs/audit_findings_2026-10-12.md).
+The modelling, monitoring and governance loop runs end to end on a local stack. The live champion is **v1.1**, a calibrated XGBoost on 13 features. It was promoted in October 2026 after `pct_late_payments` was removed for leaking outcome information (Decision 27). Drift monitoring and the approval gate run under Airflow while the local stack is up, and a Power BI badge shows STALE when monitoring evidence lapses. The public demo is a static site on GitHub Pages; the platform itself (PostgreSQL, Airflow, the API and the dashboard) runs locally, and nothing else is deployed. Open items are tracked in the [Audit Findings](docs/audit_findings_2026-10-12.md).
 
 Follow the build on LinkedIn:
 

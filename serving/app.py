@@ -63,6 +63,7 @@ from pydantic import BaseModel, Field
 
 from serving.features import PROFILE_FIELDS
 from serving.features import build_new_customer_features as shared_build_features
+from serving.reasons import explain as explain_reasons
 
 warnings.filterwarnings("ignore")
 
@@ -225,6 +226,14 @@ class ScoreResponse(BaseModel):
     feature_set_label: str
     feature_values_used: dict
     scope_warning: str
+    explanation: Optional[dict] = Field(
+        default=None,
+        description=(
+            "New applicants only: plain-English reasons for the recommendation, "
+            "written for the applicant (Decision 30). Each detail is compared with a "
+            "typical applicant by changing that one detail and re-scoring; this "
+            "describes how the model responds, not what causes default."),
+    )
 
 
 SCOPE_WARNING = (
@@ -342,6 +351,19 @@ def score(request: ScoreRequest):
     calibrated_probability = float(MODEL.predict_proba(X)[0, 1])
     decision = "flag_high_risk" if calibrated_probability >= BUSINESS_CUTOFF else "pass"
 
+    explanation = None
+    if customer_type == "new":
+        raw = {f: getattr(request, f) for f in PROFILE_FIELDS}
+        raw.update(order_value_gbp=request.order_value_gbp, n_instalments=request.n_instalments,
+                   merchant_category=request.merchant_category)
+
+        def score_many(feature_dicts):
+            frame = pd.DataFrame([{f: d[f] for f in MODEL_FEATURES} for d in feature_dicts])
+            return MODEL.predict_proba(frame)[:, 1].tolist()
+
+        explanation = explain_reasons(raw, score_many, BUSINESS_CUTOFF)
+        explanation.pop("probability", None)
+
     return ScoreResponse(
         customer_id=request.customer_id,
         customer_type=customer_type,
@@ -352,6 +374,7 @@ def score(request: ScoreRequest):
         feature_set_label=GOV_CFG["feature_set_label"],
         feature_values_used={f: feature_values[f] for f in MODEL_FEATURES},
         scope_warning=SCOPE_WARNING,
+        explanation=explanation,
     )
 from serving.docs_ui import add_custom_docs
 

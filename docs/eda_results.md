@@ -1,5 +1,7 @@
 # Sentinel Credit — Pre-Modelling EDA Results
 
+> **Note (15th October 2026).** This EDA describes the data and the 18 candidate features screened at the time; the figures remain valid for the data. The model feature set has since narrowed to 13 (Decision 18 removed four, Decision 27 removed `pct_late_payments` for leakage). See the [Model Results Summary](model_results_summary.md).
+
 **Population:** 50,000 customers · **41,604 modelable** (`has_outcome = 1`)
 **Bad rate:** 2.72% (1,132 defaults)
 **Right-censoring:** 0.00%

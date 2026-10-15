@@ -3,9 +3,9 @@
  * change" search are all real model evaluations run in this browser. */
 import { loadModel, buildFeatures, scoreMany, MERCHANT_CATEGORIES, PROFILE_FIELDS,
          fmtPct, fmtGbp } from "./model.js";
+import { explain, loadReasonFiles } from "./reasons.js";
 
 const $ = id => document.getElementById(id);
-const TYPICAL_CATEGORY = "Fashion & Clothing";   // most common category (config.yaml)
 
 // Hard bounds for what a visitor may type; separate from the training-range warning.
 const BOUNDS = {
@@ -71,14 +71,6 @@ function percentileOf(p) {
   return below / total;
 }
 
-function typicalValue(field) {
-  if (field === "merchant_category") return TYPICAL_CATEGORY;
-  if (field === "n_instalments") return 3;
-  if (field === "order_value_gbp") return contract.training_ranges.avg_order_value_gbp.median;
-  const v = contract.training_ranges[field].median;
-  return field === "thin_file_flag" ? Math.round(v) : v;
-}
-
 function candidates(field, current) {
   if (field === "merchant_category") return MERCHANT_CATEGORIES.filter(c => c !== current);
   if (field === "n_instalments") return [3, 6, 12].filter(x => x !== current);
@@ -108,11 +100,12 @@ async function assess(event) {
     const base = featuresOf(inp);
     const fields = [...Object.keys(BOUNDS), "thin_file_flag", "n_instalments", "merchant_category"];
 
-    // One batch: the applicant, each input set to typical, and every what-if candidate.
+    // Plain-English reasons (shared logic with the API and dashboard, Decision 30).
+    const ex = await explain(inp, cutoff);
+
+    // One batch: the applicant and every what-if candidate.
     const rows = [base], meta = [{ kind: "base" }];
     for (const f of fields) {
-      const t = typicalValue(f);
-      if (t !== inp[f]) { rows.push(featuresOf({ ...inp, [f]: t })); meta.push({ kind: "typical", f, v: t }); }
       for (const c of candidates(f, inp[f])) {
         rows.push(featuresOf({ ...inp, [f]: c })); meta.push({ kind: "whatif", f, v: c });
       }
@@ -129,9 +122,19 @@ async function assess(event) {
     $("r-cutoff").textContent = `Review cutoff: probability of default ≥ ${fmtPct(cutoff, 2)}. `
       + "Affordability ratio = (existing obligations + this instalment) ÷ monthly income.";
 
-    // Comparison with a typical applicant
-    const drivers = meta.map((m, i) => ({ ...m, p: probs[i] }))
-      .filter(m => m.kind === "typical").map(m => ({ f: m.f, delta: p - m.p }))
+    // The explanation, written for the applicant
+    const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    $("r-ex-title").textContent = ex.title;
+    $("r-ex-intro").textContent = ex.intro;
+    $("r-ex-reasons").innerHTML = ex.reasons.map(r => `<li>${esc(r.text)}</li>`).join("");
+    $("r-ex-reasons").classList.toggle("hidden", !ex.reasons.length);
+    $("r-ex-link").textContent = ex.link;
+    $("r-ex-other").textContent = ex.other;
+    $("r-ex-next").innerHTML = ex.next_steps.map(x => `<li>${esc(x)}</li>`).join("");
+    $("r-ex-method").textContent = ex.method;
+
+    // Comparison with a typical applicant (same effects the reasons use)
+    const drivers = Object.entries(ex.effects).map(([f, delta]) => ({ f, delta }))
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 8);
     const scale = Math.max(...drivers.map(d => Math.abs(d.delta)), 1e-9);
     $("r-drivers").innerHTML = drivers.length ? drivers.map(d => {
@@ -185,11 +188,14 @@ async function assess(event) {
   try {
     ({ contract } = await loadModel());
     bands = await fetch("data/cutoff_simulator.json").then(r => r.json());
+    const { typical } = await loadReasonFiles();   // start from the typical applicant
     for (const f of PROFILE_FIELDS) {
       if (f === "thin_file_flag") continue;
-      const m = contract.training_ranges[f].median;
-      $(f).value = INTEGER.has(f) ? Math.round(m) : Math.round(m);
+      $(f).value = typical[f];
     }
+    $("order_value_gbp").value = typical.order_value_gbp;
+    $("n_instalments").value = String(typical.n_instalments);
+    $("merchant_category").value = typical.merchant_category;
     $("chips").innerHTML = [
       ["Model", `${contract.model} ${contract.model_version}`],
       ["Features", contract.features.length],

@@ -45,6 +45,14 @@
     </div>
   </section>
 
+  <section class="panel" style="margin-bottom:24px">
+    <h3>3 · Plain-English reasons</h3>
+    <p class="note" style="margin-top:0">The explanation an applicant reads, built in this browser,
+      against the text the Python service (serving/reasons.py) produced for the same applications.
+      Must match word for word.</p>
+    <table class="data" id="t-reasons"><tr><td>Status</td><td>Running…</td></tr></table>
+  </section>
+
   <section class="panel">
     <h3>Evidence from the full check</h3>
     <p class="note" id="python-evidence">Loading…</p>
@@ -59,6 +67,7 @@
 <script src="vendor/onnxruntime-web-1.19.2/ort.min.js"></script>
 <script type="module">
 import { loadModel, buildFeatures, scoreMany } from "./assets/model.js";
+import { effects, buildReasons, loadReasonFiles } from "./assets/reasons.js";
 const MAX_ABS_DIFF = 1e-5;
 const pill = ok => `<span class="pill ${ok ? "ok" : "refer"}">${ok ? "Pass" : "Fail"}</span>`;
 const sci = x => x === 0 ? "0" : x.toExponential(2);
@@ -123,6 +132,30 @@ window.__parity = {};
       ["Applications with a feature mismatch", featMismatch], ["Largest feature difference", sci(featMax)],
       ["Largest probability difference", sci(max)], ["Decisions changed", flips]]);
   } catch (e) { table("t-features", [["Status", `Error: ${e.message}`]]); window.__parity.featureError = String(e); }
+
+  // 3 · plain-English reasons, word for word
+  try {
+    const ex = await fetch("model/feature_examples.json").then(r => r.json());
+    const { templates, typical } = await loadReasonFiles();
+    let mismatches = 0, first = null, nReasons = 0;
+    for (const e of ex.examples) {
+      const inputs = { ...e.profile, order_value_gbp: e.order_value_gbp,
+                       n_instalments: e.n_instalments, merchant_category: e.merchant_category };
+      const [p, eff] = await effects(inputs, typical);
+      const got = buildReasons(inputs, typical, eff, p >= contract.cutoff, templates);
+      nReasons += got.reasons.length;
+      if (JSON.stringify(got) !== JSON.stringify(e.expected_reasons)) {
+        mismatches++;
+        if (!first) first = { expected: e.expected_reasons, got };
+      }
+    }
+    const ok = mismatches === 0;
+    const referred = ex.examples.filter(e => e.expected_reasons.decision === "refer").length;
+    window.__parity.reasons = { ok, n: ex.examples.length, mismatches, referred, nReasons, first };
+    table("t-reasons", [["Status", pill(ok)], ["Explanations compared", ex.examples.length.toLocaleString()],
+      ["Of which referred for review", referred], ["Reason sentences compared", nReasons],
+      ["Explanations that differ", mismatches]]);
+  } catch (e) { table("t-reasons", [["Status", `Error: ${e.message}`]]); window.__parity.reasonsError = String(e); }
 
   // Full-population evidence from the export (Python onnxruntime)
   try {

@@ -307,6 +307,34 @@ The owner ruled that leakage is a valid reason for removal. Choices:
 - **A30.** `.claude/launch.json` (local preview config, no
   credentials) is untracked. Keep it local or ignore it.
 
+### 15th October 2026 (later): documentation sweep and plain-English reasons (Decision 30)
+
+**Fixed:**
+- **Stale documentation.**
+  - The five v1 reports (training, evaluation, SHAP, cutoff selection,
+    feature governance) now open with a v1.1 summary and are marked
+    historical.
+  - `model_results_summary.md` was rewritten for v1.1.
+  - The EDA and database docs note the 13-feature set and the 0%
+    right-censoring.
+  - `forecasting_summary (2).md` was renamed.
+  - The README no longer says nothing is deployed, and its progress
+    table lists the demo site and the reasons.
+- **The core purpose was missing.** Plain-English reasons for the
+  applicant (Decision 7, never built) now exist for new applicants in
+  the API, the dashboard and the site. The site's JavaScript matches
+  Python word for word on 240 applications, and the deploy gate checks
+  it.
+- **The browser check crashed on Windows consoles** (cp1252 cannot
+  print "→"). Output is now UTF-8.
+
+**New findings (not fixed):**
+- **A31.** The champion links larger orders to slightly lower PD (a
+  £1,299 order counted in a referred applicant's favour). The reasons
+  report this faithfully. Review it at the next model review.
+- **A32.** Existing customers get no plain-English explanation yet
+  (Decision 30, "Not built").
+
 ---
 
 ## Findings that could change the "Remaining work" priorities

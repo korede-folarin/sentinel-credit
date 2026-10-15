@@ -1,6 +1,11 @@
 # Sentinel Credit - Business Cutoff Selection Report
 
-**Report status:** Cutoff confirmed on both splits; separate operating-policy item opened
+> **Current champion: v1.1 (14th October 2026).** This report documents the **August 2026 v1** champion (14 features, cutoff 0.0671) and is kept as the historical record of it. v1.1 removed `pct_late_payments` for leaking outcome information and is otherwise the same model (identical hyperparameters, split and calibration). See [Decision 27](engineering_decision_log.md). Live v1.1 evidence is regenerated under `reports/`; v1's is archived in `reports/_archive_v1_14f_2026-08/`.
+>
+> v1.1 cutoff: **0.0657**, recalibrated on promotion by the same method (training-only OOF, 15% review capacity, still a placeholder). OOF: flagged 15.0%, recall 50.11%, precision 9.09%. Comparators: F1-optimal 0.0764, Youden 0.0400. Held-out: recall 57.96% stratified, 40.32% temporal.
+
+
+**Report status:** Historical: describes the v1 champion, superseded by v1.1 on 14 October 2026 (see the box above).
 **Dataset version:** `full_horizon_2025_v1`
 **Feature-set label:** `14_features_v1_frozen`
 **Model version:** `v1`

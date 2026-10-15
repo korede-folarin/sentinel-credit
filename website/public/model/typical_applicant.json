@@ -1,0 +1,19 @@
+{
+  "_about": "Typical applicant for plain-English reasons (Decision 30): medians of the champion's canonical training partition, rounded to whole units; 3 instalments (Pay in 3, the dominant plan); the most common merchant category.",
+  "generated_at": "2026-10-15T17:00:37+01:00",
+  "model_version": "v1.1",
+  "n_training_customers": 33283,
+  "values": {
+    "monthly_income_gbp": 2442,
+    "existing_monthly_obligations_gbp": 512,
+    "savings_balance_gbp": 2165,
+    "credit_score": 638,
+    "months_credit_history": 58,
+    "num_credit_accounts": 2,
+    "num_defaults_24m": 0,
+    "thin_file_flag": 0,
+    "order_value_gbp": 583,
+    "n_instalments": 3,
+    "merchant_category": "Fashion & Clothing"
+  }
+}

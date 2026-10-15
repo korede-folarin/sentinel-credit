@@ -17,6 +17,7 @@ What the result is, and is not:
 Nothing typed into this page is stored or logged.
 """
 
+import html
 import os
 import sys
 
@@ -64,17 +65,13 @@ LABELS = {
     "pct_high_risk_category": "High-risk merchant category",
     "pct_medium_risk_category": "Medium-risk merchant category",
 }
-# Fallback starting values if the database (training medians) is unavailable.
-FALLBACK = {"monthly_income_gbp": 2200.0, "existing_monthly_obligations_gbp": 300.0,
-            "savings_balance_gbp": 1500.0, "credit_score": 650, "months_credit_history": 60,
-            "num_credit_accounts": 3, "num_defaults_24m": 0}
+# The form starts at the typical applicant (training medians), the same
+# reference the plain-English reasons compare against (Decision 30).
+TYPICAL = scoring.typical_applicant()
 
 
 def start(feature: str):
-    if ranges is not None and feature in ranges.index:
-        v = float(ranges.loc[feature, "median"])
-        return int(round(v)) if isinstance(FALLBACK[feature], int) else round(v, 0)
-    return FALLBACK[feature]
+    return TYPICAL[feature]
 
 
 mode = st.radio("Applicant", ["New applicant", "Existing customer"], horizontal=True,
@@ -104,14 +101,19 @@ if mode == "New applicant":
                                       int(start("num_credit_accounts")))
             defaults = b.number_input(LABELS["num_defaults_24m"], 0, 20,
                                       int(start("num_defaults_24m")))
-            thin = st.checkbox("Thin credit file (limited bureau history)", value=False)
+            thin = st.checkbox("Thin credit file (limited bureau history)",
+                               value=bool(TYPICAL["thin_file_flag"]))
         with right:
             theme.section("This order")
             order_value = st.number_input(LABELS["avg_order_value_gbp"], 1.0, 20000.0,
-                                          250.0, step=10.0)
-            instalments = st.selectbox(LABELS["avg_n_instalments"], [3, 6, 12],
+                                          float(start("order_value_gbp")), step=10.0)
+            plans = [3, 6, 12]
+            instalments = st.selectbox(LABELS["avg_n_instalments"], plans,
+                                       index=plans.index(int(start("n_instalments"))),
                                        help="BNPL plans offered: Pay in 3, 6 or 12.")
-            category = st.selectbox("Merchant category", scoring.MERCHANT_CATEGORIES)
+            category = st.selectbox(
+                "Merchant category", scoring.MERCHANT_CATEGORIES,
+                index=list(scoring.MERCHANT_CATEGORIES).index(start("merchant_category")))
             st.write("")
             submitted = st.form_submit_button("Assess application", use_container_width=True)
     if submitted:
@@ -121,7 +123,10 @@ if mode == "New applicant":
                    "num_defaults_24m": defaults, "thin_file_flag": int(thin)}
         try:
             features = scoring.new_customer(profile, order_value, int(instalments), category)
-            context = {"type": "New applicant", "category": category}
+            context = {"type": "New applicant", "category": category,
+                       "inputs": {**profile, "order_value_gbp": order_value,
+                                  "n_instalments": int(instalments),
+                                  "merchant_category": category}}
         except (KeyError, ValueError) as error:
             st.error(f"Could not build features: {error}")
 else:
@@ -144,8 +149,10 @@ else:
 if features is not None:
     try:
         with st.spinner("Scoring…"):
-            st.session_state["assessment_result"] = {"result": scoring.score(features),
-                                              "context": context}
+            result = scoring.score(features)
+            if "inputs" in context:
+                result["explanation"] = scoring.explain_new(context["inputs"])
+            st.session_state["assessment_result"] = {"result": result, "context": context}
     except Exception as error:  # noqa: BLE001 - shown, never replaced with a made-up score
         st.session_state.pop("assessment_result", None)
         st.error(f"Scoring failed: {error}")
@@ -178,6 +185,25 @@ if saved:
         </div>""",
         unsafe_allow_html=True,
     )
+
+    ex = res.get("explanation")
+    if ex:
+        esc = html.escape
+        items = "".join(f"<li>{esc(r['text'])}</li>" for r in ex["reasons"])
+        steps = "".join(f"<li>{esc(s)}</li>" for s in ex["next_steps"])
+        st.markdown(
+            f"""<div style="background:{theme.GRAPHITE};border:1px solid {theme.GRAPHITE_LINE};border-left:3px solid {theme.GOLD};padding:1.2rem 1.4rem;margin-top:1rem">
+              <div style="font-family:'Cormorant Garamond', Georgia, serif;font-size:1.5rem;font-weight:600">
+                {esc(ex['title'])}</div>
+              <p style="margin:0.4rem 0 0.6rem">{esc(ex['intro'])}</p>
+              {'<ol style="margin:0 0 0.4rem 1.2rem">' + items + '</ol>' if items else ''}
+              {'<div class="sc-note">' + esc(ex['link']) + '</div>' if ex['link'] else ''}
+              {'<p style="margin:0.5rem 0">' + esc(ex['other']) + '</p>' if ex['other'] else ''}
+              <div class="sc-kicker" style="margin-top:0.8rem">Next steps</div>
+              <ul style="margin:0.2rem 0 0.5rem 1.2rem">{steps}</ul>
+              <div class="sc-note">{esc(ex['method'])}</div>
+            </div>""",
+            unsafe_allow_html=True)
 
     if res["drivers"] is not None:
         theme.section("What drove this score")

@@ -69,3 +69,8 @@ models/artifacts_*/
 !website/public/model/parity_vectors.json
 !website/public/model/feature_examples.json
 !website/public/data/cutoff_simulator.json
+!website/public/model/typical_applicant.json
+!website/public/model/reason_templates.json
+# Plain-English reason wording and the typical applicant (Decision 30)
+!serving/reason_templates.json
+!serving/typical_applicant.json

@@ -6,9 +6,11 @@ running static server (default http://127.0.0.1:8600, i.e.
 `python -m http.server 8600 --directory website/public`). Drives each page
 over the Chrome DevTools Protocol and asserts on real behaviour:
 
-- parity.html: both checks (model; JS feature construction) report pass;
+- parity.html: all three checks (model; JS feature construction;
+  plain-English reasons word for word) report pass;
 - index.html: a submitted application scores exactly as the Python champion
-  does for the same applicant; invalid input is rejected with a message;
+  does for the same applicant and shows its plain-English explanation;
+  invalid input is rejected with a message;
 - simulator.html: metrics at the configured cutoff equal the saved
   evaluation evidence; comparator buttons move the cutoff;
 - every page: no horizontal overflow at 1440 px and 390 px; screenshots
@@ -91,6 +93,8 @@ def main():
     ap.add_argument("--base", default="http://127.0.0.1:8600/")
     ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "sentinel_site_check"))
     args = ap.parse_args()
+    if hasattr(sys.stdout, "reconfigure"):   # Windows consoles default to cp1252
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     os.makedirs(args.out, exist_ok=True)
     exe = next(b for b in BROWSERS if b and os.path.exists(b))
     import socket
@@ -128,7 +132,8 @@ def main():
         # ── parity.html ───────────────────────────────────────────
         page.goto(args.base + "parity.html", 1440, 900)
         page.wait_for("window.__parity && (window.__parity.model || window.__parity.modelError) "
-                      "&& (window.__parity.features || window.__parity.featureError)", 120)
+                      "&& (window.__parity.features || window.__parity.featureError) "
+                      "&& (window.__parity.reasons || window.__parity.reasonsError)", 180)
         par = page.js("window.__parity")
         m, f = par.get("model", {}), par.get("features", {})
         check("parity: model (browser vs Python)", bool(m.get("ok")),
@@ -136,6 +141,12 @@ def main():
         check("parity: JS feature construction end to end", bool(f.get("ok")),
               f"n={f.get('n')} feature mismatches={f.get('featMismatch')} max|d|={f.get('max')} "
               f"flips={f.get('flips')} err={par.get('featureError')}")
+
+        r = par.get("reasons", {})
+        check("parity: plain-English reasons word for word (Python vs browser)", bool(r.get("ok")),
+              f"n={r.get('n')} referred={r.get('referred')} sentences={r.get('nReasons')} "
+              f"mismatches={r.get('mismatches')} first={json.dumps(r.get('first'))[:300]} "
+              f"err={par.get('reasonsError')}")
 
         # ── index.html ────────────────────────────────────────────
         page.goto(args.base, 1440, 900)
@@ -158,7 +169,10 @@ def main():
             return { p, shown: document.getElementById('r-pd').textContent,
                      rec: document.getElementById('r-rec').innerText,
                      drivers: document.querySelectorAll('#r-drivers .bar-row').length,
-                     changes: document.getElementById('r-changes').innerText };
+                     changes: document.getElementById('r-changes').innerText,
+                     exTitle: document.getElementById('r-ex-title').textContent,
+                     exReasons: document.querySelectorAll('#r-ex-reasons li').length,
+                     exNext: document.querySelectorAll('#r-ex-next li').length };
         })()""")
         # Python champion, same applicant (dashboard/API parity test): 0.031834
         check("assessment: score equals Python champion", abs(res["p"] - 0.031834) < 5e-6,
@@ -166,6 +180,10 @@ def main():
         check("assessment: comparison and what-if rendered",
               res["drivers"] > 0 and len(res["changes"]) > 0,
               f"{res['drivers']} driver bars; changes: {res['changes'][:120]!r}")
+        check("assessment: plain-English explanation rendered",
+              res["exTitle"] == "Why this application was not referred"
+              and res["exReasons"] > 0 and res["exNext"] > 0,
+              f"title {res['exTitle']!r}; {res['exReasons']} reasons; {res['exNext']} next steps")
         page.screenshot(os.path.join(args.out, "index_desktop.png"))
         ov = page.overflow()
         check("assessment: no overflow at 1440px", not ov["pageScrolls"] and not ov["offenders"], str(ov))

@@ -1,6 +1,11 @@
 # Sentinel Credit - Baseline Model Training Summary
 
-**Report status:** v1 baseline, feature set frozen — cutoff recalibration pending
+> **Current champion: v1.1 (14th October 2026).** This report documents the **August 2026 v1** champion (14 features, cutoff 0.0671) and is kept as the historical record of it. v1.1 removed `pct_late_payments` for leaking outcome information and is otherwise the same model (identical hyperparameters, split and calibration). See [Decision 27](engineering_decision_log.md). Live v1.1 evidence is regenerated under `reports/`; v1's is archived in `reports/_archive_v1_14f_2026-08/`.
+>
+> v1.1 training: `train_baseline_models.py --pin-xgboost-params` from v1's metadata (learning rate 0.01, depth 3, 300 trees), 13 features. XGBoost Gini 0.5618 stratified, 0.5611 temporal; Logistic Regression 0.4896, Decision Tree 0.5486 (stratified).
+
+
+**Report status:** Historical: describes the v1 champion, superseded by v1.1 on 14 October 2026 (see the box above).
 **Dataset version:** `full_horizon_2025_v1`
 **Feature-set label:** `14_features_v1_frozen`
 **Model version:** `v1`

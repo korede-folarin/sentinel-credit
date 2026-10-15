@@ -34,8 +34,8 @@
 
   <section style="margin-top:32px">
     <h2>Assess an application</h2>
-    <p class="note" style="margin-top:0">A new applicant's profile and one order. Starting values
-      are the training population's medians.</p>
+    <p class="note" style="margin-top:0">A new applicant's profile and one order. The form starts
+      at the typical applicant (training medians); change any detail and assess.</p>
     <form id="form" class="panel" novalidate>
       <div class="grid two">
         <div>
@@ -91,11 +91,22 @@
     </div>
     <div class="banner hidden" id="r-range" style="margin-top:14px"></div>
 
+    <div class="panel explain" style="margin-top:18px">
+      <h2 id="r-ex-title" style="font-size:1.6rem"></h2>
+      <p id="r-ex-intro" style="margin:6px 0 10px"></p>
+      <ol id="r-ex-reasons" class="reasons"></ol>
+      <p id="r-ex-link" class="note" style="margin:6px 0"></p>
+      <p id="r-ex-other" style="margin:6px 0"></p>
+      <h3 style="margin-top:18px">Next steps</h3>
+      <ul id="r-ex-next" class="next"></ul>
+      <p class="note" id="r-ex-method" style="margin-bottom:0"></p>
+    </div>
+
     <div class="grid half" style="margin-top:28px">
       <div class="panel">
-        <h3>Compared with a typical applicant</h3>
-        <p class="note" style="margin-top:0">How much each input moves this applicant's probability
-          of default, against the same input set to the training median (category: the most common).</p>
+        <h3>Detail: compared with a typical applicant</h3>
+        <p class="note" style="margin-top:0">How much each detail moves the probability of default,
+          against the same detail set to the typical applicant's (the reasons above use these).</p>
         <div class="bars" id="r-drivers"></div>
       </div>
       <div class="panel">

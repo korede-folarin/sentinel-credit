@@ -70,6 +70,8 @@ Their outcome is **unknown**, not negative.
 
 The `outcome_observed` flag records this explicitly.
 
+> **Note (15th October 2026).** Since the observation horizon was extended (Decision 16, `data_end_date` 2025-12-31), every approved loan reaches an observed outcome: right-censoring is 0%. The flag and the handling above remain, as a safeguard.
+
 A transaction has an observed outcome only if:
 
 * it defaulted, or

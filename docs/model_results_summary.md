@@ -1,5 +1,66 @@
 # Sentinel Credit — Model Results Summary
 
+**Champion:** XGBoost **v1.1**, Platt-calibrated (5-fold `CalibratedClassifierCV`) · **Features:** 13
+**Population:** 41,604 customers with an observed outcome · **Default rate:** 2.72% · **Right-censoring:** 0%
+**Split:** stratified 33,283 train / 8,321 test, plus an out-of-time split (4,857 test)
+**Decision cutoff:** probability of default ≥ **0.0657** → refer for manual review
+**Updated:** 15th October 2026 · Decisions 18, 19, 27 in the [Engineering Decision Log](engineering_decision_log.md)
+
+## Headline results (held-out)
+
+| | Stratified | Out-of-time |
+|---|---:|---:|
+| Gini | 0.5618 | 0.5611 |
+| AUC | 0.7809 | 0.7806 |
+| KS | 0.4712 | 0.4390 |
+| PR-AUC | 0.0909 | 0.0782 |
+| Brier | 0.0254 | 0.0241 |
+| Sent to review at cutoff | 15.9% | 11.9% |
+| Defaults caught (recall) | 57.96% | 40.32% |
+| Precision | 9.90% | 8.65% |
+| Bad rate among those not reviewed | 1.36% | 1.73% |
+
+The riskiest 10% of customers hold 39% of all defaults (lift 3.93×). Gini holds almost exactly
+out of time (0.5618 → 0.5611).
+
+## Three-model benchmark (stratified)
+
+| Model | Gini | AUC | KS | PR-AUC | Brier |
+|---|---:|---:|---:|---:|---:|
+| **XGBoost (champion)** | **0.5618** | **0.7809** | 0.4712 | **0.0909** | **0.0254** |
+| Decision tree | 0.5486 | 0.7743 | 0.4718 | 0.0869 | 0.0255 |
+| Logistic regression | 0.4896 | 0.7448 | 0.4509 | 0.0668 | 0.0258 |
+
+## What changed from v1, and why
+
+v1 (August 2026) had 14 features and cutoff 0.0671 (Gini 0.5656 stratified). The October audit
+found that `pct_late_payments` partly encodes the outcome: "late" also records arrears pay-offs,
+and post-default instalments sit in its denominator. It was removed on validity grounds; the Gini
+cost (−0.004 held-out, 95% CI including zero) is the leak disappearing. v1.1 was promoted through
+an evidence-bound validity override and the cutoff recalibrated (Decision 27).
+
+## Known limitation, stated not hidden
+
+At the cutoff, defaulters with an established credit file (`thin_file_flag = 0`) are all scored
+below it (false-negative rate 100% on both splits), while thin-file customers carry most false
+positives. The model still separates risk within the established-file segment; the shared
+probability scale is the problem. Segment-specific treatment is an open governance decision
+(Decisions 12, 19). Explore it in the public demo's cutoff simulator.
+
+## Where the evidence lives
+
+- Evaluation: `reports/model_comparison_*.csv`, `reports/evaluation/<split>/xgboost/`
+- Cutoff selection: `reports/threshold_selection/`
+- SHAP: `reports/shap/` · Feature governance: `reports/feature_governance/`
+- Removal experiment: `reports/feature_removal/pct_late_payments/`
+
+---
+
+## Superseded: results as of 3rd August 2026 (18-feature model, before the horizon extension)
+
+> Kept as the historical record. These figures predate Decisions 16–19 and 27 (censored
+> population, 18 features, cutoff 0.137) and do not describe any current model.
+
 **Population:** 18,694 modelable · **Bad rate:** 4.26% (796 defaults) · **Features:** 18
 **Split:** stratified (14,955 train / 3,739 test) · **Business cutoff:** 0.137
 **Champion:** XGBoost (`xgboost_v1_20260803`)
@@ -165,6 +226,8 @@ Predicted PD tracks actual default rate closely within each segment — the mode
 ---
 
 ## What's Not Yet Built
+
+> **Historical (3rd August 2026).** Most of these have since been built: champion/challenger promotion and the approval gate (Decisions 21, 23), drift monitoring (Decisions 20, 24, 25) and plain-English customer reasons (Decision 30). See the progress table in the README for current status.
 
 | Item | Status |
 |---|---|
