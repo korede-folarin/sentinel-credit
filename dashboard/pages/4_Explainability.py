@@ -60,6 +60,56 @@ theme.note("Day-zero customer attributes lead; no exposure-time feature remains 
            "(Decisions 14, 18). pct_late_payments was removed in v1.1 for leaking outcome "
            "information (Decision 27).")
 
+# ── WHEN THE MODEL ASKS FOR A PERSON (Decision 31) ────────────
+theme.section("When the model asks for a person · held-out customers")
+_ev_path = os.path.join(os.path.dirname(REPORTS_DIR), "website", "public", "data",
+                        "review_evidence.json")
+if not os.path.exists(_ev_path):
+    missing_evidence("models/build_explanation_rules.py")
+else:
+    with open(_ev_path, encoding="utf-8") as f:
+        ev = json.load(f)
+    a, b, c = st.columns(3)
+    a.metric("Held-out customers", f"{ev['n_customers']:,}")
+    b.metric("Risk officer review required", f"{ev['review_required']:,}")
+    c.metric("Review rate", f"{ev['review_share']:.1%}")
+
+    def _pct(x):
+        return "<0.1%" if 0 < x < 0.001 else f"{x:.1%}"
+
+    left, right = st.columns(2, gap="large")
+    with left:
+        st.markdown("**How often each check fires**")
+        st.dataframe(
+            {"Outcome": ["No issue: no review" if r["error_type"] == "none" else r["label"]
+                         for r in ev["by_error_type"]],
+             "Customers": [f"{r['n']:,}" for r in ev["by_error_type"]],
+             "Share": [_pct(r["share"]) for r in ev["by_error_type"]],
+             "Later defaulted": [r["defaults"] for r in ev["by_error_type"]]},
+            use_container_width=True, hide_index=True)
+    with right:
+        st.markdown("**Which detail the decision rests on**")
+        rows = ev["single_detail_by_detail"]
+        st.dataframe(
+            {"Detail": [r["name"] for r in rows],
+             "Recommendation": ["Refer" if r["recommendation"] == "refer" else "Pass" for r in rows],
+             "Customers": [r["n"] for r in rows],
+             "Median PD": [_pct(r["median_probability"]) if "median_probability" in r else "—"
+                           for r in rows],
+             "If detail typical": [_pct(r["median_probability_if_typical"])
+                                   if "median_probability_if_typical" in r else "—" for r in rows],
+             "Share of effect": [f"{r['median_share_of_effect']:.0%}"
+                                 if "median_share_of_effect" in r else "—" for r in rows]},
+            use_container_width=True, hide_index=True)
+    theme.note(
+        "The three Decision 31 checks (likely data-input error, the known blind spot for full "
+        "credit files, a recommendation resting on one detail) run on every held-out customer. "
+        "'Rests on one detail' means setting that detail alone to typical would change the "
+        "recommendation and it carries at least 60% of the total effect: only average order value "
+        "(customers who pass only because their orders are small) and a thin credit file "
+        "(customers referred only because of it) ever do. PD columns are group medians. "
+        f"Model {ev['model_version']}, rules {ev['rules_version']}; same file as the public site.")
+
 # ── LOCAL CASES ───────────────────────────────────────────────
 theme.section("Case studies · individual customers")
 cases = []
