@@ -261,6 +261,33 @@ explainability:
   additivity_tolerance: 0.0001
   mlflow_artifact_path: "shap"
 
+  # Decision 31: error-type checks, explanation genre, risk officer flag.
+  # The numbers below are OUR CHOICES, not research findings. Every
+  # data-derived limit (training ranges, consistency limits, the blind-spot
+  # score line, the "people like you" bands) is computed from the champion's
+  # training partition by models/build_explanation_rules.py and written to
+  # serving/explanation_rules.json. Re-run it after any promotion.
+  decision_review:
+    rules_version: "1.0"
+    # Established-file applicants (thin_file_flag = 0) are the model's known
+    # blind spot: at the cutoff their false-negative rate is 100%. Those
+    # scoring at or above this percentile of their own group's training
+    # out-of-fold scores are sent for risk officer review.
+    blind_spot_percentile: 0.95
+    # Over-reliance: the recommendation rests on one detail when setting
+    # that detail alone to typical would change the recommendation AND it
+    # carries at least this share of the total absolute effect.
+    single_detail_share: 0.6
+    # The data-input check flags model inputs outside the training range.
+    # Training never held exactly £0 savings (min £7.92) or £0 commitments
+    # (min £0.99), yet £0 is a plausible answer, not a typo, so these two
+    # are checked against their training maximum only.
+    no_lower_range_check: ["savings_balance_gbp", "existing_monthly_obligations_gbp"]
+    # Smallest group shown in a "past customers like you" statement.
+    min_group_size: 500
+    # Quantile cut points for continuous features' bands.
+    band_quantiles: [0.2, 0.4, 0.6, 0.8]
+
 
 
 feature_governance:

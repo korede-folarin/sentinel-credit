@@ -150,8 +150,8 @@ if features is not None:
     try:
         with st.spinner("Scoring…"):
             result = scoring.score(features)
-            if "inputs" in context:
-                result["explanation"] = scoring.explain_new(context["inputs"])
+            result["outputs"] = (scoring.explain_new(context["inputs"]) if "inputs" in context
+                                 else scoring.explain_existing(features))
             st.session_state["assessment_result"] = {"result": result, "context": context}
     except Exception as error:  # noqa: BLE001 - shown, never replaced with a made-up score
         st.session_state.pop("assessment_result", None)
@@ -186,24 +186,52 @@ if saved:
         unsafe_allow_html=True,
     )
 
-    ex = res.get("explanation")
-    if ex:
+    outputs = res.get("outputs")
+    if outputs:
         esc = html.escape
+        ex, off = outputs["explanation"], outputs["risk_officer"]
+        flag = ""
+        if ex["review"]["required"]:
+            flag = (f"<div style='border:1px solid {theme.AMBER};border-left:3px solid {theme.AMBER};"
+                    f"padding:0.6rem 0.9rem;margin:0.3rem 0 0.8rem'><b style='color:{theme.AMBER}'>"
+                    f"{esc(ex['review']['heading'])}</b><div>{esc(ex['review']['text'])}</div></div>")
         items = "".join(f"<li>{esc(r['text'])}</li>" for r in ex["reasons"])
+        data = "".join(f"<li>{esc(d)}</li>" for d in ex["data"])
         steps = "".join(f"<li>{esc(s)}</li>" for s in ex["next_steps"])
         st.markdown(
             f"""<div style="background:{theme.GRAPHITE};border:1px solid {theme.GRAPHITE_LINE};border-left:3px solid {theme.GOLD};padding:1.2rem 1.4rem;margin-top:1rem">
+              <div class="sc-kicker">For the applicant</div>
+              {flag}
               <div style="font-family:'Cormorant Garamond', Georgia, serif;font-size:1.5rem;font-weight:600">
                 {esc(ex['title'])}</div>
               <p style="margin:0.4rem 0 0.6rem">{esc(ex['intro'])}</p>
               {'<ol style="margin:0 0 0.4rem 1.2rem">' + items + '</ol>' if items else ''}
               {'<div class="sc-note">' + esc(ex['link']) + '</div>' if ex['link'] else ''}
               {'<p style="margin:0.5rem 0">' + esc(ex['other']) + '</p>' if ex['other'] else ''}
+              {'<div class="sc-note" style="margin-top:0.5rem">' + esc(ex['data_intro']) + '</div>' if ex['data_intro'] else ''}
+              {'<ul style="margin:0.2rem 0 0.4rem 1.2rem">' + data + '</ul>' if data else ''}
               <div class="sc-kicker" style="margin-top:0.8rem">Next steps</div>
               <ul style="margin:0.2rem 0 0.5rem 1.2rem">{steps}</ul>
               <div class="sc-note">{esc(ex['method'])}</div>
             </div>""",
             unsafe_allow_html=True)
+
+        theme.section("For a risk officer")
+        st.markdown(
+            theme.pill("Risk officer review required", "warning") if off["review_required"]
+            else theme.pill("No review flag", "positive"), unsafe_allow_html=True)
+        st.markdown(f"**{off['error_label']}**  \n{off['genre_reason']}"
+                    + (f"  \n{off['divergence_note']}" if off["divergence_note"] else ""))
+        st.dataframe({"Check": [c["name"] for c in off["checks"]],
+                      "Result": ["Flag" if c["triggered"] else "Clear" for c in off["checks"]],
+                      "Detail": [c["detail"] for c in off["checks"]]},
+                     use_container_width=True, hide_index=True)
+        theme.note("Limits come from the training data; the blind-spot percentile and the "
+                   "single-detail share are declared choices (Decision 31). Review required is a "
+                   "statement, not a routing.")
+        with st.expander("Decision record"):
+            st.json({**outputs["decision_record"],
+                     "calibrated_probability": round(res["probability"], 6)})
 
     if res["drivers"] is not None:
         theme.section("What drove this score")

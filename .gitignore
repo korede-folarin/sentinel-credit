@@ -71,6 +71,8 @@ models/artifacts_*/
 !website/public/data/cutoff_simulator.json
 !website/public/model/typical_applicant.json
 !website/public/model/reason_templates.json
-# Plain-English reason wording and the typical applicant (Decision 30)
+# Reason wording, typical applicant, decision-check limits (Decisions 30, 31): aggregates only
 !serving/reason_templates.json
 !serving/typical_applicant.json
+!serving/explanation_rules.json
+!website/public/model/explanation_rules.json

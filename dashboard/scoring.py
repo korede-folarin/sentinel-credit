@@ -16,9 +16,10 @@ Context added to a score is drawn only from real evidence:
 - drivers: SHAP values from the champion's explanation model (raw risk
   margin, not the calibrated probability; stated wherever shown);
 - range checks: inputs outside the training population's observed range;
-- explanation (new applicants): plain-English reasons from
+- outputs (new applicants and existing customers): the applicant's
+  explanation, the risk officer checks and the decision record, from
   serving/reasons.py, the same module and wording the API and the public
-  site use (Decision 30).
+  site use (Decisions 30, 31).
 """
 
 import json
@@ -37,11 +38,14 @@ if PROJECT_ROOT not in sys.path:
 from serving.features import (  # noqa: E402
     MERCHANT_CATEGORIES, PROFILE_FIELDS, build_new_customer_features,
 )
-from serving.reasons import explain as _explain_reasons, load_typical  # noqa: E402
+from serving.reasons import (  # noqa: E402
+    explain as _explain_new, explain_existing as _explain_existing, load_typical,
+)
 from utils import load_config, query_db  # noqa: E402
 
 __all__ = ["MERCHANT_CATEGORIES", "PROFILE_FIELDS", "champion", "score",
-           "lookup_customer", "training_ranges", "explain_new", "typical_applicant"]
+           "lookup_customer", "training_ranges", "explain_new", "explain_existing",
+           "typical_applicant"]
 
 
 def _package_dir() -> str:
@@ -147,21 +151,28 @@ def typical_applicant() -> dict:
     return load_typical()
 
 
-def explain_new(inputs: dict) -> dict:
-    """Plain-English reasons for a new applicant (Decision 30).
-
-    `inputs` holds the PROFILE_FIELDS plus order_value_gbp, n_instalments and
-    merchant_category. Each input is compared with the typical applicant by
-    changing that one input and re-scoring with the champion.
-    """
+def _score_many():
     champ = champion()
     feats = champ["features"]
 
     def score_many(feature_dicts):
         frame = pd.DataFrame([{f: d[f] for f in feats} for d in feature_dicts])
         return champ["model"].predict_proba(frame)[:, 1].tolist()
+    return score_many
 
+
+def explain_new(inputs: dict) -> dict:
+    """Three outputs for a new applicant (Decisions 30, 31).
+
+    `inputs` holds the PROFILE_FIELDS plus order_value_gbp, n_instalments and
+    merchant_category. Each input is compared with the typical applicant by
+    changing that one input and re-scoring with the champion.
+    """
     cutoff = float(load_config()["model"]["business_cutoff"])
-    explanation = _explain_reasons(inputs, score_many, cutoff)
-    explanation.pop("probability", None)   # the score itself is reported separately
-    return explanation
+    return _explain_new(inputs, _score_many(), cutoff)
+
+
+def explain_existing(features: dict) -> dict:
+    """Three outputs for an existing customer, from their 13 model features."""
+    cutoff = float(load_config()["model"]["business_cutoff"])
+    return _explain_existing(features, _score_many(), cutoff)

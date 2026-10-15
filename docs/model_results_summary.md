@@ -227,7 +227,7 @@ Predicted PD tracks actual default rate closely within each segment — the mode
 
 ## What's Not Yet Built
 
-> **Historical (3rd August 2026).** Most of these have since been built: champion/challenger promotion and the approval gate (Decisions 21, 23), drift monitoring (Decisions 20, 24, 25) and plain-English customer reasons (Decision 30). See the progress table in the README for current status.
+> **Historical (3rd August 2026).** Most of these have since been built: champion/challenger promotion and the approval gate (Decisions 21, 23), drift monitoring (Decisions 20, 24, 25) and the audience-specific explanation layer: plain-English reasons, error-type checks, risk officer flag and decision record (Decisions 30, 31). See the progress table in the README for current status.
 
 | Item | Status |
 |---|---|

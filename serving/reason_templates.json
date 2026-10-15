@@ -1,60 +1,101 @@
 {
-  "_about": "Plain-English reason wording for a new applicant (Decision 30). Single source of truth for the API (serving/app.py), the dashboard (dashboard/scoring.py) and the public site (website/public/assets/reasons.js). Each input has wording for when the applicant's value is lower or higher than the typical applicant's. Wording describes what the model links to risk; it never claims cause and never mentions the review cutoff.",
+  "_about": "Plain-English wording for Decisions 30 and 31. Single source of truth for the API (serving/app.py), the dashboard (dashboard/scoring.py) and the public site (website/public/assets/reasons.js). Each detail has wording for when the applicant's value is lower or higher than the typical applicant's. Wording describes what the model links to risk; it never claims cause and never mentions the review cutoff.",
   "fields": {
     "monthly_income_gbp": {
+      "name": "Monthly income",
       "label": "your monthly income",
       "lower": "Your monthly income of {value} is lower than is typical for applicants ({typical}).",
       "higher": "Your monthly income of {value} is higher than is typical for applicants ({typical})."
     },
     "existing_monthly_obligations_gbp": {
+      "name": "Existing monthly obligations",
       "label": "your existing monthly repayments",
       "lower": "You pay {value} a month towards other commitments, less than is typical ({typical}).",
       "higher": "You already pay {value} a month towards other commitments, more than is typical ({typical})."
     },
     "savings_balance_gbp": {
+      "name": "Savings balance",
       "label": "your savings",
       "lower": "Your savings of {value} are lower than is typical ({typical}), leaving less to fall back on if money gets tight.",
       "higher": "Your savings of {value} are higher than is typical ({typical})."
     },
     "credit_score": {
+      "name": "Credit score",
       "label": "your credit score",
       "lower": "Your credit score of {value} is lower than is typical for applicants ({typical}).",
       "higher": "Your credit score of {value} is higher than is typical for applicants ({typical})."
     },
     "months_credit_history": {
+      "name": "Months of credit history",
       "label": "the length of your credit history",
       "lower": "Your credit history covers {value}, shorter than is typical ({typical}).",
       "higher": "Your credit history covers {value}, longer than is typical ({typical})."
     },
     "num_credit_accounts": {
+      "name": "Credit accounts",
       "label": "your number of credit accounts",
       "lower": "You have {value}, fewer than is typical ({typical}).",
       "higher": "You have {value}, more than is typical ({typical})."
     },
     "num_defaults_24m": {
+      "name": "Defaults in last 24 months",
       "label": "your recent repayment record",
       "lower": "Your credit file shows {value} in the last two years, fewer than is typical ({typical}).",
       "higher": "Your credit file shows {value} in the last two years."
     },
     "thin_file_flag": {
+      "name": "Thin credit file",
       "label": "the depth of your credit file",
       "lower": "Your credit file has a full borrowing history.",
       "higher": "Your credit file has limited borrowing history, so there is less evidence of how you manage repayments."
     },
     "order_value_gbp": {
+      "name": "Order value",
       "label": "the size of this order",
       "lower": "This order of {value} is smaller than a typical order ({typical}).",
       "higher": "This order of {value} is larger than a typical order ({typical})."
     },
     "n_instalments": {
+      "name": "Instalments",
       "label": "the repayment plan",
       "lower": "You chose to repay over {value}, fewer than is typical ({typical}).",
       "higher": "You chose to spread repayments over {value}, more than is typical ({typical})."
     },
     "merchant_category": {
+      "name": "Merchant category",
       "label": "the type of purchase",
       "lower": "This purchase is in the {value} category.",
       "higher": "This purchase is in the {value} category, which the model links to more missed repayments than {typical} purchases."
+    },
+    "max_affordability_ratio": {
+      "name": "Affordability ratio",
+      "label": "your repayments compared with your income",
+      "lower": "Your repayments took up to {value} of your monthly income, less than is typical ({typical}).",
+      "higher": "Your repayments took up to {value} of your monthly income, more than is typical ({typical})."
+    },
+    "avg_order_value_gbp": {
+      "name": "Average order value",
+      "label": "the size of your orders",
+      "lower": "Your orders averaged {value}, smaller than is typical ({typical}).",
+      "higher": "Your orders averaged {value}, larger than is typical ({typical})."
+    },
+    "avg_n_instalments": {
+      "name": "Average instalments",
+      "label": "your repayment plans",
+      "lower": "Your plans averaged {value}, fewer than is typical ({typical}).",
+      "higher": "Your plans averaged {value}, more than is typical ({typical})."
+    },
+    "pct_high_risk_category": {
+      "name": "Share of travel and electronics purchases",
+      "label": "your share of travel and electronics purchases",
+      "lower": "{value} of your purchases were travel or electronics, less than is typical ({typical}).",
+      "higher": "{value} of your purchases were travel or electronics, which the model links to more missed repayments (typical: {typical})."
+    },
+    "pct_medium_risk_category": {
+      "name": "Share of fashion, home and other purchases",
+      "label": "your share of fashion, home and other purchases",
+      "lower": "{value} of your purchases were fashion, home or other goods, less than is typical ({typical}).",
+      "higher": "{value} of your purchases were fashion, home or other goods, more than is typical ({typical})."
     }
   },
   "units": {
@@ -71,6 +112,10 @@
       "defaults"
     ],
     "n_instalments": [
+      "instalment",
+      "instalments"
+    ],
+    "avg_n_instalments": [
       "instalment",
       "instalments"
     ]
@@ -100,5 +145,73 @@
   },
   "max_reasons": 3,
   "max_favourable": 2,
-  "numerical_tolerance": 1e-06
+  "numerical_tolerance": 1e-06,
+  "method": {
+    "new": "Each detail was compared with a typical applicant by changing that one detail and re-scoring with the model.",
+    "existing": "Each detail was compared with a typical customer by changing that one detail and re-scoring with the model."
+  },
+  "review": {
+    "heading": "Risk officer review required",
+    "data_input": "Some details are unusual compared with the data the model learned from: {issues}. A risk officer will check them before anything is decided. If any are wrong, ask for them to be corrected.",
+    "missing_information": "Applicants with a full credit file are a group where the model is known to be less reliable: it rarely marks them as high risk, even though some do fall behind. This application scored among the highest {top}% for that group, so a risk officer will review it.",
+    "overreliance": "The recommendation rests mainly on one detail of the application, so a risk officer will check it rather than rely on the model alone.",
+    "next_step": "A risk officer will review this application before anything is decided. It has not been declined.",
+    "data_only_intro": "Rather than list individual details, here is how past customers like you fared in the data the model learned from.",
+    "data_intro": "Past customers like you, in the data the model learned from:",
+    "issues": {
+      "out_of_range": "{label} of {value}, outside the range seen in that data",
+      "thin_long_history": "a limited credit file but {months} of credit history",
+      "thin_many_accounts": "a limited credit file but {accounts}",
+      "full_short_history": "a full credit file but only {months} of credit history",
+      "full_no_accounts": "a full credit file but {accounts}",
+      "commitments_vs_income": "existing commitments of {obligations} a month against an income of {income}"
+    }
+  },
+  "data": {
+    "band": "Among {n} past customers {condition}, about {k} in every 1,000 fell 90 days or more behind on repayments.",
+    "overall": "Across all {n} past customers the model learned from, about {k} in every 1,000 fell 90 days or more behind on repayments.",
+    "segment": "Among {n} past customers with a full credit file, about {k} in every 1,000 fell 90 days or more behind on repayments.",
+    "segment_top": "Among the {top}% of them the model scored highest, about {k} in every 1,000 did.",
+    "method": "These figures count the {n} past customers in the model's training data, in groups of at least {min_group}. They describe what happened to similar customers, not what will happen to you."
+  },
+  "officer": {
+    "error_labels": {
+      "data_input": "Possible data-input error",
+      "missing_information": "Known blind spot (information the model lacks)",
+      "overreliance": "Recommendation rests on one detail",
+      "none": "No issue detected"
+    },
+    "genre_reasons": {
+      "features": "Features-based explanation: it helps people spot a wrong input (Belton et al. 2025, Decision 7).",
+      "data_centric": "Data-centric explanation, no per-detail attributions: they can hide a model error of this kind (Belton et al. 2025, Decision 7). Human review triggered.",
+      "combination": "Combination explanation: appropriate when no error type is detected (Decision 7)."
+    },
+    "checks": {
+      "data_input": {
+        "name": "Inputs consistent with the training data",
+        "ok": "All inputs inside the training ranges and consistent with each other."
+      },
+      "missing_information": {
+        "name": "Known blind spot: full credit file",
+        "not_applicable": "Not applicable: limited credit file.",
+        "triggered": "Full credit file, score at or above the group's {pct}th-percentile line ({line}).",
+        "ok": "Full credit file, score below the group's {pct}th-percentile line ({line})."
+      },
+      "overreliance": {
+        "name": "Recommendation rests on one detail",
+        "triggered": "{name}: setting it alone to typical would change the recommendation, and it carries most of the total effect.",
+        "ok": "No single detail decides the recommendation."
+      }
+    },
+    "divergence_note": "The model's recommendation is below the review threshold, but a check requires a person to review it."
+  },
+  "record": {
+    "approver_note": "Not recorded: the approval gate does not capture approver identity (Decision 23).",
+    "lineage": [
+      "Decision 27: champion {model_version}, promoted on validity grounds",
+      "Decision 27: business cutoff {cutoff}, PD at or above it refers for review",
+      "Decision 30: plain-English reasons, one input at a time against a typical applicant",
+      "Decision 31: error-type checks, explanation genre and risk officer flag (rules {rules_version})"
+    ]
+  }
 }

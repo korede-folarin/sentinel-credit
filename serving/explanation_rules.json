@@ -1,0 +1,558 @@
+{
+  "_about": "Decision 31 reference limits, computed from the champion's training partition by models/build_explanation_rules.py. Declared choices (percentile, single-detail share, minimum group, band quantiles) come from config.yaml explainability.decision_review and are choices, not findings.",
+  "generated_at": "2026-10-15T17:26:34+01:00",
+  "rules_version": "1.0",
+  "model": {
+    "model_version": "v1.1",
+    "feature_set_label": "13_features_v1_1",
+    "trained_at": "2026-10-14T23:00:21",
+    "cutoff": 0.0657
+  },
+  "choices": {
+    "blind_spot_percentile": 0.95,
+    "single_detail_share": 0.6,
+    "min_group_size": 500,
+    "band_quantiles": [
+      0.2,
+      0.4,
+      0.6,
+      0.8
+    ],
+    "no_lower_range_check": [
+      "existing_monthly_obligations_gbp",
+      "savings_balance_gbp"
+    ]
+  },
+  "n_training_customers": 33283,
+  "ranges": {
+    "monthly_income_gbp": {
+      "min": 673.2,
+      "max": 16512.39,
+      "check_min": true
+    },
+    "existing_monthly_obligations_gbp": {
+      "min": 0.99,
+      "max": 8125.98,
+      "check_min": false
+    },
+    "savings_balance_gbp": {
+      "min": 7.92,
+      "max": 9941.37,
+      "check_min": false
+    },
+    "credit_score": {
+      "min": 300.0,
+      "max": 998.0,
+      "check_min": true
+    },
+    "months_credit_history": {
+      "min": 0.0,
+      "max": 179.0,
+      "check_min": true
+    },
+    "num_credit_accounts": {
+      "min": 0.0,
+      "max": 7.0,
+      "check_min": true
+    },
+    "num_defaults_24m": {
+      "min": 0.0,
+      "max": 2.0,
+      "check_min": true
+    },
+    "thin_file_flag": {
+      "min": 0.0,
+      "max": 1.0,
+      "check_min": true
+    },
+    "max_affordability_ratio": {
+      "min": 0.0067,
+      "max": 1.3338,
+      "check_min": true
+    },
+    "avg_order_value_gbp": {
+      "min": 16.82,
+      "max": 1979.9,
+      "check_min": true
+    },
+    "avg_n_instalments": {
+      "min": 3.0,
+      "max": 12.0,
+      "check_min": true
+    },
+    "pct_high_risk_category": {
+      "min": 0.0,
+      "max": 1.0,
+      "check_min": true
+    },
+    "pct_medium_risk_category": {
+      "min": 0.0,
+      "max": 1.0,
+      "check_min": true
+    }
+  },
+  "consistency": {
+    "thin_file_max_months_credit_history": 23,
+    "thin_file_max_num_credit_accounts": 1,
+    "full_file_min_months_credit_history": 12,
+    "full_file_min_num_credit_accounts": 1,
+    "max_commitments_to_income": 0.5957
+  },
+  "blind_spot": {
+    "segment": "thin_file_flag = 0 (full credit file)",
+    "percentile": 0.95,
+    "line": 0.02225008154287934,
+    "line_text": "2.23%",
+    "segment_max_oof": 0.0510618209838867,
+    "segment_flagged_at_cutoff": 0,
+    "training": {
+      "segment_n": 22982,
+      "segment_defaults": 255,
+      "top_n": 1150,
+      "top_defaults": 21
+    },
+    "heldout": {
+      "segment_n": 5648,
+      "segment_defaults": 61,
+      "top_n": 224,
+      "top_defaults": 7,
+      "segment_max_score": 0.0385194633156061
+    },
+    "text_segment": "Among 22,982 past customers with a full credit file, about 11 in every 1,000 fell 90 days or more behind on repayments.",
+    "text_top": "Among the 5% of them the model scored highest, about 18 in every 1,000 did.",
+    "top_percent": 5
+  },
+  "overall": {
+    "n": 33283,
+    "per_1000": 27,
+    "text": "Across all 33,283 past customers the model learned from, about 27 in every 1,000 fell 90 days or more behind on repayments."
+  },
+  "data_method": "These figures count the 33,283 past customers in the model's training data, in groups of at least 500. They describe what happened to similar customers, not what will happen to you.",
+  "bands": {
+    "monthly_income_gbp": [
+      {
+        "lo": null,
+        "hi": 1500.0,
+        "n": 6656,
+        "per_1000": 23,
+        "text": "Among 6,656 past customers with a monthly income under £1,500, about 23 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1500.0,
+        "hi": 1981.0,
+        "n": 6656,
+        "per_1000": 32,
+        "text": "Among 6,656 past customers with a monthly income from £1,500 to under £1,981, about 32 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1981.0,
+        "hi": 2638.0,
+        "n": 6653,
+        "per_1000": 29,
+        "text": "Among 6,653 past customers with a monthly income from £1,981 to under £2,638, about 29 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 2638.0,
+        "hi": 3733.0,
+        "n": 6661,
+        "per_1000": 26,
+        "text": "Among 6,661 past customers with a monthly income from £2,638 to under £3,733, about 26 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 3733.0,
+        "hi": null,
+        "n": 6657,
+        "per_1000": 24,
+        "text": "Among 6,657 past customers with a monthly income of £3,733 or more, about 24 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "existing_monthly_obligations_gbp": [
+      {
+        "lo": null,
+        "hi": 237.0,
+        "n": 6637,
+        "per_1000": 28,
+        "text": "Among 6,637 past customers with monthly commitments under £237, about 28 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 237.0,
+        "hi": 406.0,
+        "n": 6662,
+        "per_1000": 28,
+        "text": "Among 6,662 past customers with monthly commitments from £237 to under £406, about 28 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 406.0,
+        "hi": 637.0,
+        "n": 6666,
+        "per_1000": 27,
+        "text": "Among 6,666 past customers with monthly commitments from £406 to under £637, about 27 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 637.0,
+        "hi": 1027.0,
+        "n": 6663,
+        "per_1000": 26,
+        "text": "Among 6,663 past customers with monthly commitments from £637 to under £1,027, about 26 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1027.0,
+        "hi": null,
+        "n": 6655,
+        "per_1000": 27,
+        "text": "Among 6,655 past customers with monthly commitments of £1,027 or more, about 27 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "savings_balance_gbp": [
+      {
+        "lo": null,
+        "hi": 445.0,
+        "n": 6662,
+        "per_1000": 71,
+        "text": "Among 6,662 past customers with savings under £445, about 71 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 445.0,
+        "hi": 1409.0,
+        "n": 6650,
+        "per_1000": 33,
+        "text": "Among 6,650 past customers with savings from £445 to under £1,409, about 33 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1409.0,
+        "hi": 3000.0,
+        "n": 6657,
+        "per_1000": 14,
+        "text": "Among 6,657 past customers with savings from £1,409 to under £3,000, about 14 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 3000.0,
+        "hi": 5047.0,
+        "n": 6657,
+        "per_1000": 9,
+        "text": "Among 6,657 past customers with savings from £3,000 to under £5,047, about 9 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 5047.0,
+        "hi": null,
+        "n": 6657,
+        "per_1000": 10,
+        "text": "Among 6,657 past customers with savings of £5,047 or more, about 10 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "credit_score": [
+      {
+        "lo": null,
+        "hi": 481.0,
+        "n": 6635,
+        "per_1000": 65,
+        "text": "Among 6,635 past customers with a credit score under 481, about 65 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 481.0,
+        "hi": 571.0,
+        "n": 6620,
+        "per_1000": 38,
+        "text": "Among 6,620 past customers with a credit score from 481 to under 571, about 38 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 571.0,
+        "hi": 709.0,
+        "n": 6674,
+        "per_1000": 13,
+        "text": "Among 6,674 past customers with a credit score from 571 to under 709, about 13 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 709.0,
+        "hi": 854.0,
+        "n": 6670,
+        "per_1000": 9,
+        "text": "Among 6,670 past customers with a credit score from 709 to under 854, about 9 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 854.0,
+        "hi": null,
+        "n": 6684,
+        "per_1000": 12,
+        "text": "Among 6,684 past customers with a credit score of 854 or more, about 12 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "months_credit_history": [
+      {
+        "lo": null,
+        "hi": 14.0,
+        "n": 6379,
+        "per_1000": 64,
+        "text": "Among 6,379 past customers with under 14 months of credit history, about 64 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 14.0,
+        "hi": 34.0,
+        "n": 6915,
+        "per_1000": 40,
+        "text": "Among 6,915 past customers with 14 to under 34 months of credit history, about 40 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 34.0,
+        "hi": 82.0,
+        "n": 6553,
+        "per_1000": 12,
+        "text": "Among 6,553 past customers with 34 to under 82 months of credit history, about 12 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 82.0,
+        "hi": 131.0,
+        "n": 6731,
+        "per_1000": 12,
+        "text": "Among 6,731 past customers with 82 to under 131 months of credit history, about 12 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 131.0,
+        "hi": null,
+        "n": 6705,
+        "per_1000": 10,
+        "text": "Among 6,705 past customers with 131 or more months of credit history, about 10 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "num_credit_accounts": [
+      {
+        "lo": null,
+        "hi": 1.0,
+        "n": 5281,
+        "per_1000": 66,
+        "text": "Among 5,281 past customers with 0 credit accounts, about 66 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1.0,
+        "hi": 2.0,
+        "n": 8288,
+        "per_1000": 41,
+        "text": "Among 8,288 past customers with 1 credit account, about 41 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 2.0,
+        "hi": 3.0,
+        "n": 3274,
+        "per_1000": 9,
+        "text": "Among 3,274 past customers with 2 credit accounts, about 9 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 3.0,
+        "hi": 4.0,
+        "n": 3262,
+        "per_1000": 11,
+        "text": "Among 3,262 past customers with 3 credit accounts, about 11 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 4.0,
+        "hi": 5.0,
+        "n": 3301,
+        "per_1000": 9,
+        "text": "Among 3,301 past customers with 4 credit accounts, about 9 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 5.0,
+        "hi": 6.0,
+        "n": 3314,
+        "per_1000": 13,
+        "text": "Among 3,314 past customers with 5 credit accounts, about 13 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 6.0,
+        "hi": 7.0,
+        "n": 3208,
+        "per_1000": 10,
+        "text": "Among 3,208 past customers with 6 credit accounts, about 10 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 7.0,
+        "hi": null,
+        "n": 3355,
+        "per_1000": 11,
+        "text": "Among 3,355 past customers with 7 or more credit accounts, about 11 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "num_defaults_24m": [
+      {
+        "lo": null,
+        "hi": 1.0,
+        "n": 25661,
+        "per_1000": 18,
+        "text": "Among 25,661 past customers with 0 defaults in the last two years, about 18 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1.0,
+        "hi": 2.0,
+        "n": 3807,
+        "per_1000": 54,
+        "text": "Among 3,807 past customers with 1 default in the last two years, about 54 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 2.0,
+        "hi": null,
+        "n": 3815,
+        "per_1000": 60,
+        "text": "Among 3,815 past customers with 2 or more defaults in the last two years, about 60 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "thin_file_flag": [
+      {
+        "lo": null,
+        "hi": 1.0,
+        "n": 22982,
+        "per_1000": 11,
+        "text": "Among 22,982 past customers with a full credit file, about 11 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 1.0,
+        "hi": null,
+        "n": 10301,
+        "per_1000": 63,
+        "text": "Among 10,301 past customers with a limited credit file, about 63 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "max_affordability_ratio": [
+      {
+        "lo": null,
+        "hi": 0.26,
+        "n": 6722,
+        "per_1000": 20,
+        "text": "Among 6,722 past customers whose repayments took under 26% of income, about 20 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.26,
+        "hi": 0.35,
+        "n": 6518,
+        "per_1000": 26,
+        "text": "Among 6,518 past customers whose repayments took 26% to under 35% of income, about 26 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.35,
+        "hi": 0.44,
+        "n": 6798,
+        "per_1000": 31,
+        "text": "Among 6,798 past customers whose repayments took 35% to under 44% of income, about 31 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.44,
+        "hi": 0.55,
+        "n": 6587,
+        "per_1000": 32,
+        "text": "Among 6,587 past customers whose repayments took 44% to under 55% of income, about 32 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.55,
+        "hi": null,
+        "n": 6658,
+        "per_1000": 26,
+        "text": "Among 6,658 past customers whose repayments took 55% or more of income, about 26 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "avg_order_value_gbp": [
+      {
+        "lo": null,
+        "hi": 340.0,
+        "n": 6532,
+        "per_1000": 12,
+        "text": "Among 6,532 past customers whose orders averaged under £340, about 12 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 340.0,
+        "hi": 510.0,
+        "n": 6756,
+        "per_1000": 28,
+        "text": "Among 6,756 past customers whose orders averaged £340 to under £510, about 28 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 510.0,
+        "hi": 660.0,
+        "n": 6735,
+        "per_1000": 31,
+        "text": "Among 6,735 past customers whose orders averaged £510 to under £660, about 31 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 660.0,
+        "hi": 840.0,
+        "n": 6602,
+        "per_1000": 34,
+        "text": "Among 6,602 past customers whose orders averaged £660 to under £840, about 34 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 840.0,
+        "hi": null,
+        "n": 6658,
+        "per_1000": 31,
+        "text": "Among 6,658 past customers whose orders averaged £840 or more, about 31 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "avg_n_instalments": [
+      {
+        "lo": null,
+        "hi": 4.5,
+        "n": 26346,
+        "per_1000": 25,
+        "text": "Among 26,346 past customers whose plans averaged under 4.5 instalments, about 25 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 4.5,
+        "hi": null,
+        "n": 6937,
+        "per_1000": 37,
+        "text": "Among 6,937 past customers whose plans averaged 4.5 instalments or more, about 37 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "pct_high_risk_category": [
+      {
+        "lo": null,
+        "hi": 0.25,
+        "n": 18542,
+        "per_1000": 22,
+        "text": "Among 18,542 past customers where under 25% of purchases were travel or electronics, about 22 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.25,
+        "hi": 0.5,
+        "n": 6813,
+        "per_1000": 39,
+        "text": "Among 6,813 past customers where 25% to under 50% of purchases were travel or electronics, about 39 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.5,
+        "hi": null,
+        "n": 7928,
+        "per_1000": 30,
+        "text": "Among 7,928 past customers where 50% or more of purchases were travel or electronics, about 30 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ],
+    "pct_medium_risk_category": [
+      {
+        "lo": null,
+        "hi": 0.4,
+        "n": 13055,
+        "per_1000": 26,
+        "text": "Among 13,055 past customers where under 40% of purchases were fashion, home or other goods, about 26 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.4,
+        "hi": 0.5,
+        "n": 1438,
+        "per_1000": 52,
+        "text": "Among 1,438 past customers where 40% to under 50% of purchases were fashion, home or other goods, about 52 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.5,
+        "hi": 0.8,
+        "n": 11856,
+        "per_1000": 31,
+        "text": "Among 11,856 past customers where 50% to under 80% of purchases were fashion, home or other goods, about 31 in every 1,000 fell 90 days or more behind on repayments."
+      },
+      {
+        "lo": 0.8,
+        "hi": null,
+        "n": 6934,
+        "per_1000": 18,
+        "text": "Among 6,934 past customers where 80% or more of purchases were fashion, home or other goods, about 18 in every 1,000 fell 90 days or more behind on repayments."
+      }
+    ]
+  }
+}

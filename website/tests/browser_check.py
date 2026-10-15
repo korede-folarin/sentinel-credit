@@ -6,10 +6,12 @@ running static server (default http://127.0.0.1:8600, i.e.
 `python -m http.server 8600 --directory website/public`). Drives each page
 over the Chrome DevTools Protocol and asserts on real behaviour:
 
-- parity.html: all three checks (model; JS feature construction;
-  plain-English reasons word for word) report pass;
+- parity.html: all three checks (model; JS feature construction; the
+  explanation, risk officer view and decision record word for word,
+  covering every error type) report pass;
 - index.html: a submitted application scores exactly as the Python champion
-  does for the same applicant and shows its plain-English explanation;
+  does for the same applicant and shows its explanation, review flag,
+  risk officer checks and decision record;
   invalid input is rejected with a message;
 - simulator.html: metrics at the configured cutoff equal the saved
   evaluation evidence; comparator buttons move the cutoff;
@@ -143,8 +145,12 @@ def main():
               f"flips={f.get('flips')} err={par.get('featureError')}")
 
         r = par.get("reasons", {})
-        check("parity: plain-English reasons word for word (Python vs browser)", bool(r.get("ok")),
-              f"n={r.get('n')} referred={r.get('referred')} sentences={r.get('nReasons')} "
+        types = r.get("types") or {}
+        check("parity: explanation, risk officer view and record word for word (Python vs browser)",
+              bool(r.get("ok")) and set(types) == {"none", "data_input", "missing_information",
+                                                   "overreliance"},
+              f"n={r.get('n')} referred={r.get('referred')} flagged={r.get('flagged')} types={types} "
+              f"sentences={r.get('nReasons')} "
               f"mismatches={r.get('mismatches')} first={json.dumps(r.get('first'))[:300]} "
               f"err={par.get('reasonsError')}")
 
@@ -172,7 +178,12 @@ def main():
                      changes: document.getElementById('r-changes').innerText,
                      exTitle: document.getElementById('r-ex-title').textContent,
                      exReasons: document.querySelectorAll('#r-ex-reasons li').length,
-                     exNext: document.querySelectorAll('#r-ex-next li').length };
+                     exData: document.querySelectorAll('#r-ex-data li').length,
+                     exNext: document.querySelectorAll('#r-ex-next li').length,
+                     review: !document.getElementById('r-ex-review').classList.contains('hidden'),
+                     reviewText: document.getElementById('r-ex-review-heading').textContent,
+                     checks: document.querySelectorAll('#r-off-checks tr').length,
+                     record: JSON.parse(document.getElementById('r-record').textContent || '{}') };
         })()""")
         # Python champion, same applicant (dashboard/API parity test): 0.031834
         check("assessment: score equals Python champion", abs(res["p"] - 0.031834) < 5e-6,
@@ -180,10 +191,18 @@ def main():
         check("assessment: comparison and what-if rendered",
               res["drivers"] > 0 and len(res["changes"]) > 0,
               f"{res['drivers']} driver bars; changes: {res['changes'][:120]!r}")
-        check("assessment: plain-English explanation rendered",
-              res["exTitle"] == "Why this application was not referred"
-              and res["exReasons"] > 0 and res["exNext"] > 0,
-              f"title {res['exTitle']!r}; {res['exReasons']} reasons; {res['exNext']} next steps")
+        # This applicant has a full credit file and scores above that group's
+        # 95th-percentile line: the known blind spot (Decision 31), so the
+        # explanation is data-centric and a risk officer review is required.
+        check("assessment: explanation, review flag, officer checks and record rendered",
+              res["exTitle"] == "Why this application was not referred" and res["review"]
+              and res["reviewText"] == "Risk officer review required" and res["exData"] == 3
+              and res["exNext"] > 0 and res["checks"] == 3
+              and res["record"].get("error_type") == "missing_information"
+              and res["record"].get("approver_id") is None,
+              f"title {res['exTitle']!r}; review {res['review']} {res['reviewText']!r}; "
+              f"{res['exData']} data lines; {res['checks']} checks; "
+              f"record error_type {res['record'].get('error_type')}")
         page.screenshot(os.path.join(args.out, "index_desktop.png"))
         ov = page.overflow()
         check("assessment: no overflow at 1440px", not ov["pageScrolls"] and not ov["offenders"], str(ov))

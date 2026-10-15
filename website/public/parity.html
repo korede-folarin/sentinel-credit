@@ -46,10 +46,12 @@
   </section>
 
   <section class="panel" style="margin-bottom:24px">
-    <h3>3 · Plain-English reasons</h3>
-    <p class="note" style="margin-top:0">The explanation an applicant reads, built in this browser,
-      against the text the Python service (serving/reasons.py) produced for the same applications.
-      Must match word for word.</p>
+    <h3>3 · Explanations, risk officer view and decision record</h3>
+    <p class="note" style="margin-top:0">All three outputs (the applicant's explanation, the risk
+      officer's checks and the decision record) built in this browser, against what the Python service
+      (serving/reasons.py) produced for the same applications. Must match word for word. Every fifth
+      application runs with a lowered, test-only single-detail share so that check's wording is covered
+      (at the live share it cannot fire for a new applicant; Decision 31).</p>
     <table class="data" id="t-reasons"><tr><td>Status</td><td>Running…</td></tr></table>
   </section>
 
@@ -67,7 +69,7 @@
 <script src="vendor/onnxruntime-web-1.19.2/ort.min.js"></script>
 <script type="module">
 import { loadModel, buildFeatures, scoreMany } from "./assets/model.js";
-import { effects, buildReasons, loadReasonFiles } from "./assets/reasons.js";
+import { effects, buildReasons, review, featuresOf, loadReasonFiles } from "./assets/reasons.js";
 const MAX_ABS_DIFF = 1e-5;
 const pill = ok => `<span class="pill ${ok ? "ok" : "refer"}">${ok ? "Pass" : "Fail"}</span>`;
 const sci = x => x === 0 ? "0" : x.toExponential(2);
@@ -133,28 +135,34 @@ window.__parity = {};
       ["Largest probability difference", sci(max)], ["Decisions changed", flips]]);
   } catch (e) { table("t-features", [["Status", `Error: ${e.message}`]]); window.__parity.featureError = String(e); }
 
-  // 3 · plain-English reasons, word for word
+  // 3 · the three explanation outputs, word for word (Decisions 30, 31)
   try {
     const ex = await fetch("model/feature_examples.json").then(r => r.json());
-    const { templates, typical } = await loadReasonFiles();
+    const { templates, typical, rules } = await loadReasonFiles();
     let mismatches = 0, first = null, nReasons = 0;
+    const types = {};
     for (const e of ex.examples) {
       const inputs = { ...e.profile, order_value_gbp: e.order_value_gbp,
                        n_instalments: e.n_instalments, merchant_category: e.merchant_category };
+      const r = e.rules_override ? { ...rules, choices: { ...rules.choices, ...e.rules_override } } : rules;
       const [p, eff] = await effects(inputs, typical);
-      const got = buildReasons(inputs, typical, eff, p >= contract.cutoff, templates);
-      nReasons += got.reasons.length;
-      if (JSON.stringify(got) !== JSON.stringify(e.expected_reasons)) {
+      const reasons = buildReasons(inputs, typical, eff, p >= contract.cutoff, templates);
+      const got = review(inputs, featuresOf(inputs), p, eff, reasons, contract.cutoff, templates, r);
+      nReasons += got.explanation.reasons.length + got.explanation.data.length;
+      types[got.risk_officer.error_type] = (types[got.risk_officer.error_type] || 0) + 1;
+      if (JSON.stringify(got) !== JSON.stringify(e.expected_outputs)) {
         mismatches++;
-        if (!first) first = { expected: e.expected_reasons, got };
+        if (!first) first = { expected: e.expected_outputs, got };
       }
     }
     const ok = mismatches === 0;
-    const referred = ex.examples.filter(e => e.expected_reasons.decision === "refer").length;
-    window.__parity.reasons = { ok, n: ex.examples.length, mismatches, referred, nReasons, first };
-    table("t-reasons", [["Status", pill(ok)], ["Explanations compared", ex.examples.length.toLocaleString()],
-      ["Of which referred for review", referred], ["Reason sentences compared", nReasons],
-      ["Explanations that differ", mismatches]]);
+    const referred = ex.examples.filter(e => e.expected_outputs.explanation.decision === "refer").length;
+    const flagged = ex.examples.filter(e => e.expected_outputs.risk_officer.review_required).length;
+    window.__parity.reasons = { ok, n: ex.examples.length, mismatches, referred, flagged, nReasons, types, first };
+    table("t-reasons", [["Status", pill(ok)], ["Applications compared", ex.examples.length.toLocaleString()],
+      ["Of which referred for review", referred], ["Risk officer review required", flagged],
+      ["Error types covered", Object.entries(types).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(" · ")],
+      ["Sentences compared", nReasons], ["Outputs that differ", mismatches]]);
   } catch (e) { table("t-reasons", [["Status", `Error: ${e.message}`]]); window.__parity.reasonsError = String(e); }
 
   // Full-population evidence from the export (Python onnxruntime)

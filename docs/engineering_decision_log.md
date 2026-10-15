@@ -672,6 +672,17 @@ dashboard and the public site. Error-type detection, genre selection,
 the regulatory output and existing-customer explanations are still not
 built.
 
+**Update, 15th October 2026 (Decision 31): built.**
+- Three error types are detected (data input, missing information,
+  over-reliance), with rules computed from the training data and
+  thresholds declared in config.
+- The genre is chosen to match. A detected issue means "Risk officer
+  review required", stated rather than routed.
+- Three outputs are returned for new applicants and existing customers
+  alike: applicant, risk officer, decision record.
+- Still not built: an approver identity in the record (Decision 23),
+  and user testing of the genres.
+
 *With explainability producing three audience
 outputs, the next challenge was ensuring every
 model version and governance decision was
@@ -4066,7 +4077,7 @@ learned behaviour on synthetic data, not a wording error. It is
 recorded here rather than hidden, and is a candidate for the next
 model review.
 
-### Not built (remaining Decision 7 scope)
+### Not built (remaining Decision 7 scope; built in Decision 31 the same day)
 - **Error-type detection and genre selection.** Every applicant gets
   the features-based genre.
 - **Existing customers.** Their features are lifetime behaviour
@@ -4078,6 +4089,130 @@ model review.
   chart and model version.
 - **Interactions.** One-at-a-time effects ignore them, which the method
   line under every explanation states.
+
+## Decision 31 — Decision 7 Completed: Error-Type Checks, Genre Selection, Three Outputs
+
+### Challenge
+Decision 30 built the applicant's plain-English reasons. It left the rest
+of Decision 7 unbuilt:
+- detect the error type and choose the explanation genre to match;
+- a risk officer output;
+- a regulatory record;
+- explanations for existing customers.
+
+The owner set the terms on 15th October 2026:
+- **No routing.** When the model needs a person, the output states
+  "Risk officer review required". Nothing is sent anywhere.
+- **Choices are allowed if declared.** Where evidence cannot fix a
+  number, we choose it, put it in config and say so, as with the
+  review-capacity cutoff (Decision 19).
+
+### Decision
+One module (`serving/reasons.py`) returns three outputs for every
+assessment, for both new applicants and existing customers:
+- **explanation**, for the applicant, in the genre matched to the error
+  type, with the review flag when a check fires;
+- **risk_officer**: error type, genre and why, the three checks with
+  details, and divergence (the model passes it but a check needs a
+  person);
+- **decision_record**: model identity, cutoff, methods, rules version,
+  lineage. The approver is `null`, with the note that the approval gate
+  records no approver identity (Decision 23).
+
+**Three checks, in priority order** (Belton et al. 2025's scenarios):
+
+| Check | Fires when | Limit and source | Genre |
+|---|---|---|---|
+| 1. Data input | A model feature is outside its training range, or a combination never seen in training occurs: a limited file with more than 23 months of history or more than 1 account; a full file with under 12 months or 0 accounts; commitments above 59.57% of income | All computed from the training partition | Features-based: the applicant's own values, so a wrong input is easy to spot |
+| 2. Missing information (known blind spot) | Full credit file, and PD at or above the group's 95th percentile of training out-of-fold scores (line 2.23%) | Percentile: **declared choice**. Line: training OOF | Data-centric: how similar past customers fared; no per-detail attributions |
+| 3. Over-reliance | One detail decides the recommendation on its own (setting it alone to typical flips it) **and** carries at least 60% of the total absolute effect | Share: **declared choice** | Data-centric |
+| None | — | — | Combination: reasons plus one "past customers like you" line |
+
+Any check firing means **risk officer review required**. Decision 7
+named human review only for missing information. Extending it to the
+other two error types is our choice, made because both are cases where
+the model's output should not stand alone.
+
+**Why the blind spot is a real "missing information" case** (evidence):
+- Full-file customers never reach the cutoff. The highest training
+  out-of-fold score is 5.11% against a 6.57% cutoff; the highest
+  held-out score is 3.85%.
+- So the model's false-negative rate on this group is 100% at the
+  cutoff (Decision 27's stated limitation).
+- Within the group the model still ranks risk:
+
+| Full credit file | Customers | Defaults per 1,000 |
+|---|---:|---:|
+| Training, whole group | 22,982 | 11.1 |
+| Training, top 5% (OOF) | 1,150 | 18.3 |
+| Held-out, whole group | 5,648 | 10.8 |
+| Held-out, top 5% (same line) | 224 | 31.2 |
+
+  The top 5% capture 21 of 255 training defaults in the group and 7 of
+  61 held-out defaults. A person reviewing these applicants is the
+  practical response to a blind spot that the cutoff alone cannot see.
+
+**"Past customers like you" figures** are default rates per band of each
+feature in the training partition:
+- quintile bands, or exact values for discrete features;
+- groups of at least 500 (a declared choice);
+- edges rounded to the precision shown, so the number shown is the
+  number used;
+- text pre-rendered in `serving/explanation_rules.json`.
+They are aggregates; no customer row is published.
+
+**£0 savings and £0 commitments are not data errors** (declared choice).
+The training minimums are £7.92 and £0.99, so a strict range check would
+flag the most ordinary answer. These two fields are checked against
+their training maximum only.
+
+**Existing customers** are explained from their 13 history-based
+features against a typical existing customer: training medians, rounded
+to display precision. Wording was added for the history-based features.
+
+**Files.** `models/build_explanation_rules.py` computes every limit from
+the training partition and writes:
+- `serving/explanation_rules.json`, stamped with the model version;
+- `serving/typical_applicant.json`;
+- copies of both for the site.
+The API refuses to serve explanations if the rules were built for a
+different champion. Declared choices live in `config.yaml` under
+`explainability.decision_review`.
+
+### Evidence
+| Check | Result |
+|---|---|
+| Held-out existing customers (8,321) | 7,986 no issue; 224 blind spot (2.7%); 108 over-reliance (1.3%); 3 data input. Review required for 335 (4.0%) |
+| Site (JavaScript) vs Python, all three outputs word for word: 300 generated applications, every error type covered | 0 differences, 822 sentences |
+| Dashboard vs API, new applicant | three outputs identical |
+| API smoke test: data error, blind spot, typical applicant, two existing customers | expected error type in each case |
+| Deploy gate (headless browser checks) | 14 of 14 pass |
+
+### Finding: over-reliance cannot fire for a new applicant at the live share
+- For a new applicant to reach the cutoff, several details must be
+  risky. The largest single detail then carries at most 42% of the
+  total effect (130 referred generated applicants), below the 60% share.
+- No generated profile within three changes of the typical applicant
+  reached the cutoff at all.
+- The check does fire for existing customers (108 held-out).
+- The share was **not** lowered to make it fire for new applicants;
+  that would be choosing a number to produce a result.
+- To still test the wording, every fifth parity example runs with a
+  test-only share of 0.3. The examples file and the Verification page
+  say so.
+
+### Limits (stated, not hidden)
+- **Genre selection follows Belton et al.'s findings but has not been
+  tested with users here.** Their result came from a randomised trial
+  with 8,860 UK adults; this project has no users to test with.
+- **The thresholds are choices.** Changing them changes who is flagged;
+  re-run the builder after any change.
+- **The checks describe this model on synthetic data.** The blind-spot
+  rule targets this champion's known weakness and must be revisited
+  after any retraining.
+- **Nothing is logged.** The decision record is returned, not stored,
+  and the public site neither stores nor sends it. Persisting records is
+  a separate decision.
 
 ---
 
@@ -4115,6 +4250,7 @@ model review.
 | 28 | One scoring path; evidence-only dashboard | Second feature-construction path would drift; dashboard partly broken | Training-serving skew (D3) | serving/features.py, dashboard/ |
 | 29 | Public demo scores in the browser (ONNX) | Public demo without servers, without drifting from the champion | Two parity checks, fixed pass rule | website/tools/export_model.py, website/public/ |
 | 30 | Plain-English reasons for the applicant | Decision 7's customer output never built | One-at-a-time effects vs typical applicant; word-for-word JS/Python check | serving/reasons.py, serving/reason_templates.json, website/public/assets/reasons.js |
+| 31 | Decision 7 completed: error-type checks, genre, three outputs | Genre selection, risk officer and regulatory outputs, existing customers not built | Blind spot: full-file FNR 100%, top 5% default 2.9x (held-out); limits from training data; declared choices in config | models/build_explanation_rules.py, serving/reasons.py, serving/explanation_rules.json |
 
 ---
 
@@ -4173,3 +4309,4 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.30 | 15th October 2026 | Added Decision 29: the public demo scores in the visitor's browser via ONNX (owner's choice, route 2), gated on parity with the Python champion under a pass rule fixed in advance (max \|Δ\| < 1e-5, zero decision flips). Results: Python onnxruntime on 41,604 customers, max \|Δ\| 5.96e-08, 0 flips; edge cases 8.94e-09, 0 flips; browser onnxruntime-web (WASM) on 1,988 vectors including the 200 nearest the cutoff, 2.53e-08, 0 flips. Conversion lesson recorded (XGBoost feature names stripped on a copy, parity measured against the original). Hosting and cross-browser checks remain open. |
 | 3.31 | 15th October 2026 | Decision 29 addendum. The public demo site is built (live assessment with a typical-applicant comparison and a what-if search, a cutoff and fairness simulator, and a verification page) and hosted on GitHub Pages, chosen by the owner. No third-party requests: onnxruntime-web is bundled after an integrity check, and the fonts are self-hosted. No customer rows are published: test inputs are generated, and the simulator uses aggregated counts that exactly reproduce the saved evaluation. The JavaScript feature port matches `serving/features.py` on 240 generated applications. Three bugs were found and fixed while verifying: a relative wasm path that hung the page, rounding that sent comparator buttons to 0%, and a boundary generator that could never finish. Deploys are gated on 12 headless browser checks, all passing. |
 | 3.32 | 15th October 2026 | Added Decision 30: plain-English reasons for new applicants. Each input is compared one at a time with a typical applicant (training medians), using the calibrated champion. Wording follows Belton et al. 2025: the applicant's own values are shown, the decision rule is never shown and nothing is worded as a cause. It is shared by the API (`explanation` in `/score`), the dashboard and the public site from one template file. JavaScript matches Python word for word on 240 applications (687 sentences, 0 differences), and that check gates deployment (14 of 14 browser checks pass). Decision 7 status changed to partly built. One surprising model behaviour is recorded: larger orders lower the PD slightly. |
+| 3.33 | 15th October 2026 | Added Decision 31, completing Decision 7. Three error-type checks (data input, known blind spot, over-reliance), with limits computed from the training partition by `models/build_explanation_rules.py`. Declared choices in config: 95th-percentile blind-spot line, 60% single-detail share, groups of at least 500, £0 savings and commitments allowed. Explanation genre per Belton et al. 2025. "Risk officer review required" is stated, not routed (owner's direction). Three outputs (applicant, risk officer, decision record) for new and existing customers, in the API, the dashboard and the site. Evidence: full-file customers never reach the cutoff, and their top 5% default 2.9x as often on held-out data. Review rate on held-out customers 4.0%. JavaScript matches Python word for word on 300 applications covering every error type. Finding recorded: over-reliance cannot fire for a new applicant at the live share. |

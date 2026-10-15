@@ -55,6 +55,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from datetime import datetime, timezone
+
 import joblib
 import pandas as pd
 import psycopg2
@@ -63,7 +65,7 @@ from pydantic import BaseModel, Field
 
 from serving.features import PROFILE_FIELDS
 from serving.features import build_new_customer_features as shared_build_features
-from serving.reasons import explain as explain_reasons
+from serving.reasons import explain as explain_reasons, explain_existing, load_rules
 
 warnings.filterwarnings("ignore")
 
@@ -88,6 +90,10 @@ with open(os.path.join(ARTIFACTS_DIR, "champion_metadata.json"), "r", encoding="
     CHAMPION_METADATA = json.load(f)
 
 MODEL = joblib.load(os.path.join(ARTIFACTS_DIR, "champion_calibrated.joblib"))
+
+# The explanation rules are built for one champion (Decision 31); after a
+# promotion or rollback they must be rebuilt before explanations are served.
+RULES_MODEL_VERSION = load_rules()["model"]["model_version"]
 
 app = FastAPI(
 
@@ -226,14 +232,31 @@ class ScoreResponse(BaseModel):
     feature_set_label: str
     feature_values_used: dict
     scope_warning: str
+    risk_officer_review_required: Optional[bool] = Field(
+        default=None,
+        description=("True when a Decision 31 check needs a person: a likely data-input "
+                     "error, the model's known blind spot, or a recommendation resting on "
+                     "one detail. A statement, not a routing: nothing is sent anywhere."),
+    )
     explanation: Optional[dict] = Field(
         default=None,
         description=(
-            "New applicants only: plain-English reasons for the recommendation, "
-            "written for the applicant (Decision 30). Each detail is compared with a "
+            "For the applicant: plain-English reasons (Decision 30) in the genre matched "
+            "to the error type detected (Decision 31). Each detail is compared with a "
             "typical applicant by changing that one detail and re-scoring; this "
             "describes how the model responds, not what causes default."),
     )
+    risk_officer: Optional[dict] = Field(
+        default=None,
+        description="For a risk officer: error type, genre and why, the three checks, divergence.")
+    decision_record: Optional[dict] = Field(
+        default=None,
+        description=("Structured record for audit: model identity, cutoff, methods, rules "
+                     "version, lineage. Approver identity is not recorded (Decision 23)."))
+    effects_vs_typical: Optional[dict] = Field(
+        default=None,
+        description="Change in probability when each detail alone is set to typical (Decision 30).")
+    explanation_note: Optional[str] = None
 
 
 SCOPE_WARNING = (
@@ -351,18 +374,29 @@ def score(request: ScoreRequest):
     calibrated_probability = float(MODEL.predict_proba(X)[0, 1])
     decision = "flag_high_risk" if calibrated_probability >= BUSINESS_CUTOFF else "pass"
 
-    explanation = None
-    if customer_type == "new":
-        raw = {f: getattr(request, f) for f in PROFILE_FIELDS}
-        raw.update(order_value_gbp=request.order_value_gbp, n_instalments=request.n_instalments,
-                   merchant_category=request.merchant_category)
-
+    # Decisions 30-31: three outputs (applicant, risk officer, audit record).
+    outputs, note = {}, None
+    if RULES_MODEL_VERSION != GOV_CFG["model_version"]:
+        note = (f"Explanations unavailable: serving/explanation_rules.json was built for "
+                f"{RULES_MODEL_VERSION}, the champion is {GOV_CFG['model_version']}. "
+                "Re-run models/build_explanation_rules.py.")
+    else:
         def score_many(feature_dicts):
             frame = pd.DataFrame([{f: d[f] for f in MODEL_FEATURES} for d in feature_dicts])
             return MODEL.predict_proba(frame)[:, 1].tolist()
 
-        explanation = explain_reasons(raw, score_many, BUSINESS_CUTOFF)
-        explanation.pop("probability", None)
+        if customer_type == "new":
+            raw = {f: getattr(request, f) for f in PROFILE_FIELDS}
+            raw.update(order_value_gbp=request.order_value_gbp,
+                       n_instalments=request.n_instalments,
+                       merchant_category=request.merchant_category)
+            outputs = explain_reasons(raw, score_many, BUSINESS_CUTOFF)
+        else:
+            outputs = explain_existing(feature_values, score_many, BUSINESS_CUTOFF)
+        outputs["decision_record"].update(
+            customer_id=request.customer_id,
+            calibrated_probability=round(calibrated_probability, 6),
+            generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
 
     return ScoreResponse(
         customer_id=request.customer_id,
@@ -374,7 +408,14 @@ def score(request: ScoreRequest):
         feature_set_label=GOV_CFG["feature_set_label"],
         feature_values_used={f: feature_values[f] for f in MODEL_FEATURES},
         scope_warning=SCOPE_WARNING,
-        explanation=explanation,
+        risk_officer_review_required=(outputs["risk_officer"]["review_required"]
+                                      if outputs else None),
+        explanation=outputs.get("explanation"),
+        risk_officer=outputs.get("risk_officer"),
+        decision_record=outputs.get("decision_record"),
+        effects_vs_typical=({k: round(v, 6) for k, v in outputs["effects"].items()}
+                            if outputs else None),
+        explanation_note=note,
     )
 from serving.docs_ui import add_custom_docs
 

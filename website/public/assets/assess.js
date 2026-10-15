@@ -122,16 +122,38 @@ async function assess(event) {
     $("r-cutoff").textContent = `Review cutoff: probability of default ≥ ${fmtPct(cutoff, 2)}. `
       + "Affordability ratio = (existing obligations + this instalment) ÷ monthly income.";
 
-    // The explanation, written for the applicant
+    // Decision 7 / 30 / 31: three outputs from one shared module
     const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    $("r-ex-title").textContent = ex.title;
-    $("r-ex-intro").textContent = ex.intro;
-    $("r-ex-reasons").innerHTML = ex.reasons.map(r => `<li>${esc(r.text)}</li>`).join("");
-    $("r-ex-reasons").classList.toggle("hidden", !ex.reasons.length);
-    $("r-ex-link").textContent = ex.link;
-    $("r-ex-other").textContent = ex.other;
-    $("r-ex-next").innerHTML = ex.next_steps.map(x => `<li>${esc(x)}</li>`).join("");
-    $("r-ex-method").textContent = ex.method;
+    const x = ex.explanation, off = ex.risk_officer, rec = ex.decision_record;
+    // 1 · for the applicant
+    $("r-ex-review").classList.toggle("hidden", !x.review.required);
+    $("r-ex-review-heading").textContent = x.review.heading;
+    $("r-ex-review-text").textContent = x.review.text;
+    $("r-ex-title").textContent = x.title;
+    $("r-ex-intro").textContent = x.intro;
+    $("r-ex-reasons").innerHTML = x.reasons.map(r => `<li>${esc(r.text)}</li>`).join("");
+    $("r-ex-reasons").classList.toggle("hidden", !x.reasons.length);
+    $("r-ex-link").textContent = x.link;
+    $("r-ex-other").textContent = x.other;
+    $("r-ex-data-intro").textContent = x.data_intro;
+    $("r-ex-data").innerHTML = x.data.map(d => `<li>${esc(d)}</li>`).join("");
+    $("r-ex-data").classList.toggle("hidden", !x.data.length);
+    $("r-ex-next").innerHTML = x.next_steps.map(s => `<li>${esc(s)}</li>`).join("");
+    $("r-ex-method").textContent = x.method;
+    // 2 · for a risk officer
+    $("r-off-pill").innerHTML = off.review_required
+      ? '<span class="pill warn">Risk officer review required</span>'
+      : '<span class="pill ok">No review flag</span>';
+    $("r-off-type").textContent = off.error_label;
+    $("r-off-genre").textContent = off.genre_reason;
+    $("r-off-div").textContent = off.divergence_note;
+    $("r-off-checks").innerHTML = off.checks.map(c => `<tr><td>${esc(c.name)}</td>
+      <td>${c.triggered ? '<span class="pill warn">Flag</span>' : '<span class="pill ok">Clear</span>'}</td>
+      <td>${esc(c.detail)}</td></tr>`).join("");
+    // 3 · the decision record (shown, never stored or sent)
+    const fullRecord = { ...rec, calibrated_probability: Number(ex.probability.toFixed(6)),
+                         generated_at: new Date().toISOString().slice(0, 19) + "Z" };
+    $("r-record").textContent = JSON.stringify(fullRecord, null, 2);
 
     // Comparison with a typical applicant (same effects the reasons use)
     const drivers = Object.entries(ex.effects).map(([f, delta]) => ({ f, delta }))

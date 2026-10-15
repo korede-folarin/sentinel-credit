@@ -333,7 +333,25 @@ The owner ruled that leakage is a valid reason for removal. Choices:
   £1,299 order counted in a referred applicant's favour). The reasons
   report this faithfully. Review it at the next model review.
 - **A32.** Existing customers get no plain-English explanation yet
-  (Decision 30, "Not built").
+  (Decision 30, "Not built"). **Fixed the same day by Decision 31.**
+
+### 15th October 2026 (evening): Decision 7 completed (Decision 31)
+
+**Built (owner's direction: state "Risk officer review required", no
+routing; declared choices allowed):**
+- Error-type checks with limits from the training data, genre
+  selection, and three outputs (applicant, risk officer, decision
+  record), for new applicants and existing customers.
+- The work covers the API, the dashboard and the site. The site matches
+  Python word for word, and that check gates deployment.
+
+**New findings (not fixed):**
+- **A33.** Over-reliance cannot fire for a new applicant at the live
+  60% share, because no single detail dominates once an applicant
+  reaches the cutoff. The share was not lowered to force it.
+- **A34.** The decision record is returned but not stored. Persisting
+  records, and capturing approver identity (Decision 23), are separate
+  decisions for the owner.
 
 ---
 

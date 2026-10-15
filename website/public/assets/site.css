@@ -140,3 +140,11 @@ footer .wrap { padding-top: 24px; padding-bottom: 40px; display: grid; gap: 8px;
 ol.reasons { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; font-size: 1rem; }
 ol.reasons li::marker { color: var(--gold); font-weight: 600; }
 ul.next { margin: 0 0 10px; padding-left: 1.2em; color: var(--stone); display: grid; gap: 4px; }
+.review-flag { border: 1px solid var(--amber); border-left: 3px solid var(--amber);
+               background: rgba(196,154,85,.10); padding: 10px 14px; margin: 6px 0 14px; }
+.review-flag b { color: var(--amber); letter-spacing: .04em; }
+ul.datactx { margin: 0 0 6px; padding-left: 1.2em; display: grid; gap: 6px; }
+table.checks td { vertical-align: top; font-size: .84rem; }
+pre.record { background: var(--charcoal); border: 1px solid var(--line); padding: 12px; margin: 0;
+             font: 12px/1.5 ui-monospace, Consolas, monospace; color: var(--stone);
+             white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
