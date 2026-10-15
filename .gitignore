@@ -76,3 +76,4 @@ models/artifacts_*/
 !serving/typical_applicant.json
 !serving/explanation_rules.json
 !website/public/model/explanation_rules.json
+!website/public/data/review_evidence.json

@@ -25,6 +25,11 @@ The declared choices (percentile, single-detail share, minimum group,
 band quantiles) come from config.yaml explainability.decision_review.
 They are choices, not findings; see Decision 31.
 
+website/public/data/review_evidence.json
+    How often each check fires on the champion's held-out test customers,
+    and which details the "rests on one detail" cases rest on. Aggregates
+    only (counts, rates, medians over groups); no customer row.
+
 Usage:  python models/build_explanation_rules.py
 Needs the PostgreSQL feature store (password from SENTINEL_DB_PASSWORD).
 Writes copies to website/public/model/ for the public site.
@@ -327,6 +332,21 @@ def main():
     for name in ("typical_applicant.json", "explanation_rules.json", "reason_templates.json"):
         shutil.copyfile(os.path.join(SERVING, name), os.path.join(SITE_MODEL, name))
 
+    # ── held-out evidence for the site (aggregates only) ───────
+    ev = heldout_evidence(pkg, features, cutoff, t, int(choice["min_group_size"]))
+    ev["model_version"] = gov["model_version"]
+    ev["rules_version"] = str(choice["rules_version"])
+    os.makedirs(os.path.join(PROJECT_ROOT, "website", "public", "data"), exist_ok=True)
+    with open(os.path.join(PROJECT_ROOT, "website", "public", "data", "review_evidence.json"),
+              "w", encoding="utf-8") as f:
+        json.dump(ev, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print(f"Held-out review: {ev['review_required']:,} of {ev['n_customers']:,} "
+          f"({ev['review_share']:.1%}); by type "
+          + ", ".join(f"{x['error_type']} {x['n']}" for x in ev["by_error_type"]))
+    for x in ev["single_detail_by_detail"]:
+        print("  one detail:", x)
+
     # ── evidence printout (recorded in Decision 31) ────────────
     print("Typical applicant:", new_typ)
     print("Typical existing customer:", existing_typ)
@@ -343,6 +363,61 @@ def main():
     for f in features:
         print(f"  {f}: " + " | ".join(f"{x['n']:,}:{x['per_1000']}" for x in bands[f]))
     print("  e.g.", bands["credit_score"][0]["text"])
+
+
+def heldout_evidence(pkg, features, cutoff, t, min_group):
+    """Run the shipped checks on every held-out test customer; aggregates only."""
+    import joblib
+    from serving.reasons import effects, explain_existing, load_typical
+    model = joblib.load(os.path.join(pkg, "champion_calibrated.joblib"))
+
+    def score_many(ds):
+        return model.predict_proba(pd.DataFrame(ds)[features])[:, 1].tolist()
+
+    test = pd.read_csv(os.path.join(pkg, "test_predictions_stratified.csv"))
+    typical = load_typical("existing")
+    rows = []
+    for _, r in test.iterrows():
+        x = {f: r[f] for f in features}
+        out = explain_existing(x, score_many, cutoff, typical)
+        off = out["risk_officer"]
+        detail, share, p_typ = None, None, None
+        if off["error_type"] == "overreliance":
+            eff = out["effects"]
+            detail = max(eff, key=lambda k: abs(eff[k]))
+            share = abs(eff[detail]) / sum(abs(v) for v in eff.values())
+            p_typ = out["probability"] - eff[detail]
+        rows.append({"error_type": off["error_type"], "refer": out["probability"] >= cutoff,
+                     "p": out["probability"], "detail": detail, "share": share, "p_typ": p_typ,
+                     "default": int(r["target_default"])})
+    d = pd.DataFrame(rows)
+    n = len(d)
+    labels = t["officer"]["error_labels"]
+    by_type = []
+    for k in ("none", "missing_information", "overreliance", "data_input"):
+        g = d[d["error_type"] == k]
+        by_type.append({"error_type": k, "label": labels[k], "n": int(len(g)),
+                        "share": round(len(g) / n, 4), "referred": int(g["refer"].sum()),
+                        "defaults": int(g["default"].sum())})
+    one = d[d["error_type"] == "overreliance"]
+    by_detail = []
+    for (det, refer), g in one.groupby(["detail", "refer"]):
+        item = {"detail": det, "name": t["fields"][det]["name"], "recommendation": "refer" if refer else "pass",
+                "n": int(len(g))}
+        if len(g) >= 20:   # medians only over groups large enough not to describe a person
+            item.update(median_probability=round(float(g["p"].median()), 4),
+                        median_probability_if_typical=round(float(g["p_typ"].median()), 4),
+                        median_share_of_effect=round(float(g["share"].median()), 2))
+        by_detail.append(item)
+    by_detail.sort(key=lambda x: -x["n"])
+    review = d[d["error_type"] != "none"]
+    return {
+        "_about": ("Decision 31 checks run on every held-out test customer of the champion "
+                   "(stratified split), by models/build_explanation_rules.py. Aggregates only."),
+        "n_customers": n, "cutoff": cutoff,
+        "review_required": int(len(review)), "review_share": round(len(review) / n, 4),
+        "by_error_type": by_type, "single_detail_by_detail": by_detail,
+    }
 
 
 if __name__ == "__main__":

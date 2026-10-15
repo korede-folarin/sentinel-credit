@@ -61,6 +61,7 @@ h3 { font: 600 .78rem var(--sans); letter-spacing: .14em; text-transform: upperc
 
 /* Panels and grid */
 .grid { display: grid; gap: 24px; }
+.grid > * { min-width: 0; }   /* let wide tables scroll inside their panel */
 .grid.two { grid-template-columns: 3fr 2fr; }
 .grid.half { grid-template-columns: 1fr 1fr; }
 @media (max-width: 860px) { .grid.two, .grid.half { grid-template-columns: 1fr; } }

@@ -352,6 +352,10 @@ routing; declared choices allowed):**
 - **A34.** The decision record is returned but not stored. Persisting
   records, and capturing approver identity (Decision 23), are separate
   decisions for the owner.
+- **A35.** 71 held-out customers pass only because their orders are
+  small: at a typical order size they would be referred. Together with
+  A31, the model's reliance on order size needs a look at the next model
+  review (Decision 31 addendum).
 
 ---
 

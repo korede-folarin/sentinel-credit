@@ -1,0 +1,63 @@
+{
+  "_about": "Decision 31 checks run on every held-out test customer of the champion (stratified split), by models/build_explanation_rules.py. Aggregates only.",
+  "n_customers": 8321,
+  "cutoff": 0.0657,
+  "review_required": 335,
+  "review_share": 0.0403,
+  "by_error_type": [
+    {
+      "error_type": "none",
+      "label": "No issue detected",
+      "n": 7986,
+      "share": 0.9597,
+      "referred": 1286,
+      "defaults": 212
+    },
+    {
+      "error_type": "missing_information",
+      "label": "Known blind spot (information the model lacks)",
+      "n": 224,
+      "share": 0.0269,
+      "referred": 0,
+      "defaults": 7
+    },
+    {
+      "error_type": "overreliance",
+      "label": "Recommendation rests on one detail",
+      "n": 108,
+      "share": 0.013,
+      "referred": 37,
+      "defaults": 7
+    },
+    {
+      "error_type": "data_input",
+      "label": "Possible data-input error",
+      "n": 3,
+      "share": 0.0004,
+      "referred": 0,
+      "defaults": 0
+    }
+  ],
+  "single_detail_by_detail": [
+    {
+      "detail": "avg_order_value_gbp",
+      "name": "Average order value",
+      "recommendation": "pass",
+      "n": 71,
+      "median_probability": 0.0199,
+      "median_probability_if_typical": 0.0762,
+      "median_share_of_effect": 0.7
+    },
+    {
+      "detail": "thin_file_flag",
+      "name": "Thin credit file",
+      "recommendation": "refer",
+      "n": 37,
+      "median_probability": 0.0729,
+      "median_probability_if_typical": 0.0226,
+      "median_share_of_effect": 0.62
+    }
+  ],
+  "model_version": "v1.1",
+  "rules_version": "1.0"
+}

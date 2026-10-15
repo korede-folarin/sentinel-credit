@@ -4214,6 +4214,32 @@ different champion. Declared choices live in `config.yaml` under
   and the public site neither stores nor sends it. Persisting records is
   a separate decision.
 
+### Addendum — Which Details the Decisions Rest On, Published on the Demo Site (15th October 2026)
+The owner asked for this evidence to be shown in the app.
+`models/build_explanation_rules.py` now runs the shipped checks on every
+held-out test customer. It writes the aggregates to
+`website/public/data/review_evidence.json`: counts, rates, and medians
+over groups of at least 20, with no customer row. The demo site shows
+them under "When the model asks for a person", and the deploy gate
+checks that the page matches the file.
+
+Only two details ever decide a held-out recommendation on their own:
+
+| Detail | Recommendation | Customers | Median PD | Median PD if the detail were typical | Median share of effect |
+|---|---|---:|---:|---:|---:|
+| Average order value | Pass | 71 | 2.0% | 7.6% | 70% |
+| Thin credit file | Refer | 37 | 7.3% | 2.3% | 62% |
+
+- **71 customers pass only because their orders are small.** At a
+  typical order size (£583) they would cross the cutoff. The model
+  leans heavily on order size, which matches the training data: the
+  smallest-order band defaulted at 12 per 1,000, the larger bands at
+  28–34 per 1,000. This adds weight to A31; review it at the next model
+  review.
+- **37 customers are referred only because their credit file is thin.**
+  This is the mirror image of the established-file blind spot: file
+  depth moves the score more than any other single detail.
+
 ---
 
 ## Summary Table
@@ -4310,3 +4336,4 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.31 | 15th October 2026 | Decision 29 addendum. The public demo site is built (live assessment with a typical-applicant comparison and a what-if search, a cutoff and fairness simulator, and a verification page) and hosted on GitHub Pages, chosen by the owner. No third-party requests: onnxruntime-web is bundled after an integrity check, and the fonts are self-hosted. No customer rows are published: test inputs are generated, and the simulator uses aggregated counts that exactly reproduce the saved evaluation. The JavaScript feature port matches `serving/features.py` on 240 generated applications. Three bugs were found and fixed while verifying: a relative wasm path that hung the page, rounding that sent comparator buttons to 0%, and a boundary generator that could never finish. Deploys are gated on 12 headless browser checks, all passing. |
 | 3.32 | 15th October 2026 | Added Decision 30: plain-English reasons for new applicants. Each input is compared one at a time with a typical applicant (training medians), using the calibrated champion. Wording follows Belton et al. 2025: the applicant's own values are shown, the decision rule is never shown and nothing is worded as a cause. It is shared by the API (`explanation` in `/score`), the dashboard and the public site from one template file. JavaScript matches Python word for word on 240 applications (687 sentences, 0 differences), and that check gates deployment (14 of 14 browser checks pass). Decision 7 status changed to partly built. One surprising model behaviour is recorded: larger orders lower the PD slightly. |
 | 3.33 | 15th October 2026 | Added Decision 31, completing Decision 7. Three error-type checks (data input, known blind spot, over-reliance), with limits computed from the training partition by `models/build_explanation_rules.py`. Declared choices in config: 95th-percentile blind-spot line, 60% single-detail share, groups of at least 500, £0 savings and commitments allowed. Explanation genre per Belton et al. 2025. "Risk officer review required" is stated, not routed (owner's direction). Three outputs (applicant, risk officer, decision record) for new and existing customers, in the API, the dashboard and the site. Evidence: full-file customers never reach the cutoff, and their top 5% default 2.9x as often on held-out data. Review rate on held-out customers 4.0%. JavaScript matches Python word for word on 300 applications covering every error type. Finding recorded: over-reliance cannot fire for a new applicant at the live share. |
+| 3.34 | 15th October 2026 | Decision 31 addendum (owner's request). Held-out check evidence is published on the demo site as aggregates (`website/public/data/review_evidence.json`), verified by the deploy gate. Only two details decide a recommendation on their own: average order value (71 customers pass only because their orders are small) and thin credit file (37 referred only because of it). Mobile layout fix: grid items may shrink so wide tables scroll inside their panel. |

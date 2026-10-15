@@ -203,6 +203,14 @@ def main():
               f"title {res['exTitle']!r}; review {res['review']} {res['reviewText']!r}; "
               f"{res['exData']} data lines; {res['checks']} checks; "
               f"record error_type {res['record'].get('error_type')}")
+        ev = page.js("""(() => ({ types: document.querySelectorAll('#ev-types tbody tr').length,
+            details: [...document.querySelectorAll('#ev-details tbody tr')].map(r => r.innerText),
+            total: document.getElementById('ev-total').textContent }))()""")
+        exp = json.load(urllib.request.urlopen(args.base + "data/review_evidence.json"))
+        check("assessment: held-out review evidence rendered from the published aggregates",
+              ev["types"] == 4 and len(ev["details"]) == len(exp["single_detail_by_detail"])
+              and f"{exp['review_required']:,} of {exp['n_customers']:,}" in ev["total"],
+              f"{ev['types']} outcome rows; details {ev['details']}; {ev['total']!r}")
         page.screenshot(os.path.join(args.out, "index_desktop.png"))
         ov = page.overflow()
         check("assessment: no overflow at 1440px", not ov["pageScrolls"] and not ov["offenders"], str(ov))

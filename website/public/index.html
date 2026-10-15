@@ -149,6 +149,34 @@
     <p class="note" style="margin-top:18px" id="r-scope"></p>
   </section>
 
+  <section id="review-evidence">
+    <h2>When the model asks for a person</h2>
+    <p class="lede">The same three checks this page runs on your application, run on every customer the
+      champion never saw in training. A flag means "Risk officer review required": stated, never routed.</p>
+    <div class="grid half" style="margin-top:20px">
+      <div class="panel">
+        <h3>How often each check fires</h3>
+        <div class="table-scroll"><table class="data" id="ev-types">
+          <thead><tr><th>Outcome</th><th class="num">Customers</th><th class="num">Share</th>
+            <th class="num">Later defaulted</th></tr></thead><tbody></tbody></table></div>
+        <p class="note" id="ev-total"></p>
+      </div>
+      <div class="panel">
+        <h3>Which detail the decision rests on</h3>
+        <p class="note" style="margin-top:0">"Rests on one detail" means setting that detail alone to the
+          typical customer's value would change the recommendation, and it carries at least 60% of the
+          total effect. Only two details ever did.</p>
+        <div class="table-scroll"><table class="data" id="ev-details">
+          <thead><tr><th>Detail</th><th>Recommendation</th><th class="num">Customers</th>
+            <th class="num">Median PD</th><th class="num">If detail typical</th>
+            <th class="num">Share</th></tr></thead><tbody></tbody></table></div>
+        <p class="note" id="ev-reading"></p>
+      </div>
+    </div>
+    <p class="note">PD columns are medians over each group. Counts only: no customer record is published.
+      Built by <code>models/build_explanation_rules.py</code>; Decision 31 in the decision log.</p>
+  </section>
+
   <section>
     <h2>How this is built</h2>
     <div class="grid half">

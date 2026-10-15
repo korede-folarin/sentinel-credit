@@ -204,6 +204,38 @@ async function assess(event) {
   }
 }
 
+// Held-out evidence for the checks (aggregates from models/build_explanation_rules.py)
+async function loadReviewEvidence() {
+  try {
+    const ev = await fetch("data/review_evidence.json").then(r => r.json());
+    const pct = x => (x > 0 && x < 0.001) ? "<0.1%" : `${(x * 100).toFixed(1)}%`;
+    $("ev-types").querySelector("tbody").innerHTML = ev.by_error_type.map(r => `<tr>
+      <td>${r.error_type === "none" ? "No issue: no review" : r.label}</td>
+      <td class="num">${r.n.toLocaleString("en-GB")}</td><td class="num">${pct(r.share)}</td>
+      <td class="num">${r.defaults.toLocaleString("en-GB")}</td></tr>`).join("");
+    $("ev-total").textContent = `Risk officer review required for ${ev.review_required.toLocaleString("en-GB")} `
+      + `of ${ev.n_customers.toLocaleString("en-GB")} held-out customers (${pct(ev.review_share)}). `
+      + `Model ${ev.model_version}, rules ${ev.rules_version}.`;
+    $("ev-details").querySelector("tbody").innerHTML = ev.single_detail_by_detail.map(r => `<tr>
+      <td>${r.name}</td><td>${r.recommendation === "refer" ? "Refer" : "Pass"}</td>
+      <td class="num">${r.n.toLocaleString("en-GB")}</td>
+      <td class="num">${"median_probability" in r ? pct(r.median_probability) : "—"}</td>
+      <td class="num">${"median_probability_if_typical" in r ? pct(r.median_probability_if_typical) : "—"}</td>
+      <td class="num">${"median_share_of_effect" in r ? Math.round(r.median_share_of_effect * 100) + "%" : "—"}</td>
+      </tr>`).join("");
+    const order = ev.single_detail_by_detail.find(r => r.detail === "avg_order_value_gbp");
+    const thin = ev.single_detail_by_detail.find(r => r.detail === "thin_file_flag");
+    const parts = [];
+    if (order) parts.push(`${order.n} customers ${order.recommendation === "pass" ? "pass" : "are referred"} `
+      + "only because their orders are small: at a typical order size they would cross the cutoff.");
+    if (thin) parts.push(`${thin.n} are ${thin.recommendation === "refer" ? "referred" : "passed"} only because `
+      + "their credit file is thin.");
+    $("ev-reading").textContent = parts.join(" ") + " A person should look at both.";
+  } catch (e) {
+    $("review-evidence").classList.add("hidden");
+  }
+}
+
 (async () => {
   const sel = $("merchant_category");
   MERCHANT_CATEGORIES.forEach(c => sel.add(new Option(c, c)));
@@ -224,6 +256,7 @@ async function assess(event) {
       ["Review cutoff", `PD ≥ ${fmtPct(contract.cutoff, 2)}`],
       ["Browser vs Python", "verified, 0 decisions changed"],
     ].map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("");
+    loadReviewEvidence();   // independent of scoring; failure only hides the section
     $("submit").disabled = false; $("submit").textContent = "Assess application";
     $("form").addEventListener("submit", assess);
   } catch (e) {

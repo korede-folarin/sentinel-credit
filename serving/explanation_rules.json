@@ -1,6 +1,6 @@
 {
   "_about": "Decision 31 reference limits, computed from the champion's training partition by models/build_explanation_rules.py. Declared choices (percentile, single-detail share, minimum group, band quantiles) come from config.yaml explainability.decision_review and are choices, not findings.",
-  "generated_at": "2026-10-15T17:26:34+01:00",
+  "generated_at": "2026-10-15T19:59:52+01:00",
   "rules_version": "1.0",
   "model": {
     "model_version": "v1.1",
