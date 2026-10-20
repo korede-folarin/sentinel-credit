@@ -1,0 +1,18 @@
+{
+  "features": [
+    "monthly_income_gbp",
+    "existing_monthly_obligations_gbp",
+    "savings_balance_gbp",
+    "credit_score",
+    "months_credit_history",
+    "num_credit_accounts",
+    "num_defaults_24m",
+    "thin_file_flag",
+    "max_affordability_ratio",
+    "avg_order_value_gbp",
+    "avg_n_instalments",
+    "pct_high_risk_category",
+    "pct_medium_risk_category"
+  ],
+  "n_features": 13
+}

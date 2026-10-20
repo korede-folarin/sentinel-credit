@@ -1,0 +1,14 @@
+feature,mean_abs_shap,rank,pct_of_total,exposure_time_suspected
+thin_file_flag,0.46502185,1,28.95,False
+savings_balance_gbp,0.2954596,2,18.39,False
+avg_n_instalments,0.19411732,3,12.08,False
+avg_order_value_gbp,0.1808414,4,11.26,False
+pct_high_risk_category,0.16685455,5,10.39,False
+pct_medium_risk_category,0.10650137,6,6.63,False
+max_affordability_ratio,0.04879225,7,3.04,False
+credit_score,0.048164837,8,3.0,False
+months_credit_history,0.028675811,9,1.79,False
+num_defaults_24m,0.02438354,10,1.52,False
+monthly_income_gbp,0.023345131,11,1.45,False
+num_credit_accounts,0.018762667,12,1.17,False
+existing_monthly_obligations_gbp,0.0053801034,13,0.33,False

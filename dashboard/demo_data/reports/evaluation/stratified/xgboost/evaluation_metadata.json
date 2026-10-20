@@ -1,0 +1,44 @@
+{
+  "split": "stratified",
+  "model": "xgboost",
+  "training_run_id": "5466ebf3e7ce48f383fa40b6a65f66f2",
+  "dataset_version": "full_horizon_2025_v1",
+  "feature_set": "13_features_v1_1",
+  "model_version": "v1.1",
+  "pipeline_stage": "v1_1_validity_promotion",
+  "data_end_date": "2025-12-31",
+  "business_cutoff": 0.0657,
+  "summary": {
+    "model": "xgboost",
+    "gini": 0.5618,
+    "auc": 0.7809,
+    "ks": 0.4712,
+    "pr_auc": 0.0909,
+    "ece": 0.0015,
+    "brier": 0.0254
+  },
+  "configured_cutoff": {
+    "cutoff": 0.0657,
+    "tp": 131,
+    "fp": 1192,
+    "tn": 6903,
+    "fn": 95,
+    "precision": 0.099,
+    "recall": 0.5796,
+    "n_flagged_high_risk": 1323,
+    "bad_rate_among_approved": 0.0136
+  },
+  "f1_threshold_diagnostic": {
+    "threshold": 0.0901,
+    "f1": 0.1799,
+    "precision": 0.1283,
+    "recall": 0.3009
+  },
+  "youden_threshold_diagnostic": {
+    "threshold": 0.0527,
+    "youden_j": 0.4712,
+    "sensitivity": 0.6681,
+    "specificity": 0.8031
+  },
+  "threshold_note": "F1 and Youden thresholds were calculated on the evaluation set for diagnosis only. They must not be promoted directly to config.yaml. A governed cutoff should be selected using training-only out-of-fold or validation predictions, frozen, and then assessed on the untouched test/OOT set."
+}

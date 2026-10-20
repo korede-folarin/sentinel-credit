@@ -1,0 +1,103 @@
+{
+  "generated_at": "2026-10-14T23:04:03",
+  "model": "xgboost",
+  "model_version": "v1.1",
+  "dataset_identity": {
+    "model_name": "xgboost",
+    "model_version": "v1.1",
+    "split_type": "stratified",
+    "dataset_version": "full_horizon_2025_v1",
+    "feature_set_label": "13_features_v1_1",
+    "pipeline_stage": "v1_1_validity_promotion",
+    "data_end_date": "2025-12-31",
+    "origination_end_date": "2024-10-31",
+    "n_features": 13,
+    "n_test_customers": 8321,
+    "identity_check_passes": true
+  },
+  "model_type": "XGBClassifier uncalibrated explanation base",
+  "explained_artifact": "champion_explanation_base.joblib",
+  "champion_trained_at": "2026-10-14T23:00:21",
+  "best_params": {
+    "learning_rate": 0.01,
+    "max_depth": 3,
+    "n_estimators": 300,
+    "scale_pos_weight": 35.7362
+  },
+  "n_test_customers": 8321,
+  "n_features": 13,
+  "feature_list": [
+    "monthly_income_gbp",
+    "existing_monthly_obligations_gbp",
+    "savings_balance_gbp",
+    "credit_score",
+    "months_credit_history",
+    "num_credit_accounts",
+    "num_defaults_24m",
+    "thin_file_flag",
+    "max_affordability_ratio",
+    "avg_order_value_gbp",
+    "avg_n_instalments",
+    "pct_high_risk_category",
+    "pct_medium_risk_category"
+  ],
+  "business_cutoff": 0.0657,
+  "business_cutoff_status": "provisional_pre_final_model_selection",
+  "random_seed": 42,
+  "validation_checks": {
+    "feature_names_match_saved": true,
+    "feature_list_matches_current_code": true,
+    "n_features": 13,
+    "excluded_features_present": [],
+    "no_excluded_fields": true,
+    "nulls_in_explained_data": 0,
+    "explained_output": "uncalibrated_raw_margin",
+    "additivity_tolerance": 0.0001,
+    "additivity_max_abs_error": 1.788e-06,
+    "additivity_mean_abs_error": 2.918e-07,
+    "additivity_passes": true,
+    "expected_value": 2.1512418243219145e-05,
+    "all_validation_checks_pass": true
+  },
+  "dependence_plots": {
+    "by_shap_rank": [
+      "thin_file_flag",
+      "savings_balance_gbp",
+      "avg_n_instalments",
+      "avg_order_value_gbp"
+    ],
+    "strategic": [
+      "credit_score",
+      "max_affordability_ratio"
+    ],
+    "all_plotted": [
+      "thin_file_flag",
+      "savings_balance_gbp",
+      "avg_n_instalments",
+      "avg_order_value_gbp",
+      "credit_score",
+      "max_affordability_ratio"
+    ]
+  },
+  "case_studies": {
+    "low_risk": "CFD4B625B4EA9FC1E",
+    "high_risk": "CA1B4465238F53DE5",
+    "near_threshold_provisional": "C7D2B81712CF7341F",
+    "false_positive_provisional": "CA1B4465238F53DE5",
+    "false_negative_provisional": "C8E270BA275EBC784",
+    "single_feature_dominant": "C3EE432C84CC72561"
+  },
+  "scope_note": "Explanations come from the exact uncalibrated XGBoost explanation artifact persisted during the canonical champion training run. They explain the model's raw risk margin. They do not reconstruct or attribute changes to the calibrated probability.",
+  "valid_uses": [
+    "global feature-importance ranking",
+    "feature-direction and dependence inspection",
+    "identifying suspicious model dependencies",
+    "comparing low-risk, high-risk and error cases"
+  ],
+  "not_valid_for": [
+    "customer-facing adverse-action wording",
+    "claims about calibrated probability changes",
+    "formal reconstruction of the calibrated decision",
+    "regulatory output presented as an exact end-to-end explanation"
+  ]
+}

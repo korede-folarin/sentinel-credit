@@ -41,7 +41,7 @@ from serving.features import (  # noqa: E402
 from serving.reasons import (  # noqa: E402
     explain as _explain_new, explain_existing as _explain_existing, load_typical,
 )
-from utils import load_config, query_db  # noqa: E402
+from utils import DEMO, DEMO_DATA_DIR, load_config, package_dir, query_db  # noqa: E402
 
 __all__ = ["MERCHANT_CATEGORIES", "PROFILE_FIELDS", "champion", "score",
            "lookup_customer", "training_ranges", "explain_new", "explain_existing",
@@ -49,9 +49,18 @@ __all__ = ["MERCHANT_CATEGORIES", "PROFILE_FIELDS", "champion", "score",
 
 
 def _package_dir() -> str:
-    cfg = load_config()
-    return os.path.join(PROJECT_ROOT, cfg["model_governance"].get("artifacts_dir",
-                                                                    "models/artifacts"))
+    return package_dir()
+
+
+def _heldout_scores(pkg: str) -> np.ndarray:
+    """Held-out champion scores, for 'higher than X% of customers'. The demo
+    ships 1,001 quantiles of them instead of the per-customer file."""
+    if DEMO:
+        with open(os.path.join(pkg, "heldout_score_quantiles.json"), encoding="utf-8") as f:
+            return np.asarray(json.load(f)["quantiles"], dtype=float)
+    preds = pd.read_csv(os.path.join(pkg, "test_predictions_stratified.csv"),
+                        usecols=["proba_xgboost"])
+    return np.sort(preds["proba_xgboost"].to_numpy())
 
 
 @st.cache_resource(show_spinner=False)
@@ -62,14 +71,12 @@ def champion() -> dict:
         features = json.load(f)["features"]
     with open(os.path.join(pkg, "champion_metadata.json"), encoding="utf-8") as f:
         metadata = json.load(f)
-    preds = pd.read_csv(os.path.join(pkg, "test_predictions_stratified.csv"),
-                        usecols=["proba_xgboost"])
     return {
         "features": features,
         "metadata": metadata,
         "model": joblib.load(os.path.join(pkg, "champion_calibrated.joblib")),
         "explainer_model": joblib.load(os.path.join(pkg, "champion_explanation_base.joblib")),
-        "heldout_scores": np.sort(preds["proba_xgboost"].to_numpy()),
+        "heldout_scores": _heldout_scores(pkg),
         "package_dir": os.path.relpath(pkg, PROJECT_ROOT),
     }
 
@@ -84,6 +91,8 @@ def _explainer():
 def training_ranges() -> pd.DataFrame:
     """Observed min / median / max of each model feature in the champion's
     canonical training partition, read live from the feature store."""
+    if DEMO:
+        return pd.read_csv(os.path.join(DEMO_DATA_DIR, "training_ranges.csv"), index_col=0)
     feats = champion()["features"]
     ids = pd.read_csv(os.path.join(_package_dir(), "split_ids_train.csv"))["customer_id"]
     frame = query_db(

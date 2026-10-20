@@ -27,7 +27,7 @@ import streamlit as st
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import theme  # noqa: E402
 import scoring  # noqa: E402
-from utils import db_available, load_config  # noqa: E402
+from utils import DEMO, db_available, load_config  # noqa: E402
 
 theme.apply("Credit Risk Assessment")
 cfg = load_config()
@@ -130,7 +130,11 @@ if mode == "New applicant":
         except (KeyError, ValueError) as error:
             st.error(f"Could not build features: {error}")
 else:
-    if not ok:
+    if DEMO:
+        theme.empty_state("Existing-customer lookup runs in the local platform only.",
+                          "It reads a customer's record from the feature store, and customer "
+                          "records are never published. New-applicant scoring above is live.")
+    elif not ok:
         theme.empty_state("Existing-customer lookup needs the database.",
                           f"PostgreSQL is not reachable: {reason}")
     else:

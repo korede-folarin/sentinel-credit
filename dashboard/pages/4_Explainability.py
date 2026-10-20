@@ -22,7 +22,7 @@ import streamlit as st
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import theme  # noqa: E402
-from utils import REPORTS_DIR, load_csv, load_json, missing_evidence  # noqa: E402
+from utils import DEMO, PROJECT_ROOT, REPORTS_DIR, load_csv, load_json, missing_evidence  # noqa: E402
 
 theme.apply("Explainability")
 theme.header(
@@ -62,8 +62,7 @@ theme.note("Day-zero customer attributes lead; no exposure-time feature remains 
 
 # ── WHEN THE MODEL ASKS FOR A PERSON (Decision 31) ────────────
 theme.section("When the model asks for a person · held-out customers")
-_ev_path = os.path.join(os.path.dirname(REPORTS_DIR), "website", "public", "data",
-                        "review_evidence.json")
+_ev_path = os.path.join(PROJECT_ROOT, "website", "public", "data", "review_evidence.json")
 if not os.path.exists(_ev_path):
     missing_evidence("models/build_explanation_rules.py")
 else:
@@ -117,7 +116,12 @@ for path in sorted(glob.glob(os.path.join(REPORTS_DIR, "shap", "local", "*_value
     with open(path, encoding="utf-8") as f:
         cases.append(json.load(f))
 if not cases:
-    missing_evidence("models/explain_models.py")
+    if DEMO:
+        theme.empty_state("Per-customer case studies run in the local platform only.",
+                          "Each one is a customer's record, and customer records are never "
+                          "published. The global view above is the same evidence in aggregate.")
+    else:
+        missing_evidence("models/explain_models.py")
     st.stop()
 
 titles = {"high_risk": "Highest-risk customer", "low_risk": "Lowest-risk customer",

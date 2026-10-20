@@ -20,7 +20,8 @@ import streamlit as st
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import theme  # noqa: E402
 from utils import (  # noqa: E402
-    PROJECT_ROOT, db_available, governance_status, load_config, load_json, query_db,
+    PROJECT_ROOT, db_available, governance_status, load_config, load_json, package_dir,
+    query_db,
 )
 
 theme.apply("Governance & Audit")
@@ -71,7 +72,7 @@ if ok:
 
 # ── CHAMPION ──────────────────────────────────────────────────
 theme.section("Champion identity")
-pkg = os.path.join(PROJECT_ROOT, gov.get("artifacts_dir", "models/artifacts"))
+pkg = package_dir()
 meta_path = os.path.join(pkg, "champion_metadata.json")
 champ = None
 if os.path.exists(meta_path):

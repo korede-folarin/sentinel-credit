@@ -1,0 +1,117 @@
+{
+  "generated_at": "2026-10-14T22:56:06",
+  "registered_model_name": "sentinel_credit_champion",
+  "champion_model_type": "xgboost",
+  "feature_set_label": "14_features_v1_frozen",
+  "dataset_version": "full_horizon_2025_v1",
+  "min_gini_delta_threshold": null,
+  "stratified": {
+    "champion_run_id": "3d16984018dc4112881cac86e41ed667",
+    "champion_run_selection": {
+      "n_matching_runs": 3,
+      "n_evaluated_runs": 2,
+      "skipped_unevaluated_run_ids": [
+        "ab620514023d46d6bf3924f74deb74e7"
+      ],
+      "latest_run_id": "3d16984018dc4112881cac86e41ed667",
+      "latest_gini": 0.5656,
+      "previous_run_id": "a20e01b73c0d4ca3aff1c78ebff542ab",
+      "previous_gini": 0.5656,
+      "latest_minus_previous_gini": 0.0,
+      "rule": "reruns_match_latest_used",
+      "chosen_run_id": "3d16984018dc4112881cac86e41ed667"
+    },
+    "challenger_run_id": "936b28cf987a442e8f0584c2ed133933",
+    "champion_gini": 0.5656,
+    "challenger_gini": 0.5618,
+    "delta_gini": -0.0038,
+    "delta_auc": -0.0019,
+    "delta_ks": 0.0026,
+    "delta_pr_auc": 0.0012,
+    "material_win": false
+  },
+  "temporal": {
+    "champion_run_id": "e97c1eee343d4b61b0242ca3233928ca",
+    "champion_run_selection": {
+      "n_matching_runs": 3,
+      "n_evaluated_runs": 2,
+      "skipped_unevaluated_run_ids": [
+        "469524ebb6fc400aa2471db0594a31e6"
+      ],
+      "latest_run_id": "e97c1eee343d4b61b0242ca3233928ca",
+      "latest_gini": 0.5675,
+      "previous_run_id": "d3e336f360314788ac7a5219da8f26ca",
+      "previous_gini": 0.5675,
+      "latest_minus_previous_gini": 0.0,
+      "rule": "reruns_match_latest_used",
+      "chosen_run_id": "e97c1eee343d4b61b0242ca3233928ca"
+    },
+    "challenger_run_id": "2fa5d7af937e4691ad5f32489b87638e",
+    "champion_gini": 0.5675,
+    "challenger_gini": 0.5611,
+    "delta_gini": -0.0064,
+    "delta_auc": -0.0031,
+    "delta_ks": 0.0058,
+    "delta_pr_auc": -0.0094,
+    "material_win": false
+  },
+  "promotion_recommended": true,
+  "promotion_path": "validity_override",
+  "validity_override": {
+    "decision_ref": "Decision 27",
+    "evidence_path": "reports\\feature_removal\\pct_late_payments\\promotion_evidence.json",
+    "removed_feature": "pct_late_payments",
+    "rule": "95% CI of Gini difference reaches >= 0 on both splits",
+    "splits": {
+      "stratified": {
+        "point": -0.0038,
+        "ci95": [
+          -0.0148,
+          0.0079
+        ],
+        "non_inferior": true
+      },
+      "temporal": {
+        "point": -0.0015,
+        "ci95": [
+          -0.0164,
+          0.015
+        ],
+        "non_inferior": true
+      }
+    },
+    "passed": true
+  },
+  "applied": true,
+  "note": "Promotion changes which model governs real decisions. This script never applies a promotion without --apply AND typed confirmation, and refuses --apply outright if the criteria above are not met.",
+  "approval_gate": {
+    "gate_status": "PASS",
+    "checks": [
+      {
+        "check": "monitoring_evidence_exists",
+        "passed": true,
+        "detail": "Found: .\\reports\\monitoring\\monitoring_run_metadata.json"
+      },
+      {
+        "check": "monitoring_evidence_recent",
+        "passed": true,
+        "detail": "Monitoring evidence is 1.2h old (max allowed: 48h, generated 2026-10-14T21:43:56+01:00)."
+      },
+      {
+        "check": "no_active_drift_alerts",
+        "passed": true,
+        "detail": "0 of 14 features currently alerting."
+      },
+      {
+        "check": "portfolio_bad_rate_shift (informational only, not gating)",
+        "passed": null,
+        "detail": "Absolute bad-rate delta vs training reference: -0.0023"
+      }
+    ],
+    "n_alerts": 0,
+    "n_features_total": 14,
+    "monitoring_age_hours": 1.2,
+    "evaluated_at": "2026-10-14T22:56:06+01:00",
+    "max_monitoring_age_hours": 48
+  }
+}

@@ -77,3 +77,7 @@ models/artifacts_*/
 !serving/explanation_rules.json
 !website/public/model/explanation_rules.json
 !website/public/data/review_evidence.json
+# Public Streamlit demo snapshot (dashboard/tools/export_demo_data.py): aggregates and
+# model files only, no customer records; see dashboard/demo_data/MANIFEST.json
+!dashboard/demo_data/
+!dashboard/demo_data/**

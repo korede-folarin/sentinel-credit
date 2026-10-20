@@ -1,0 +1,14 @@
+,min,median,max
+monthly_income_gbp,673.2,2442.13,16512.39
+existing_monthly_obligations_gbp,0.99,511.51,8125.98
+savings_balance_gbp,7.92,2164.86,9941.37
+credit_score,300.0,638.0,998.0
+months_credit_history,0.0,58.0,179.0
+num_credit_accounts,0.0,2.0,7.0
+num_defaults_24m,0.0,0.0,2.0
+thin_file_flag,0.0,0.0,1.0
+max_affordability_ratio,0.0067,0.3947,1.3338
+avg_order_value_gbp,16.82,583.37,1979.9
+avg_n_instalments,3.0,3.0,12.0
+pct_high_risk_category,0.0,0.1667,1.0
+pct_medium_risk_category,0.0,0.5,1.0

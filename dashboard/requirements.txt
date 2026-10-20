@@ -1,0 +1,16 @@
+# Streamlit Community Cloud installs this file (it is next to the entrypoint,
+# dashboard/Home.py), not the root requirements.txt, which carries Airflow,
+# TensorFlow and other packages the dashboard does not use. Same versions as
+# the local environment the champion was trained and pickled with (Python 3.11).
+streamlit==1.35.0
+pandas==2.2.2
+numpy==1.26.4
+scipy==1.13.0
+scikit-learn==1.5.0
+xgboost==2.0.3
+shap==0.45.0
+plotly==5.22.0
+pyarrow==15.0.2
+PyYAML==6.0.1
+joblib==1.5.3
+psycopg2-binary==2.9.9

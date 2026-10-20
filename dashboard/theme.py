@@ -14,6 +14,8 @@ Status is never colour-only: every pill carries its text label.
 """
 
 import html
+import json
+import os
 
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -144,6 +146,21 @@ def apply(page_title: str, layout: str = "wide") -> None:
                        initial_sidebar_state="auto")
     st.markdown(_CSS, unsafe_allow_html=True)
     _register_plotly_template()
+    from utils import DEMO, DEMO_DATA_DIR
+    if DEMO:
+        snap = ""
+        try:
+            with open(os.path.join(DEMO_DATA_DIR, "MANIFEST.json"), encoding="utf-8") as f:
+                snap = json.load(f).get("generated_at", "")[:10]
+        except OSError:
+            pass
+        st.markdown(
+            f"<div class='sc-note' style='border:1px solid {GOLD};padding:0.45rem 0.8rem;"
+            "margin-bottom:0.8rem'><b>Public demo</b> · synthetic data · database views are a "
+            f"snapshot{(' from ' + snap) if snap else ''}. Scoring of new applications is live. "
+            "Existing-customer lookup and per-customer case studies run only in the local "
+            "platform, because customer records are never published.</div>",
+            unsafe_allow_html=True)
 
 
 def header(kicker: str, title: str, subtitle: str = "") -> None:

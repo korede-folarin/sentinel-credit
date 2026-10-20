@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-08-11T14:53:40",
+  "holdout_months": 6,
+  "forecast_horizon_months": 6,
+  "yearly_seasonality": false,
+  "lstm_status": "not implemented \u2014 insufficient history (~34 monthly points) to train a neural sequence model without overfitting to noise; see module docstring",
+  "results": [
+    {
+      "series_name": "Default Rate",
+      "caveat": "Reflects portfolio risk evolving over the observed period \u2014 a legitimate forecasting target, though still synthetic data (PD-only scope, Decision 4 addendum).",
+      "metrics": {
+        "n_total_months": 34,
+        "n_train_months": 28,
+        "n_holdout_months": 6,
+        "mae": 0.001634,
+        "mape_pct": 18.44,
+        "backtest_actual_mean": 0.009162
+      }
+    },
+    {
+      "series_name": "Origination Volume",
+      "caveat": "CAUTION: growth reflects the synthetic population's fixed onboarding schedule (config.yaml data_generator.n_customers = 50000, origination_end_date = 2024-10-31) reaching its endpoint, not organic demand. Forecast beyond the data's own end date extrapolates a generation-schedule artifact, not a business trend.",
+      "metrics": {
+        "n_total_months": 34,
+        "n_train_months": 28,
+        "n_holdout_months": 6,
+        "mae": 3040.762811,
+        "mape_pct": 24.45,
+        "backtest_actual_mean": 10518.5
+      }
+    }
+  ]
+}

@@ -56,7 +56,7 @@ refer to the [Engineering Decision Log](docs/engineering_decision_log.md).
 | Approval gate | Automated evidence gate on promotion + typed human confirmation; no approver identity recorded (D23) | 🟡 |
 | Portfolio forecasting | Prophet, backtested. LSTM and IFRS 9 macro scenarios planned (D22) | 🟡 |
 | Scoring API | FastAPI, runs locally (`serving/app.py`) | ✅ |
-| Streamlit dashboard | Risk officer interface (`dashboard/`) | ✅ |
+| Streamlit dashboard | Risk officer interface (`dashboard/`); public demo mode on Streamlit Community Cloud from a published snapshot (D32) | ✅ |
 | Power BI report | DirectQuery against local PostgreSQL (`dashboard/powerbi/`) | ✅ |
 | Plain-English reasons | Applicants and existing customers are told why, in plain English: API, dashboard and demo site, one shared wording (D30, D31) | ✅ |
 | Adaptive explanation engine | Error-type checks, genre selection, "Risk officer review required" flag; applicant, risk officer and audit-record outputs (D7, D31). Approver identity not recorded (D23) | ✅ |
@@ -182,6 +182,24 @@ applicant identically (Decision 28).
 
 ---
 
+## Public Streamlit Demo
+
+The dashboard has a demo mode for Streamlit Community Cloud (Decision 32). It reads a
+published snapshot in `dashboard/demo_data/` (aggregate query results, aggregate reports and
+the model files) and never needs a database. New-applicant scoring is live. Existing-customer
+lookup and per-customer case studies stay local, because customer records are never published.
+
+Deploy (once): at [share.streamlit.io](https://share.streamlit.io), choose **Create app**,
+then pick this repository, branch `main` and main file `dashboard/Home.py`. Under
+**Advanced settings**, choose Python 3.11 and add the secret `SENTINEL_DEMO = "1"`. Every
+push to `main` redeploys it.
+
+Refresh the snapshot after a promotion or report run, then commit `dashboard/demo_data/`:
+
+```bash
+python dashboard/tools/export_demo_data.py
+```
+
 ## Documentation
 
 | Document | Purpose |
@@ -205,7 +223,7 @@ with a summary of the current v1.1 champion and links to its evidence.
 
 ## Current Status
 
-The modelling, monitoring and governance loop runs end to end on a local stack. The live champion is **v1.1**, a calibrated XGBoost on 13 features. It was promoted in October 2026 after `pct_late_payments` was removed for leaking outcome information (Decision 27). Drift monitoring and the approval gate run under Airflow while the local stack is up, and a Power BI badge shows STALE when monitoring evidence lapses. The public demo is a static site on GitHub Pages; the platform itself (PostgreSQL, Airflow, the API and the dashboard) runs locally, and nothing else is deployed. Open items are tracked in the [Audit Findings](docs/audit_findings_2026-10-12.md).
+The modelling, monitoring and governance loop runs end to end on a local stack. The live champion is **v1.1**, a calibrated XGBoost on 13 features. It was promoted in October 2026 after `pct_late_payments` was removed for leaking outcome information (Decision 27). Drift monitoring and the approval gate run under Airflow while the local stack is up, and a Power BI badge shows STALE when monitoring evidence lapses. The public demos are a static site on GitHub Pages and the Streamlit dashboard in snapshot mode (Decision 32). The platform itself (PostgreSQL, Airflow and the API) runs locally. Open items are tracked in the [Audit Findings](docs/audit_findings_2026-10-12.md).
 
 Follow the build on LinkedIn:
 

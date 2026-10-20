@@ -4240,6 +4240,71 @@ Only two details ever decide a held-out recommendation on their own:
   This is the mirror image of the established-file blind spot: file
   depth moves the score more than any other single detail.
 
+## Decision 32 — Public Streamlit Demo: Snapshot Mode, Aggregates and Model Files Only
+
+### Challenge
+The owner wants people to be able to see the Streamlit dashboard. It could
+not be hosted as it was:
+- four of its seven pages query the local PostgreSQL database;
+- the model package (`models/artifacts_v1_1/`) and `reports/` are
+  git-ignored, so a hosted copy would have no model and no evidence;
+- some of that evidence is per-customer: the SHAP case studies, the
+  held-out prediction file, and the existing-customer lookup.
+
+The owner compared three options: a snapshot demo, a hosted database, and
+a full Docker image. They chose the snapshot demo on 15th October 2026
+and approved committing the model package and aggregate reports.
+
+### Decision
+**A demo mode** (`SENTINEL_DEMO=1`, set as a Streamlit Cloud secret)
+reads everything from `dashboard/demo_data/` and never touches a
+database:
+- **Query snapshots.** `dashboard/tools/export_demo_data.py` runs every
+  page headless against the local platform in recording mode and saves
+  each query result, keyed by its exact SQL. Demo mode replays them.
+- **Reports.** The report files the pages actually read are copied, and
+  only those.
+- **Model.** The champion package's model files are copied. These are
+  the same model the public site already ships as ONNX, and contain no
+  data rows.
+- **Held-out scores.** The per-customer held-out prediction file is
+  replaced by 1,001 score quantiles, used for "higher than X% of
+  customers".
+- **Training ranges.** Min, median and max per feature.
+
+**Gates in the exporter** (it stops rather than publish):
+- A query whose result has a `customer_id` column is refused. Only
+  existing-customer lookup was refused.
+- A report with a `customer_id` column or key stops the export. The SHAP
+  case studies are never read through the recorder.
+- Absolute local paths are rewritten as project-relative. Any remaining
+  home-folder path stops the export: the promotion record contained one.
+
+**What the demo shows:**
+- **Live:** new-applicant scoring with all three outputs (Decision 31),
+  model performance, explainability and the held-out review evidence,
+  portfolio, monitoring and governance as of the snapshot.
+- **Not shown:** existing-customer lookup and per-customer case
+  studies. They say so on the page, and every page carries a "Public
+  demo" banner with the snapshot date.
+
+`dashboard/requirements.txt` pins the dashboard's own dependencies to
+the versions the champion was pickled with. Streamlit Cloud uses this
+file instead of the root one, which carries Airflow and TensorFlow.
+
+### Evidence
+| Check | Result |
+|---|---|
+| Clean copy of exactly the files git would push: no `reports/`, no model package, database host unreachable, demo mode | All 7 pages render with no errors. New-applicant score 0.009456, same as the API (0.0095) |
+| Local mode after the change | All pages pass. Dashboard and API outputs identical. Existing-customer lookup works |
+| Export manifest (`dashboard/demo_data/MANIFEST.json`) | 12 aggregate query snapshots, 20 report files, 5 model files (2.2 MB). 1 query refused (customer rows) |
+
+### Limits
+- **It is a snapshot.** It must be re-exported after any promotion,
+  monitoring run or report refresh; the banner shows its date.
+- **Publication is irreversible.** The model files in the repository
+  are public once pushed (as the ONNX model already is).
+
 ---
 
 ## Summary Table
@@ -4277,6 +4342,7 @@ Only two details ever decide a held-out recommendation on their own:
 | 29 | Public demo scores in the browser (ONNX) | Public demo without servers, without drifting from the champion | Two parity checks, fixed pass rule | website/tools/export_model.py, website/public/ |
 | 30 | Plain-English reasons for the applicant | Decision 7's customer output never built | One-at-a-time effects vs typical applicant; word-for-word JS/Python check | serving/reasons.py, serving/reason_templates.json, website/public/assets/reasons.js |
 | 31 | Decision 7 completed: error-type checks, genre, three outputs | Genre selection, risk officer and regulatory outputs, existing customers not built | Blind spot: full-file FNR 100%, top 5% default 2.9x (held-out); limits from training data; declared choices in config | models/build_explanation_rules.py, serving/reasons.py, serving/explanation_rules.json |
+| 32 | Public Streamlit demo, snapshot mode | Dashboard needs a database and git-ignored files; some evidence is per-customer | Exporter refuses customer rows and local paths; clean-copy test with no database | dashboard/tools/export_demo_data.py, dashboard/demo_data/, dashboard/utils.py |
 
 ---
 
@@ -4337,3 +4403,4 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.32 | 15th October 2026 | Added Decision 30: plain-English reasons for new applicants. Each input is compared one at a time with a typical applicant (training medians), using the calibrated champion. Wording follows Belton et al. 2025: the applicant's own values are shown, the decision rule is never shown and nothing is worded as a cause. It is shared by the API (`explanation` in `/score`), the dashboard and the public site from one template file. JavaScript matches Python word for word on 240 applications (687 sentences, 0 differences), and that check gates deployment (14 of 14 browser checks pass). Decision 7 status changed to partly built. One surprising model behaviour is recorded: larger orders lower the PD slightly. |
 | 3.33 | 15th October 2026 | Added Decision 31, completing Decision 7. Three error-type checks (data input, known blind spot, over-reliance), with limits computed from the training partition by `models/build_explanation_rules.py`. Declared choices in config: 95th-percentile blind-spot line, 60% single-detail share, groups of at least 500, £0 savings and commitments allowed. Explanation genre per Belton et al. 2025. "Risk officer review required" is stated, not routed (owner's direction). Three outputs (applicant, risk officer, decision record) for new and existing customers, in the API, the dashboard and the site. Evidence: full-file customers never reach the cutoff, and their top 5% default 2.9x as often on held-out data. Review rate on held-out customers 4.0%. JavaScript matches Python word for word on 300 applications covering every error type. Finding recorded: over-reliance cannot fire for a new applicant at the live share. |
 | 3.34 | 15th October 2026 | Decision 31 addendum (owner's request). Held-out check evidence is published on the demo site as aggregates (`website/public/data/review_evidence.json`), verified by the deploy gate. Only two details decide a recommendation on their own: average order value (71 customers pass only because their orders are small) and thin credit file (37 referred only because of it). Mobile layout fix: grid items may shrink so wide tables scroll inside their panel. |
+| 3.35 | 15th October 2026 | Added Decision 32: a public Streamlit demo in snapshot mode (owner's choice of option A; approved committing the model package and aggregate reports). Demo mode replays recorded aggregate query results and allowlisted reports from `dashboard/demo_data/`. The exporter refuses customer rows and local paths. Existing-customer lookup and per-customer case studies stay local. Verified on a clean copy with the database unreachable: all 7 pages render, and new-applicant scoring matches the API. |

@@ -357,6 +357,25 @@ routing; declared choices allowed):**
   A31, the model's reliance on order size needs a look at the next model
   review (Decision 31 addendum).
 
+### 15th October 2026 (night): public Streamlit demo (Decision 32)
+
+**Built (owner's choice, option A):**
+- Demo mode for Streamlit Community Cloud, reading a published snapshot
+  (aggregates and model files).
+- The exporter refuses customer rows, and stops on any customer-level
+  field or local path.
+
+**Found and fixed while exporting:**
+- The promotion record held an absolute local path naming the machine's
+  user. The exporter now rewrites such paths as project-relative and
+  refuses to publish if any remain.
+
+**New finding (not fixed):**
+- **A36.** The demo is a snapshot and goes stale after a promotion or
+  monitoring run unless it is re-exported. A check could compare the
+  manifest's model version with `config.yaml` (the demo already shows
+  the snapshot date).
+
 ---
 
 ## Findings that could change the "Remaining work" priorities

@@ -1,0 +1,3 @@
+segment,n,actual_default_rate,avg_predicted_pd,false_negative_rate,false_positive_rate
+is_vulnerable=0,3494,0.0209,0.0269,0.4247,0.1406
+is_vulnerable=1,4827,0.0317,0.0285,0.4183,0.1521

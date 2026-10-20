@@ -1,0 +1,210 @@
+{
+  "_about": "Public demo snapshot for the Streamlit dashboard (SENTINEL_DEMO=1). Aggregates and model files only; no customer records. Built by dashboard/tools/export_demo_data.py.",
+  "generated_at": "2026-10-15T23:33:23+01:00",
+  "model_version": "v1.1",
+  "queries": [
+    {
+      "key": "4211459b7ca97a37",
+      "sql": "SELECT 1 AS ok",
+      "rows": 1,
+      "columns": [
+        "ok"
+      ]
+    },
+    {
+      "key": "5aa040f7af4f6b3c",
+      "sql": "SELECT count(*) AS applications, sum(application_approved) AS approved, sum(CASE WHEN application_approved = 1 THEN order_value_gbp END) AS approved_value FROM raw.transactions",
+      "rows": 1,
+      "columns": [
+        "applications",
+        "approved",
+        "approved_value"
+      ]
+    },
+    {
+      "key": "1a4a579b86fc9baf",
+      "sql": "SELECT count(*) AS customers, avg(target_default) AS bad_rate FROM feature_store.customer_features WHERE has_outcome = 1",
+      "rows": 1,
+      "columns": [
+        "customers",
+        "bad_rate"
+      ]
+    },
+    {
+      "key": "040111723ea69115",
+      "sql": "SELECT * FROM reporting.governance_status_latest",
+      "rows": 1,
+      "columns": [
+        "gate_status",
+        "evaluated_at",
+        "n_alerts",
+        "n_features_total",
+        "monitoring_age_hours",
+        "max_monitoring_age_hours",
+        "recorded_gate_status",
+        "evidence_age_hours_now",
+        "is_stale"
+      ]
+    },
+    {
+      "key": "f62a79c8edd066bf",
+      "sql": "SELECT month, n_originations, total_value_gbp FROM reporting.originations_monthly",
+      "rows": 34,
+      "columns": [
+        "month",
+        "n_originations",
+        "total_value_gbp"
+      ]
+    },
+    {
+      "key": "77d79c3cff413dde",
+      "sql": "SELECT month, n_resolved, default_rate FROM reporting.default_rate_monthly",
+      "rows": 34,
+      "columns": [
+        "month",
+        "n_resolved",
+        "default_rate"
+      ]
+    },
+    {
+      "key": "277f14b84b04a388",
+      "sql": "SELECT thin_file_flag, is_vulnerable, n_customers, actual_default_rate, avg_credit_score, avg_savings_balance_gbp FROM reporting.segment_summary",
+      "rows": 4,
+      "columns": [
+        "thin_file_flag",
+        "is_vulnerable",
+        "n_customers",
+        "actual_default_rate",
+        "avg_credit_score",
+        "avg_savings_balance_gbp"
+      ]
+    },
+    {
+      "key": "204705268f196455",
+      "sql": "SELECT month, n_originations, total_value_gbp, avg_order_value_gbp FROM reporting.originations_monthly",
+      "rows": 34,
+      "columns": [
+        "month",
+        "n_originations",
+        "total_value_gbp",
+        "avg_order_value_gbp"
+      ]
+    },
+    {
+      "key": "71e9ac45e9d34571",
+      "sql": "SELECT * FROM reporting.feature_drift_log WHERE logged_at = (SELECT max(logged_at) FROM reporting.feature_drift_log)",
+      "rows": 13,
+      "columns": [
+        "feature",
+        "psi",
+        "psi_band",
+        "reference_null_rate",
+        "comparison_null_rate",
+        "null_rate_delta",
+        "reference_mean",
+        "comparison_mean",
+        "mean_shift_sigma",
+        "out_of_range_rate",
+        "alerts",
+        "any_alert",
+        "logged_at",
+        "run_id"
+      ]
+    },
+    {
+      "key": "274ebb3f6d15d11a",
+      "sql": "SELECT * FROM reporting.feature_drift_by_cohort",
+      "rows": 156,
+      "columns": [
+        "cohort_period",
+        "n_customers",
+        "scored",
+        "feature",
+        "psi",
+        "psi_band",
+        "psi_noise_floor",
+        "cohort_bad_rate",
+        "run_id",
+        "computed_at"
+      ]
+    },
+    {
+      "key": "f169cfee5db23cc5",
+      "sql": "SELECT coalesce(run_id, '(before run ids)') AS run_id, min(logged_at) AS logged_at, max(psi) AS max_psi, sum(any_alert::int) AS alerts FROM reporting.feature_drift_log GROUP BY run_id ORDER BY 2 DESC",
+      "rows": 10,
+      "columns": [
+        "run_id",
+        "logged_at",
+        "max_psi",
+        "alerts"
+      ]
+    },
+    {
+      "key": "fbfd77e63475ee42",
+      "sql": "SELECT id, gate_status, evaluated_at, n_alerts, n_features_total, monitoring_age_hours FROM reporting.governance_status_log ORDER BY evaluated_at DESC",
+      "rows": 9,
+      "columns": [
+        "id",
+        "gate_status",
+        "evaluated_at",
+        "n_alerts",
+        "n_features_total",
+        "monitoring_age_hours"
+      ]
+    }
+  ],
+  "refused_queries": [
+    {
+      "key": "9fecfe5b03aba605",
+      "sql": "SELECT customer_id, monthly_income_gbp, existing_monthly_obligations_gbp, savings_balance_gbp, credit_score, months_credit_history, num_credit_accounts, num_defaults_24m, thin_file_flag, max_affordability_ratio, avg_order_value_gbp, avg_n_instalments, pct_high_risk_category, pct_medium_risk_category FROM feature_store.customer_features WHERE has_outcome = 1",
+      "rows": 41604,
+      "columns": [
+        "customer_id",
+        "monthly_income_gbp",
+        "existing_monthly_obligations_gbp",
+        "savings_balance_gbp",
+        "credit_score",
+        "months_credit_history",
+        "num_credit_accounts",
+        "num_defaults_24m",
+        "thin_file_flag",
+        "max_affordability_ratio",
+        "avg_order_value_gbp",
+        "avg_n_instalments",
+        "pct_high_risk_category",
+        "pct_medium_risk_category"
+      ],
+      "reason": "customer rows"
+    }
+  ],
+  "reports": [
+    "evaluation/stratified/xgboost/actual_vs_expected.csv",
+    "evaluation/stratified/xgboost/evaluation_metadata.json",
+    "evaluation/stratified/xgboost/fairness_is_vulnerable.csv",
+    "evaluation/stratified/xgboost/fairness_thin_file_flag.csv",
+    "evaluation/stratified/xgboost/lift_and_capture.csv",
+    "evaluation/temporal/xgboost/actual_vs_expected.csv",
+    "evaluation/temporal/xgboost/evaluation_metadata.json",
+    "evaluation/temporal/xgboost/fairness_is_vulnerable.csv",
+    "evaluation/temporal/xgboost/fairness_thin_file_flag.csv",
+    "evaluation/temporal/xgboost/lift_and_capture.csv",
+    "forecasting/forecast_default_rate.csv",
+    "forecasting/forecast_metadata.json",
+    "forecasting/forecast_origination_volume.csv",
+    "model_comparison_stratified.csv",
+    "model_comparison_temporal.csv",
+    "monitoring/monitoring_run_metadata.json",
+    "promotion/promotion_recommendation.json",
+    "shap/global_feature_importance.csv",
+    "shap/shap_metadata.json",
+    "threshold_selection/threshold_candidates.csv"
+  ],
+  "excluded_reports": [],
+  "model_files": [
+    "champion_calibrated.joblib",
+    "champion_explanation_base.joblib",
+    "feature_list.json",
+    "champion_metadata.json",
+    "heldout_score_quantiles.json"
+  ]
+}

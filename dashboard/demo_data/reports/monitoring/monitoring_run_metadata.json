@@ -1,0 +1,37 @@
+{
+  "run_id": "drift_20261015T000021Z_02c0022f",
+  "generated_at": "2026-10-15T00:00:49+00:00",
+  "reference_population": "canonical_stratified_training_partition",
+  "comparison_population_source": "temporal_test",
+  "n_reference": 33283,
+  "n_comparison": 1003,
+  "n_comparison_overlap_excluded": 3854,
+  "cohort_view": {
+    "table": "reporting.feature_drift_by_cohort",
+    "grain": "origination quarter, held-out customers only",
+    "min_cohort_n": 200,
+    "n_cohorts_scored": 11,
+    "gates_anything": false
+  },
+  "model_version": "v1.1",
+  "feature_set_label": "13_features_v1_1",
+  "dataset_version": "full_horizon_2025_v1",
+  "champion_training_run_id": "79f28bdfba53463aa6d0b200d7322e43",
+  "psi_thresholds": {
+    "moderate": 0.1,
+    "high": 0.25
+  },
+  "data_quality_thresholds": {
+    "null_rate_delta_alert": 0.02,
+    "out_of_range_rate_alert": 0.01,
+    "mean_shift_sigma_alert": 0.5
+  },
+  "target_rate_shift": {
+    "reference_bad_rate": 0.0272,
+    "comparison_bad_rate": 0.0249,
+    "absolute_delta": -0.0023
+  },
+  "n_features_with_alerts": 0,
+  "n_features_total": 13,
+  "note": "This run does not gate deployment or trigger retraining by itself. It is the evidence approval_gate.py (Decision 23) evaluates. Comparison population is a proxy (later-originating customers not in the training reference) in the absence of a live scoring stream \u2014 see module docstring."
+}
