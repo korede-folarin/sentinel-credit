@@ -149,3 +149,8 @@ table.checks td { vertical-align: top; font-size: .84rem; }
 pre.record { background: var(--charcoal); border: 1px solid var(--line); padding: 12px; margin: 0;
              font: 12px/1.5 ui-monospace, Consolas, monospace; color: var(--stone);
              white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; }
+h2.outcome-ok { color: var(--emerald); }
+h2.outcome-review { color: var(--amber); }
+.check-box { border: 1px solid var(--amber); border-left: 3px solid var(--amber);
+             background: rgba(196,154,85,.08); padding: 10px 14px; margin: 14px 0 4px; }
+ul.changes-list { list-style: disc; padding-left: 1.2em; }

@@ -175,7 +175,7 @@ if saved:
           <div style="display:flex;flex-wrap:wrap;gap:2.4rem;align-items:flex-end;margin-top:0.4rem">
             <div><div class="sc-result-label">Probability of default</div>
                  <div class="sc-result-value">{res['probability']:.1%}</div></div>
-            <div><div class="sc-result-label">Recommendation</div>
+            <div><div class="sc-result-label">Model recommendation</div>
                  <div style="margin-top:0.5rem">{theme.pill(verdict, level)}</div></div>
             <div><div class="sc-result-label">Relative risk</div>
                  <div style="font-size:1.05rem;margin-top:0.45rem;color:{theme.INK}">
@@ -194,28 +194,31 @@ if saved:
     if outputs:
         esc = html.escape
         ex, off = outputs["explanation"], outputs["risk_officer"]
-        flag = ""
-        if ex["review"]["required"]:
-            flag = (f"<div style='border:1px solid {theme.AMBER};border-left:3px solid {theme.AMBER};"
-                    f"padding:0.6rem 0.9rem;margin:0.3rem 0 0.8rem'><b style='color:{theme.AMBER}'>"
-                    f"{esc(ex['review']['heading'])}</b><div>{esc(ex['review']['text'])}</div></div>")
-        items = "".join(f"<li>{esc(r['text'])}</li>" for r in ex["reasons"])
-        data = "".join(f"<li>{esc(d)}</li>" for d in ex["data"])
-        steps = "".join(f"<li>{esc(s)}</li>" for s in ex["next_steps"])
+        ul = lambda xs, tag="ul": (f'<{tag} style="margin:0.2rem 0 0.5rem 1.2rem">'
+                                   + "".join(f"<li>{esc(x)}</li>" for x in xs) + f"</{tag}>")
+        colour = theme.EMERALD if ex["outcome"] == "approved" else theme.AMBER
+        check = (f"<div style='border:1px solid {theme.AMBER};border-left:3px solid {theme.AMBER};"
+                 f"padding:0.6rem 0.9rem;margin:0.6rem 0'><b>{esc(ex['check_intro'])}</b>"
+                 f"{ul(ex['check'])}</div>") if ex["check"] else ""
+        changes = ""
+        if ex["changes_intro"]:
+            changes = ('<div class="sc-kicker" style="margin-top:0.8rem">What could change the outcome</div>'
+                       f'<p style="margin:0.3rem 0">{esc(ex["changes_intro"])}</p>'
+                       + (ul(ex["changes"]) if ex["changes"] else "")
+                       + (f'<div class="sc-note">{esc(ex["changes_note"])}</div>' if ex["changes_note"] else ""))
         st.markdown(
             f"""<div style="background:{theme.GRAPHITE};border:1px solid {theme.GRAPHITE_LINE};border-left:3px solid {theme.GOLD};padding:1.2rem 1.4rem;margin-top:1rem">
               <div class="sc-kicker">For the applicant</div>
-              {flag}
-              <div style="font-family:'Cormorant Garamond', Georgia, serif;font-size:1.5rem;font-weight:600">
-                {esc(ex['title'])}</div>
-              <p style="margin:0.4rem 0 0.6rem">{esc(ex['intro'])}</p>
-              {'<ol style="margin:0 0 0.4rem 1.2rem">' + items + '</ol>' if items else ''}
-              {'<div class="sc-note">' + esc(ex['link']) + '</div>' if ex['link'] else ''}
-              {'<p style="margin:0.5rem 0">' + esc(ex['other']) + '</p>' if ex['other'] else ''}
-              {'<div class="sc-note" style="margin-top:0.5rem">' + esc(ex['data_intro']) + '</div>' if ex['data_intro'] else ''}
-              {'<ul style="margin:0.2rem 0 0.4rem 1.2rem">' + data + '</ul>' if data else ''}
-              <div class="sc-kicker" style="margin-top:0.8rem">Next steps</div>
-              <ul style="margin:0.2rem 0 0.5rem 1.2rem">{steps}</ul>
+              <div style="font-family:'Cormorant Garamond', Georgia, serif;font-size:1.7rem;font-weight:600;color:{colour}">
+                {esc(ex['headline'])}</div>
+              <p style="margin:0.3rem 0 0.7rem">{esc(ex['summary'])}</p>
+              <div class="sc-kicker">Why</div>
+              <p style="margin:0.3rem 0">{esc(ex['why_intro'])}</p>
+              {ul([r['text'] for r in ex['why']], 'ol') if ex['why'] else ''}
+              {check}
+              {changes}
+              <div class="sc-kicker" style="margin-top:0.8rem">What happens next</div>
+              {ul(ex['next_steps'])}
               <div class="sc-note">{esc(ex['method'])}</div>
             </div>""",
             unsafe_allow_html=True)
@@ -224,12 +227,15 @@ if saved:
         st.markdown(
             theme.pill("Risk officer review required", "warning") if off["review_required"]
             else theme.pill("No review flag", "positive"), unsafe_allow_html=True)
-        st.markdown(f"**{off['error_label']}**  \n{off['genre_reason']}"
+        st.markdown(f"**{off['error_label']}**"
                     + (f"  \n{off['divergence_note']}" if off["divergence_note"] else ""))
         st.dataframe({"Check": [c["name"] for c in off["checks"]],
                       "Result": ["Flag" if c["triggered"] else "Clear" for c in off["checks"]],
                       "Detail": [c["detail"] for c in off["checks"]]},
                      use_container_width=True, hide_index=True)
+        if off["context"]:
+            st.markdown("Similar past customers (training data):  \n"
+                        + "  \n".join(f"- {c}" for c in off["context"]))
         theme.note("Limits come from the training data; the blind-spot percentile and the "
                    "single-detail share are declared choices (Decision 31). Review required is a "
                    "statement, not a routing.")

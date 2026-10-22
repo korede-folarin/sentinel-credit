@@ -125,31 +125,33 @@ async function assess(event) {
     // Decision 7 / 30 / 31: three outputs from one shared module
     const esc = x => String(x).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     const x = ex.explanation, off = ex.risk_officer, rec = ex.decision_record;
-    // 1 · for the applicant
-    $("r-ex-review").classList.toggle("hidden", !x.review.required);
-    $("r-ex-review-heading").textContent = x.review.heading;
-    $("r-ex-review-text").textContent = x.review.text;
-    $("r-ex-title").textContent = x.title;
-    $("r-ex-intro").textContent = x.intro;
-    $("r-ex-reasons").innerHTML = x.reasons.map(r => `<li>${esc(r.text)}</li>`).join("");
-    $("r-ex-reasons").classList.toggle("hidden", !x.reasons.length);
-    $("r-ex-link").textContent = x.link;
-    $("r-ex-other").textContent = x.other;
-    $("r-ex-data-intro").textContent = x.data_intro;
-    $("r-ex-data").innerHTML = x.data.map(d => `<li>${esc(d)}</li>`).join("");
-    $("r-ex-data").classList.toggle("hidden", !x.data.length);
-    $("r-ex-next").innerHTML = x.next_steps.map(s => `<li>${esc(s)}</li>`).join("");
+    // 1 · for the applicant (Decision 33): outcome, why, check, changes, next
+    const list = (id, items) => { $(id).innerHTML = items.map(i => `<li>${esc(i)}</li>`).join(""); };
+    $("r-ex-headline").textContent = x.headline;
+    $("r-ex-headline").className = x.outcome === "approved" ? "outcome-ok" : "outcome-review";
+    $("r-ex-summary").textContent = x.summary;
+    $("r-ex-why-intro").textContent = x.why_intro;
+    list("r-ex-why", x.why.map(r => r.text));
+    $("r-ex-why").classList.toggle("hidden", !x.why.length);
+    $("r-ex-check-box").classList.toggle("hidden", !x.check.length);
+    $("r-ex-check-intro").textContent = x.check_intro;
+    list("r-ex-check", x.check);
+    $("r-ex-changes-box").classList.toggle("hidden", !x.changes_intro);
+    $("r-ex-changes-intro").textContent = x.changes_intro;
+    list("r-ex-changes", x.changes);
+    $("r-ex-changes-note").textContent = x.changes_note;
+    list("r-ex-next", x.next_steps);
     $("r-ex-method").textContent = x.method;
     // 2 · for a risk officer
     $("r-off-pill").innerHTML = off.review_required
       ? '<span class="pill warn">Risk officer review required</span>'
       : '<span class="pill ok">No review flag</span>';
     $("r-off-type").textContent = off.error_label;
-    $("r-off-genre").textContent = off.genre_reason;
     $("r-off-div").textContent = off.divergence_note;
     $("r-off-checks").innerHTML = off.checks.map(c => `<tr><td>${esc(c.name)}</td>
       <td>${c.triggered ? '<span class="pill warn">Flag</span>' : '<span class="pill ok">Clear</span>'}</td>
       <td>${esc(c.detail)}</td></tr>`).join("");
+    list("r-off-context", off.context);
     // 3 · the decision record (shown, never stored or sent)
     const fullRecord = { ...rec, calibrated_probability: Number(ex.probability.toFixed(6)),
                          generated_at: new Date().toISOString().slice(0, 19) + "Z" };

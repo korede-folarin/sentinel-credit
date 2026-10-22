@@ -241,14 +241,16 @@ class ScoreResponse(BaseModel):
     explanation: Optional[dict] = Field(
         default=None,
         description=(
-            "For the applicant: plain-English reasons (Decision 30) in the genre matched "
-            "to the error type detected (Decision 31). Each detail is compared with a "
+            "For the applicant (Decision 33): the outcome (approved, or needs a manual "
+            "review; never declined), the applicant's own details that counted most, "
+            "details to check, and model-tested changes that could alter the outcome. "
+            "Model issues and the cutoff are not shown here. Each detail is compared with a "
             "typical applicant by changing that one detail and re-scoring; this "
             "describes how the model responds, not what causes default."),
     )
     risk_officer: Optional[dict] = Field(
         default=None,
-        description="For a risk officer: error type, genre and why, the three checks, divergence.")
+        description="For a risk officer: error type, the three checks, divergence, context.")
     decision_record: Optional[dict] = Field(
         default=None,
         description=("Structured record for audit: model identity, cutoff, methods, rules "

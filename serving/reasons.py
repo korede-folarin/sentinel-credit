@@ -1,12 +1,14 @@
 """
-Sentinel Credit, Plain-English Reasons and Decision Checks (Decisions 30, 31)
+Sentinel Credit, Applicant Explanations and Decision Checks (Decisions 30, 31, 33)
 
 Turns a scored application into three outputs (Decision 7):
 
-- explanation (customer): plain English, in a genre matched to the error
-  type detected; says "Risk officer review required" when a check needs a
-  person. No routing: the flag is the output.
-- risk_officer: error type, genre and why, the three checks, divergence.
+- explanation (applicant): the outcome first, then why, in the applicant's
+  own details. Approved, or needs a manual review; never declined (the
+  model has no decline rule). Model issues are never shown to the
+  applicant (Decision 33). Then: details to check, what could change the
+  outcome (model-tested single changes), and what happens next.
+- risk_officer: error type, the three checks, divergence, context.
 - decision_record (regulatory): model identity, cutoff, methods, rules
   version, lineage, approver (not recorded, Decision 23).
 
@@ -22,17 +24,21 @@ It describes how the model responds, not what causes default.
 Checks (Decision 31), limits from serving/explanation_rules.json (built
 from the training partition by models/build_explanation_rules.py):
 1. data input: a model feature outside its training range, or a
-   combination never seen in training (e.g. a limited credit file with
-   more history than any thin-file customer had);
-2. missing information: a full credit file (the model's known blind spot:
-   it never scores this group at the cutoff) scoring at or above the
-   group's configured percentile;
-3. over-reliance: one detail decides the recommendation (setting it alone
-   to typical flips it) and carries most of the total effect.
-Priority 1 > 2 > 3. Genre (Belton et al. 2025, Decision 7): data input ->
-features-based; missing information and over-reliance -> data-centric,
-no per-detail attributions; none -> combination. Any detected issue means
-risk officer review required.
+   combination never seen in training;
+2. missing information: a full credit file (the model's known blind spot)
+   scoring at or above the group's configured percentile;
+3. over-reliance: one detail decides the recommendation and carries most
+   of the total effect.
+Any of them means risk officer review required. Outcome (Decision 33):
+approved only if the model passes the application AND no check fires;
+otherwise the applicant is told it needs a manual review.
+
+What could change the outcome (Decision 33): for a manual review that is
+not a data-input case, single changes to what an applicant can act on
+(order value, plan length, existing commitments, savings), each scored by
+the model with everything else unchanged. A change qualifies if the model
+would then approve automatically (below the cutoff and outside the blind
+spot). The smallest qualifying change per detail is shown, up to three.
 """
 
 import json
@@ -50,6 +56,10 @@ MONEY = {"monthly_income_gbp", "existing_monthly_obligations_gbp", "savings_bala
 PERCENT = {"max_affordability_ratio", "pct_high_risk_category", "pct_medium_risk_category"}
 # For a new applicant, the input a model feature is shown as.
 FEATURE_TO_INPUT = {"avg_order_value_gbp": "order_value_gbp", "avg_n_instalments": "n_instalments"}
+# Details an applicant can act on, in the order guidance is listed on ties.
+ACTIONABLE = ["order_value_gbp", "n_instalments", "existing_monthly_obligations_gbp",
+              "savings_balance_gbp"]
+SPAN_FEATURE = {"order_value_gbp": "avg_order_value_gbp", "n_instalments": "avg_n_instalments"}
 
 
 def _load(name):
@@ -73,6 +83,14 @@ def load_rules() -> dict:
 def _round_half_up(v: float) -> int:
     """Matches JavaScript Math.round for the values shown (whole pounds etc.)."""
     return int(math.floor(v + 0.5))
+
+
+def _round10(v: float) -> int:
+    return 10 * _round_half_up(v / 10)
+
+
+def _capitalise(s: str) -> str:
+    return s[:1].upper() + s[1:]
 
 
 def format_value(field, v, templates: dict) -> str:
@@ -122,15 +140,10 @@ def _sentence(field, inputs, typical, effect, t):
         typical=format_value(field, typical[field], t))
 
 
-def _join(labels):
-    if len(labels) <= 1:
-        return "".join(labels)
-    return ", ".join(labels[:-1]) + " and " + labels[-1]
-
-
-def build_reasons(inputs: dict, typical: dict, probability: float, effect_by_input: dict,
-                  refer: bool, templates: dict = None, kind: str = "new") -> dict:
-    """Customer-facing reasons (Decision 30). Deterministic ordering: effect
+def build_reasons(inputs: dict, typical: dict, effect_by_input: dict, templates: dict = None,
+                  kind: str = "new") -> dict:
+    """The details that counted most against and in favour (Decision 30), as
+    sentences in the applicant's own values. Deterministic ordering: effect
     size, then input order, so the JavaScript port produces identical text."""
     t = templates or load_templates()
     tol = t["numerical_tolerance"]
@@ -139,31 +152,14 @@ def build_reasons(inputs: dict, typical: dict, probability: float, effect_by_inp
                      key=lambda x: (-x[1], order[x[0]]))
     favour = sorted([(f, e) for f, e in effect_by_input.items() if e < -tol],
                     key=lambda x: (x[1], order[x[0]]))
-    if refer:
-        main = against[:t["max_reasons"]]
-        side = favour[:t["max_favourable"]]
-        block = t["refer"]
-        side_text = (f"{block['favour_intro']} {_join([t['fields'][f]['label'] for f, _ in side])}."
-                     if side else "")
-    else:
-        main = favour[:t["max_reasons"]]
-        side = against[:t["max_favourable"]]
-        block = t["pass"]
-        side_text = (f"{block['against_intro']} {_join([t['fields'][f]['label'] for f, _ in side])}."
-                     if side else "")
+    n = t["max_reasons"]
     return {
-        "decision": "refer" if refer else "pass",
-        "title": block["title"],
-        "intro": block["intro"] if main else block["none"],
-        "reasons": [{"input": f, "text": _sentence(f, inputs, typical, e, t)} for f, e in main],
-        "link": block.get("link", "") if (refer and main) else "",
-        "other": side_text,
-        "next_steps": list(t["next_steps"]["refer" if refer else "pass"]),
-        "method": t["method"][kind],
+        "against": [{"input": f, "text": _sentence(f, inputs, typical, e, t)} for f, e in against[:n]],
+        "favour": [{"input": f, "text": _sentence(f, inputs, typical, e, t)} for f, e in favour[:n]],
     }
 
 
-# ── Decision 31: checks, genre, three outputs ─────────────────────
+# ── Decision 31: checks ───────────────────────────────────────────
 
 def _feature_of(name: str, features: dict) -> str:
     """The model feature whose 'past customers like you' band describes an input."""
@@ -185,7 +181,7 @@ def band_text(feature: str, value, rules: dict) -> str:
 
 
 def data_input_issues(features: dict, inputs: dict, kind: str, rules: dict, t: dict) -> list:
-    issues, words = [], t["review"]["issues"]
+    issues, words = [], t["issues"]
     for f in FEATURES:
         r, v = rules["ranges"][f], features[f]
         if (r["check_min"] and v < r["min"]) or v > r["max"]:
@@ -227,10 +223,65 @@ def single_detail(probability: float, effect_by_input: dict, cutoff: float, orde
     return name if (flips and abs(e) / total >= share) else None
 
 
+# ── Decision 33: what could change the outcome ────────────────────
+
+def change_candidates(inputs: dict, rules: dict) -> list:
+    """(input, value) single changes an applicant could make, nearest first."""
+    out = []
+    cur = inputs["order_value_gbp"]
+    seen = []
+    for k in range(1, 20):                       # smaller orders, down to £20
+        v = max(20, _round10(cur * (1 - k / 20)))
+        if v < cur and v not in seen:
+            seen.append(v)
+    out += [("order_value_gbp", v) for v in seen]
+    out += [("n_instalments", n) for n in (3, 6, 12) if n != inputs["n_instalments"]]
+    cur = inputs["existing_monthly_obligations_gbp"]
+    seen = []
+    for k in range(1, 11):                       # lower commitments, down to £0
+        v = _round10(cur * (1 - k / 10))
+        if v < cur and v not in seen:
+            seen.append(v)
+    out += [("existing_monthly_obligations_gbp", v) for v in seen]
+    cur, top = inputs["savings_balance_gbp"], rules["ranges"]["savings_balance_gbp"]["max"]
+    seen = []
+    for k in range(1, 21):                       # more savings, up to the training maximum
+        v = _round10(cur + (top - cur) * k / 20)
+        if v > cur and v not in seen:
+            seen.append(v)
+    out += [("savings_balance_gbp", v) for v in seen]
+    return out
+
+
+def outcome_changes(inputs: dict, cutoff: float, rules: dict, t: dict, score_many) -> list:
+    """Up to three sentences: the smallest single change per actionable detail
+    that the model says would make this an automatic approval."""
+    cands = change_candidates(inputs, rules)
+    if not cands:
+        return []
+    probs = score_many([_features({**inputs, f: v}) for f, v in cands])
+    line = rules["blind_spot"]["line"]
+    full_file = inputs["thin_file_flag"] == 0
+    best = {}
+    for (f, v), p in zip(cands, probs):
+        if p >= cutoff or (full_file and p >= line):
+            continue
+        r = rules["ranges"][SPAN_FEATURE.get(f, f)]
+        d = abs(v - inputs[f]) / (r["max"] - r["min"])
+        if f not in best or d < best[f][0]:
+            best[f] = (d, v)
+    ranked = sorted(best.items(), key=lambda x: (x[1][0], ACTIONABLE.index(x[0])))[:3]
+    return [t["changes"][f].format(value=format_value(f, v, t),
+                                   current=format_value(f, inputs[f], t))
+            for f, (_, v) in ranked]
+
+
+# ── the three outputs ─────────────────────────────────────────────
+
 def review(inputs: dict, features: dict, probability: float, effect_by_input: dict,
            reasons: dict, cutoff: float, kind: str = "new", templates: dict = None,
-           rules: dict = None) -> dict:
-    """Apply Decision 31 to a Decision 30 explanation: returns the three outputs."""
+           rules: dict = None, score_many=None) -> dict:
+    """Apply the checks (Decision 31) and build the three outputs (Decision 33)."""
     t = templates or load_templates()
     rules = rules or load_rules()
     order = INPUTS if kind == "new" else FEATURES
@@ -242,96 +293,81 @@ def review(inputs: dict, features: dict, probability: float, effect_by_input: di
     blind = full_file and probability >= bs["line"]
     decisive = single_detail(probability, effect_by_input, cutoff, order,
                              rules["choices"]["single_detail_share"])
-
     if issues:
-        error_type, genre = "data_input", "features"
+        error_type = "data_input"
     elif blind:
-        error_type, genre = "missing_information", "data_centric"
+        error_type = "missing_information"
     elif decisive:
-        error_type, genre = "overreliance", "data_centric"
+        error_type = "overreliance"
     else:
-        error_type, genre = "none", "combination"
+        error_type = "none"
     required = error_type != "none"
+    outcome = "manual_review" if (refer or required) else "approved"
 
-    # customer output
-    ex = dict(reasons)
-    words = t["review"]
-    data = []
-    if genre == "combination":
-        data = [band_text(_feature_of(ex["reasons"][0]["input"], features),
-                          features[_feature_of(ex["reasons"][0]["input"], features)], rules)
-                if ex["reasons"] else rules["overall"]["text"]]
-    elif error_type == "overreliance":
-        f = _feature_of(decisive, features)
-        data = [band_text(f, features[f], rules), rules["overall"]["text"]]
-    elif error_type == "missing_information":
-        data = [bs["text_segment"], bs["text_top"], rules["overall"]["text"]]
-    if genre == "data_centric":
-        ex["intro"] = words["data_only_intro"]
-        ex["reasons"], ex["link"], ex["other"] = [], "", ""
-    if error_type == "data_input":
-        review_text = words["data_input"].format(issues="; ".join(issues))
-    elif error_type == "missing_information":
-        review_text = words["missing_information"].format(top=bs["top_percent"])
-    elif error_type == "overreliance":
-        review_text = words["overreliance"]
-    else:
-        review_text = ""
-    next_steps = list(ex["next_steps"])
-    if required and not refer:
-        next_steps = [words["next_step"]] + next_steps
+    # applicant output: outcome, why, details to check, what could change, next
+    o = t["outcome"][outcome]
+    why = reasons["against"] if outcome == "manual_review" else reasons["favour"]
+    changes = []
+    if outcome == "manual_review" and kind == "new" and error_type != "data_input" and score_many:
+        changes = outcome_changes(inputs, cutoff, rules, t, score_many)
+    show_changes = outcome == "manual_review" and kind == "new" and error_type != "data_input"
     explanation = {
-        "decision": ex["decision"],
-        "title": ex["title"],
-        "review": {"required": required, "heading": words["heading"] if required else "",
-                   "text": review_text},
-        "intro": ex["intro"],
-        "reasons": ex["reasons"],
-        "link": ex["link"],
-        "other": ex["other"],
-        "data_intro": words["data_intro"] if (data and genre == "combination") else "",
-        "data": data,
-        "next_steps": next_steps,
-        "method": rules["data_method"] if genre == "data_centric" else ex["method"],
+        "outcome": outcome,
+        "headline": o["headline"],
+        "summary": o["summary"],
+        "why_intro": o["why_intro"] if why else o["why_none"],
+        "why": why,
+        "check_intro": t["check"]["intro"] if issues else "",
+        "check": [_capitalise(s) + "." for s in issues],
+        "changes_intro": (t["changes_text"]["intro"] if changes
+                          else t["changes_text"]["none"]) if show_changes else "",
+        "changes": changes,
+        "changes_note": t["changes_text"]["note"] if changes else "",
+        "next_steps": list(o["next_steps"]),
+        "method": t["method"][kind],
     }
 
     # risk officer output
-    o = t["officer"]
-    checks_words = o["checks"]
+    w = t["officer"]
+    cw = w["checks"]
     pct = round(bs["percentile"] * 100)
     if not full_file:
-        blind_detail = checks_words["missing_information"]["not_applicable"]
+        blind_detail = cw["missing_information"]["not_applicable"]
     else:
-        blind_detail = checks_words["missing_information"]["triggered" if blind else "ok"].format(
+        blind_detail = cw["missing_information"]["triggered" if blind else "ok"].format(
             pct=pct, line=bs["line_text"])
+    context = []
+    if reasons["against"]:
+        f = _feature_of(reasons["against"][0]["input"], features)
+        context.append(band_text(f, features[f], rules))
+    if blind:
+        context += [bs["text_segment"], bs["text_top"]]
     officer = {
         "error_type": error_type,
-        "error_label": o["error_labels"][error_type],
-        "genre": genre,
-        "genre_reason": o["genre_reasons"][genre],
+        "error_label": w["error_labels"][error_type],
         "review_required": required,
         "model_recommendation": "refer" if refer else "pass",
+        "customer_outcome": outcome,
         "divergence": required and not refer,
-        "divergence_note": o["divergence_note"] if (required and not refer) else "",
+        "divergence_note": w["divergence_note"] if (required and not refer) else "",
         "checks": [
-            {"id": "data_input", "name": checks_words["data_input"]["name"],
-             "triggered": bool(issues),
-             "detail": "; ".join(issues) if issues else checks_words["data_input"]["ok"]},
-            {"id": "missing_information", "name": checks_words["missing_information"]["name"],
+            {"id": "data_input", "name": cw["data_input"]["name"], "triggered": bool(issues),
+             "detail": "; ".join(issues) if issues else cw["data_input"]["ok"]},
+            {"id": "missing_information", "name": cw["missing_information"]["name"],
              "triggered": blind, "detail": blind_detail},
-            {"id": "overreliance", "name": checks_words["overreliance"]["name"],
+            {"id": "overreliance", "name": cw["overreliance"]["name"],
              "triggered": decisive is not None,
-             "detail": (checks_words["overreliance"]["triggered"].format(
-                 name=t["fields"][decisive]["name"]) if decisive
-                 else checks_words["overreliance"]["ok"])},
+             "detail": (cw["overreliance"]["triggered"].format(name=t["fields"][decisive]["name"])
+                        if decisive else cw["overreliance"]["ok"])},
         ],
+        "context": context,
     }
 
     # regulatory record (deterministic part; callers add probability and time)
     m = rules["model"]
     record = {
         "record_type": "sentinel_credit_decision_record",
-        "record_version": "1",
+        "record_version": "2",
         "applicant_type": kind,
         "model_version": m["model_version"],
         "feature_set_label": m["feature_set_label"],
@@ -339,9 +375,9 @@ def review(inputs: dict, features: dict, probability: float, effect_by_input: di
         "business_cutoff": m["cutoff"],
         "model_recommendation": "refer" if refer else "pass",
         "risk_officer_review_required": required,
+        "customer_outcome": outcome,
         "divergence": required and not refer,
         "error_type": error_type,
-        "explanation_genre": genre,
         "rules_version": rules["rules_version"],
         "rules_generated_at": rules["generated_at"],
         "approver_id": None,
@@ -359,8 +395,9 @@ def explain(inputs: dict, score_many, cutoff: float, typical: dict = None,
     t = templates or load_templates()
     typical = typical or load_typical("new")
     probability, eff = effects(inputs, typical, score_many, "new")
-    reasons = build_reasons(inputs, typical, probability, eff, probability >= cutoff, t, "new")
-    out = review(inputs, _features(inputs), probability, eff, reasons, cutoff, "new", t, rules)
+    reasons = build_reasons(inputs, typical, eff, t, "new")
+    out = review(inputs, _features(inputs), probability, eff, reasons, cutoff, "new", t, rules,
+                 score_many)
     return {"probability": probability, "effects": eff, **out}
 
 
@@ -371,6 +408,7 @@ def explain_existing(features: dict, score_many, cutoff: float, typical: dict = 
     typical = typical or load_typical("existing")
     inputs = {f: features[f] for f in FEATURES}
     probability, eff = effects(inputs, typical, score_many, "existing")
-    reasons = build_reasons(inputs, typical, probability, eff, probability >= cutoff, t, "existing")
-    out = review(inputs, inputs, probability, eff, reasons, cutoff, "existing", t, rules)
+    reasons = build_reasons(inputs, typical, eff, t, "existing")
+    out = review(inputs, inputs, probability, eff, reasons, cutoff, "existing", t, rules,
+                 score_many)
     return {"probability": probability, "effects": eff, **out}

@@ -47,8 +47,8 @@
 
   <section class="panel" style="margin-bottom:24px">
     <h3>3 · Explanations, risk officer view and decision record</h3>
-    <p class="note" style="margin-top:0">All three outputs (the applicant's explanation, the risk
-      officer's checks and the decision record) built in this browser, against what the Python service
+    <p class="note" style="margin-top:0">All three outputs (the applicant's explanation with its
+      model-tested changes, the risk officer's checks and the decision record) built in this browser, against what the Python service
       (serving/reasons.py) produced for the same applications. Must match word for word. Every fifth
       application runs with a lowered, test-only single-detail share so that check's wording is covered
       (at the live share it cannot fire for a new applicant; Decision 31).</p>
@@ -146,9 +146,9 @@ window.__parity = {};
                        n_instalments: e.n_instalments, merchant_category: e.merchant_category };
       const r = e.rules_override ? { ...rules, choices: { ...rules.choices, ...e.rules_override } } : rules;
       const [p, eff] = await effects(inputs, typical);
-      const reasons = buildReasons(inputs, typical, eff, p >= contract.cutoff, templates);
-      const got = review(inputs, featuresOf(inputs), p, eff, reasons, contract.cutoff, templates, r);
-      nReasons += got.explanation.reasons.length + got.explanation.data.length;
+      const reasons = buildReasons(inputs, typical, eff, templates);
+      const got = await review(inputs, featuresOf(inputs), p, eff, reasons, contract.cutoff, templates, r);
+      nReasons += got.explanation.why.length + got.explanation.check.length + got.explanation.changes.length;
       types[got.risk_officer.error_type] = (types[got.risk_officer.error_type] || 0) + 1;
       if (JSON.stringify(got) !== JSON.stringify(e.expected_outputs)) {
         mismatches++;
@@ -156,11 +156,11 @@ window.__parity = {};
       }
     }
     const ok = mismatches === 0;
-    const referred = ex.examples.filter(e => e.expected_outputs.explanation.decision === "refer").length;
+    const referred = ex.examples.filter(e => e.expected_outputs.explanation.outcome === "manual_review").length;
     const flagged = ex.examples.filter(e => e.expected_outputs.risk_officer.review_required).length;
     window.__parity.reasons = { ok, n: ex.examples.length, mismatches, referred, flagged, nReasons, types, first };
     table("t-reasons", [["Status", pill(ok)], ["Applications compared", ex.examples.length.toLocaleString()],
-      ["Of which referred for review", referred], ["Risk officer review required", flagged],
+      ["Of which manual review", referred], ["Risk officer review required", flagged],
       ["Error types covered", Object.entries(types).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(" · ")],
       ["Sentences compared", nReasons], ["Outputs that differ", mismatches]]);
   } catch (e) { table("t-reasons", [["Status", `Error: ${e.message}`]]); window.__parity.reasonsError = String(e); }

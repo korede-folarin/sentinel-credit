@@ -1,5 +1,5 @@
 {
-  "_about": "Plain-English wording for Decisions 30 and 31. Single source of truth for the API (serving/app.py), the dashboard (dashboard/scoring.py) and the public site (website/public/assets/reasons.js). Each detail has wording for when the applicant's value is lower or higher than the typical applicant's. Wording describes what the model links to risk; it never claims cause and never mentions the review cutoff.",
+  "_about": "Applicant-facing wording (Decisions 30, 31, 33). Single source of truth for the API (serving/app.py), the dashboard (dashboard/scoring.py) and the public site (website/public/assets/reasons.js). The applicant sees an outcome (approved, or needs a manual review; never declined), the details of their own that counted, details to check, and model-tested changes. Model issues and the review cutoff are never shown to the applicant; they are in the risk officer output.",
   "fields": {
     "monthly_income_gbp": {
       "name": "Monthly income",
@@ -120,59 +120,54 @@
       "instalments"
     ]
   },
-  "refer": {
-    "title": "Why this application was referred for review",
-    "intro": "The application has been passed to a person to review; it has not been declined. The details that counted most against it were:",
-    "link": "The model links each of these to a higher chance of falling behind on repayments.",
-    "none": "No single detail stood out; it was the combination of details that the model linked to a higher chance of falling behind on repayments.",
-    "favour_intro": "Counting in its favour:"
+  "outcome": {
+    "approved": {
+      "headline": "Your application has been approved",
+      "summary": "The details you gave allowed an automatic approval.",
+      "why_intro": "What counted most in your favour:",
+      "why_none": "Your details were close to those of a typical applicant.",
+      "next_steps": [
+        "Your repayments will follow the plan you chose.",
+        "This is a demonstration on synthetic data. It is not financial advice."
+      ]
+    },
+    "manual_review": {
+      "headline": "Your application needs a manual review",
+      "summary": "We could not make an automatic decision, so a risk officer will review your application before a final decision is made. It has not been declined.",
+      "why_intro": "What counted against an automatic approval:",
+      "why_none": "No single detail stood out. A risk officer will look at the application as a whole.",
+      "next_steps": [
+        "A risk officer will review your application and the details you gave.",
+        "If any detail is wrong, ask for it to be corrected before the review.",
+        "This is a demonstration on synthetic data. It is not financial advice."
+      ]
+    }
   },
-  "pass": {
-    "title": "Why this application was not referred",
-    "intro": "The model did not flag this application for review. The details that counted most in its favour were:",
-    "none": "No single detail stood out; the details taken together were not flagged.",
-    "against_intro": "Details the model linked to higher risk, though not enough to flag it:"
+  "check": {
+    "intro": "Please check these details are correct:"
   },
-  "next_steps": {
-    "refer": [
-      "Check these details are correct. If any are wrong, ask for them to be corrected before the review.",
-      "A referral is not a decline: a reviewer looks at the whole application.",
-      "This explains how the model scored these details on synthetic data. It is not financial advice."
-    ],
-    "pass": [
-      "This explains how the model scored these details on synthetic data. It is not financial advice."
-    ]
+  "issues": {
+    "out_of_range": "{label} of {value} is outside the range we can assess automatically",
+    "thin_long_history": "your credit file is marked as limited, but shows {months} of credit history",
+    "thin_many_accounts": "your credit file is marked as limited, but shows {accounts}",
+    "full_short_history": "your credit file is marked as full, but shows only {months} of credit history",
+    "full_no_accounts": "your credit file is marked as full, but shows {accounts}",
+    "commitments_vs_income": "your existing commitments of {obligations} a month are high against an income of {income}"
   },
-  "max_reasons": 3,
-  "max_favourable": 2,
-  "numerical_tolerance": 1e-06,
+  "changes": {
+    "order_value_gbp": "Apply for a smaller amount: an order of {value} instead of {current}.",
+    "n_instalments": "Choose a plan of {value} instead of {current}.",
+    "existing_monthly_obligations_gbp": "Reduce your existing monthly commitments to {value} (currently {current}).",
+    "savings_balance_gbp": "Have savings of {value} (currently {current})."
+  },
+  "changes_text": {
+    "intro": "Each of these on its own, with everything else the same, would have led to an automatic approval:",
+    "none": "No single change to the order, the repayment plan, your existing commitments or your savings would be enough on its own. A risk officer will look at the application as a whole.",
+    "note": "These changes do not guarantee approval. A future application will be assessed on your circumstances at that time."
+  },
   "method": {
     "new": "Each detail was compared with a typical applicant by changing that one detail and re-scoring with the model.",
     "existing": "Each detail was compared with a typical customer by changing that one detail and re-scoring with the model."
-  },
-  "review": {
-    "heading": "Risk officer review required",
-    "data_input": "Some details are unusual compared with the data the model learned from: {issues}. A risk officer will check them before anything is decided. If any are wrong, ask for them to be corrected.",
-    "missing_information": "Applicants with a full credit file are a group where the model is known to be less reliable: it rarely marks them as high risk, even though some do fall behind. This application scored among the highest {top}% for that group, so a risk officer will review it.",
-    "overreliance": "The recommendation rests mainly on one detail of the application, so a risk officer will check it rather than rely on the model alone.",
-    "next_step": "A risk officer will review this application before anything is decided. It has not been declined.",
-    "data_only_intro": "Rather than list individual details, here is how past customers like you fared in the data the model learned from.",
-    "data_intro": "Past customers like you, in the data the model learned from:",
-    "issues": {
-      "out_of_range": "{label} of {value}, outside the range seen in that data",
-      "thin_long_history": "a limited credit file but {months} of credit history",
-      "thin_many_accounts": "a limited credit file but {accounts}",
-      "full_short_history": "a full credit file but only {months} of credit history",
-      "full_no_accounts": "a full credit file but {accounts}",
-      "commitments_vs_income": "existing commitments of {obligations} a month against an income of {income}"
-    }
-  },
-  "data": {
-    "band": "Among {n} past customers {condition}, about {k} in every 1,000 fell 90 days or more behind on repayments.",
-    "overall": "Across all {n} past customers the model learned from, about {k} in every 1,000 fell 90 days or more behind on repayments.",
-    "segment": "Among {n} past customers with a full credit file, about {k} in every 1,000 fell 90 days or more behind on repayments.",
-    "segment_top": "Among the {top}% of them the model scored highest, about {k} in every 1,000 did.",
-    "method": "These figures count the {n} past customers in the model's training data, in groups of at least {min_group}. They describe what happened to similar customers, not what will happen to you."
   },
   "officer": {
     "error_labels": {
@@ -180,11 +175,6 @@
       "missing_information": "Known blind spot (information the model lacks)",
       "overreliance": "Recommendation rests on one detail",
       "none": "No issue detected"
-    },
-    "genre_reasons": {
-      "features": "Features-based explanation: it helps people spot a wrong input (Belton et al. 2025, Decision 7).",
-      "data_centric": "Data-centric explanation, no per-detail attributions: they can hide a model error of this kind (Belton et al. 2025, Decision 7). Human review triggered.",
-      "combination": "Combination explanation: appropriate when no error type is detected (Decision 7)."
     },
     "checks": {
       "data_input": {
@@ -203,7 +193,7 @@
         "ok": "No single detail decides the recommendation."
       }
     },
-    "divergence_note": "The model's recommendation is below the review threshold, but a check requires a person to review it."
+    "divergence_note": "The model's score is below the review threshold, but a check requires a person: the applicant is told the application needs a manual review."
   },
   "record": {
     "approver_note": "Not recorded: the approval gate does not capture approver identity (Decision 23).",
@@ -211,7 +201,17 @@
       "Decision 27: champion {model_version}, promoted on validity grounds",
       "Decision 27: business cutoff {cutoff}, PD at or above it refers for review",
       "Decision 30: plain-English reasons, one input at a time against a typical applicant",
-      "Decision 31: error-type checks, explanation genre and risk officer flag (rules {rules_version})"
+      "Decision 31: error-type checks and risk officer flag (rules {rules_version})",
+      "Decision 33: applicant outcome (approved or manual review), own-detail reasons, model-tested changes"
     ]
-  }
+  },
+  "data": {
+    "band": "Among {n} past customers {condition}, about {k} in every 1,000 fell 90 days or more behind on repayments.",
+    "overall": "Across all {n} past customers the model learned from, about {k} in every 1,000 fell 90 days or more behind on repayments.",
+    "segment": "Among {n} past customers with a full credit file, about {k} in every 1,000 fell 90 days or more behind on repayments.",
+    "segment_top": "Among the {top}% of them the model scored highest, about {k} in every 1,000 did.",
+    "method": "These figures count the {n} past customers in the model's training data, in groups of at least {min_group}. They describe what happened to similar customers, not what will happen to you."
+  },
+  "max_reasons": 3,
+  "numerical_tolerance": 1e-06
 }

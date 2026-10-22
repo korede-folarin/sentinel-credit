@@ -83,7 +83,7 @@
       <div class="kicker">Assessment · new applicant</div>
       <div class="result-row">
         <div><div class="result-label">Probability of default</div><div class="result-value" id="r-pd"></div></div>
-        <div><div class="result-label">Recommendation</div><div style="margin-top:10px" id="r-rec"></div></div>
+        <div><div class="result-label">Model recommendation</div><div style="margin-top:10px" id="r-rec"></div></div>
         <div><div class="result-label">Relative risk</div><div class="result-text" id="r-rank"></div></div>
         <div><div class="result-label">Affordability ratio</div><div class="result-text" id="r-aff"></div></div>
       </div>
@@ -93,18 +93,22 @@
 
     <div class="panel explain" style="margin-top:18px">
       <div class="kicker">For the applicant</div>
-      <div class="review-flag hidden" id="r-ex-review" role="status">
-        <b id="r-ex-review-heading"></b>
-        <p id="r-ex-review-text" style="margin:4px 0 0"></p>
+      <h2 id="r-ex-headline" style="font-size:1.8rem;margin-top:4px"></h2>
+      <p id="r-ex-summary" style="margin:6px 0 14px"></p>
+      <h3>Why</h3>
+      <p id="r-ex-why-intro" style="margin:0 0 8px"></p>
+      <ol id="r-ex-why" class="reasons"></ol>
+      <div class="check-box hidden" id="r-ex-check-box">
+        <b id="r-ex-check-intro"></b>
+        <ul id="r-ex-check" class="next" style="margin-top:6px"></ul>
       </div>
-      <h2 id="r-ex-title" style="font-size:1.6rem"></h2>
-      <p id="r-ex-intro" style="margin:6px 0 10px"></p>
-      <ol id="r-ex-reasons" class="reasons"></ol>
-      <p id="r-ex-link" class="note" style="margin:6px 0"></p>
-      <p id="r-ex-other" style="margin:6px 0"></p>
-      <p id="r-ex-data-intro" class="note" style="margin:10px 0 4px"></p>
-      <ul id="r-ex-data" class="datactx"></ul>
-      <h3 style="margin-top:18px">Next steps</h3>
+      <div class="hidden" id="r-ex-changes-box">
+        <h3 style="margin-top:18px">What could change the outcome</h3>
+        <p id="r-ex-changes-intro" style="margin:0 0 8px"></p>
+        <ul id="r-ex-changes" class="reasons changes-list"></ul>
+        <p class="note" id="r-ex-changes-note" style="margin:6px 0 0"></p>
+      </div>
+      <h3 style="margin-top:18px">What happens next</h3>
       <ul id="r-ex-next" class="next"></ul>
       <p class="note" id="r-ex-method" style="margin-bottom:0"></p>
     </div>
@@ -114,11 +118,12 @@
         <div class="kicker">For a risk officer</div>
         <div id="r-off-pill" style="margin:4px 0 8px"></div>
         <p style="margin:0"><b id="r-off-type"></b></p>
-        <p class="note" id="r-off-genre" style="margin:4px 0"></p>
         <p class="note" id="r-off-div" style="margin:4px 0"></p>
         <div class="table-scroll"><table class="data checks">
           <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
           <tbody id="r-off-checks"></tbody></table></div>
+        <p class="note" style="margin:10px 0 2px">Similar past customers (training data):</p>
+        <ul id="r-off-context" class="next"></ul>
         <p class="note">Limits come from the training data; the percentile and the single-detail share
           are declared choices (Decision 31). "Review required" is a statement: nothing is routed or sent.</p>
       </div>

@@ -376,6 +376,29 @@ routing; declared choices allowed):**
   manifest's model version with `config.yaml` (the demo already shows
   the snapshot date).
 
+### 22nd October 2026: applicant view redesigned (Decision 33)
+
+**Found by the owner:**
+- "Why this application was not referred" is a workflow status, not a
+  credit decision.
+- The applicant view showed model background and model issues instead
+  of reasons.
+
+**Fixed:**
+- Outcome first: approved, or needs a manual review (no decline).
+- The applicant's own details, with no thresholds.
+- Model-tested changes that could alter the outcome.
+- Model issues kept in the risk officer view.
+- The score card pill relabelled "Model recommendation".
+
+**Rejected as invention, recorded:**
+- a decline outcome;
+- a 35% affordability limit;
+- showing the PD and cutoff to applicants.
+
+None of these has evidence or policy in the project; they were put to
+the owner as choices.
+
 ---
 
 ## Findings that could change the "Remaining work" priorities

@@ -4305,6 +4305,92 @@ file instead of the root one, which carries Airflow and TensorFlow.
 - **Publication is irreversible.** The model files in the repository
   are public once pushed (as the ONNX model already is).
 
+## Decision 33 — The Applicant Sees an Outcome, Their Own Reasons and What Could Change It
+
+### Challenge
+The owner reviewed the applicant view (22nd October 2026) and found it did
+not do the job:
+- It said "Why this application was not referred". That is a workflow
+  status, not a credit decision, and an applicant cannot tell whether
+  they were given credit.
+- For a typical applicant it said only "No single detail stood out" and
+  showed a training-data statistic ("about 27 in every 1,000 past
+  customers…"). That is model background, not a reason.
+- Under Decision 31 the applicant could also be shown the model's own
+  issues (the blind-spot wording). The owner ruled that the applicant
+  should not see model issues.
+
+A proposal pasted by the owner also suggested a "declined" outcome, a 35%
+affordability limit, and showing the applicant their PD against the 6.57%
+cutoff. None of these exists in the project's evidence or policy, so they
+were put to the owner as choices.
+
+### Decision (owner's choices, 22nd October 2026)
+1. **Two outcomes, matching what the model decides.** "Your application
+   has been approved", or "Your application needs a manual review… It has
+   not been declined." There is **no decline**: the project has no
+   evidence-based decline rule, and inventing one was rejected.
+   - The outcome is **manual review** if the model refers the application
+     **or** any Decision 31 check fires. A person is needed in either case.
+   - Otherwise the application is approved.
+2. **Own details only; no thresholds.** The applicant sees their own
+   values against the typical applicant's, and never their PD or the
+   cutoff (Belton et al. 2025, Decision 7). Model issues (blind spot,
+   over-reliance) and the "past customers" statistics move to the risk
+   officer output.
+3. **Model-tested guidance.** For a manual review that is not a
+   data-input case, the model tests single changes to what an applicant
+   can act on:
+   - a smaller order (in 5% steps, down to £20);
+   - a different plan length (3, 6 or 12 instalments);
+   - lower existing commitments (in 10% steps, down to £0);
+   - more savings (in 5% steps of the gap to the training maximum).
+
+   Each change is scored with everything else unchanged. A change
+   qualifies if the model would then approve automatically: below the
+   cutoff, and outside the blind spot for a full credit file. The smallest
+   qualifying change per detail is shown, up to three, ranked by size
+   relative to that detail's training range. Each is followed by "These
+   changes do not guarantee approval…".
+
+   **Not tested (our choice):** over-reliance on the changed application,
+   and details the applicant cannot change quickly (credit score,
+   history, defaults, file depth, category).
+
+**Applicant view, in order:**
+- outcome and summary;
+- why (up to three of their own details, against or in favour);
+- details to check (data-input cases, worded as the applicant's own
+  details, not as model limits);
+- what could change the outcome;
+- what happens next;
+- the method line.
+
+The score card's pill is relabelled **"Model recommendation"**, so the
+model's view cannot be mistaken for the outcome.
+
+### Evidence
+| Check | Result |
+|---|---|
+| Held-out customers (8,321) at the live rules | Approved 6,700 (80.5%). Manual review 1,621 (19.5%): 1,323 referred by the model, plus 298 where only a check fired |
+| Site (JavaScript) vs Python, all three outputs word for word: 300 generated applications | 0 differences, 975 sentences (reasons, details to check, changes) |
+| Site, the test applicant (full file, PD 3.2%, blind spot) | "Your application needs a manual review", 3 own-detail reasons, 3 model-tested changes. None of "blind spot", "less reliable", "cutoff", "threshold", "6.57" or "past customers" in the applicant panel (checked by the deploy gate) |
+| Dashboard vs API (new and existing customers) | identical outputs |
+| Streamlit demo mode, database unreachable | all pages render |
+
+### Supersedes
+This supersedes Decision 31's applicant-facing genre selection. The
+applicant now always gets the features-based genre, with no data-centric
+statistics. The error-type checks, the review flag, and the officer and
+record outputs are unchanged (record version 2 adds `customer_outcome`).
+
+### Limits
+- **The guidance describes the model, not a promise.** It is one change
+  at a time, everything else held, on synthetic data.
+- **"Approved" is a demonstration label.** The champion is a
+  portfolio-risk model, not a validated application-time underwriting
+  model (Decision 18). The page keeps that scope statement.
+
 ---
 
 ## Summary Table
@@ -4343,6 +4429,7 @@ file instead of the root one, which carries Airflow and TensorFlow.
 | 30 | Plain-English reasons for the applicant | Decision 7's customer output never built | One-at-a-time effects vs typical applicant; word-for-word JS/Python check | serving/reasons.py, serving/reason_templates.json, website/public/assets/reasons.js |
 | 31 | Decision 7 completed: error-type checks, genre, three outputs | Genre selection, risk officer and regulatory outputs, existing customers not built | Blind spot: full-file FNR 100%, top 5% default 2.9x (held-out); limits from training data; declared choices in config | models/build_explanation_rules.py, serving/reasons.py, serving/explanation_rules.json |
 | 32 | Public Streamlit demo, snapshot mode | Dashboard needs a database and git-ignored files; some evidence is per-customer | Exporter refuses customer rows and local paths; clean-copy test with no database | dashboard/tools/export_demo_data.py, dashboard/demo_data/, dashboard/utils.py |
+| 33 | Applicant sees outcome, own reasons, model-tested changes | "Not referred" read as a workflow status; model issues and statistics shown to applicants | Owner's choices: two outcomes (no invented decline), no thresholds (Belton), model-tested changes; held-out 80.5% approved / 19.5% manual review | serving/reasons.py, serving/reason_templates.json, website/public/assets/reasons.js |
 
 ---
 
@@ -4404,3 +4491,4 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.33 | 15th October 2026 | Added Decision 31, completing Decision 7. Three error-type checks (data input, known blind spot, over-reliance), with limits computed from the training partition by `models/build_explanation_rules.py`. Declared choices in config: 95th-percentile blind-spot line, 60% single-detail share, groups of at least 500, £0 savings and commitments allowed. Explanation genre per Belton et al. 2025. "Risk officer review required" is stated, not routed (owner's direction). Three outputs (applicant, risk officer, decision record) for new and existing customers, in the API, the dashboard and the site. Evidence: full-file customers never reach the cutoff, and their top 5% default 2.9x as often on held-out data. Review rate on held-out customers 4.0%. JavaScript matches Python word for word on 300 applications covering every error type. Finding recorded: over-reliance cannot fire for a new applicant at the live share. |
 | 3.34 | 15th October 2026 | Decision 31 addendum (owner's request). Held-out check evidence is published on the demo site as aggregates (`website/public/data/review_evidence.json`), verified by the deploy gate. Only two details decide a recommendation on their own: average order value (71 customers pass only because their orders are small) and thin credit file (37 referred only because of it). Mobile layout fix: grid items may shrink so wide tables scroll inside their panel. |
 | 3.35 | 15th October 2026 | Added Decision 32: a public Streamlit demo in snapshot mode (owner's choice of option A; approved committing the model package and aggregate reports). Demo mode replays recorded aggregate query results and allowlisted reports from `dashboard/demo_data/`. The exporter refuses customer rows and local paths. Existing-customer lookup and per-customer case studies stay local. Verified on a clean copy with the database unreachable: all 7 pages render, and new-applicant scoring matches the API. |
+| 3.36 | 22nd October 2026 | Added Decision 33 (owner's review of the applicant view). Two outcomes: approved, or needs a manual review (never declined; no evidence-based decline rule exists). Manual review if the model refers or any check fires. The applicant sees only their own details, no PD or cutoff and no model issues. Model-tested single changes to order, plan, commitments or savings show what could change the outcome. Supersedes Decision 31's applicant-facing genre selection. Held-out: 80.5% approved, 19.5% manual review. JavaScript matches Python on 975 sentences. |

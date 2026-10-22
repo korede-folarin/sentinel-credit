@@ -176,12 +176,11 @@ def main():
                      rec: document.getElementById('r-rec').innerText,
                      drivers: document.querySelectorAll('#r-drivers .bar-row').length,
                      changes: document.getElementById('r-changes').innerText,
-                     exTitle: document.getElementById('r-ex-title').textContent,
-                     exReasons: document.querySelectorAll('#r-ex-reasons li').length,
-                     exData: document.querySelectorAll('#r-ex-data li').length,
+                     exTitle: document.getElementById('r-ex-headline').textContent,
+                     exWhy: document.querySelectorAll('#r-ex-why li').length,
+                     exChanges: document.querySelectorAll('#r-ex-changes li').length,
                      exNext: document.querySelectorAll('#r-ex-next li').length,
-                     review: !document.getElementById('r-ex-review').classList.contains('hidden'),
-                     reviewText: document.getElementById('r-ex-review-heading').textContent,
+                     panel: document.querySelector('.panel.explain').innerText,
                      checks: document.querySelectorAll('#r-off-checks tr').length,
                      record: JSON.parse(document.getElementById('r-record').textContent || '{}') };
         })()""")
@@ -192,17 +191,22 @@ def main():
               res["drivers"] > 0 and len(res["changes"]) > 0,
               f"{res['drivers']} driver bars; changes: {res['changes'][:120]!r}")
         # This applicant has a full credit file and scores above that group's
-        # 95th-percentile line: the known blind spot (Decision 31), so the
-        # explanation is data-centric and a risk officer review is required.
-        check("assessment: explanation, review flag, officer checks and record rendered",
-              res["exTitle"] == "Why this application was not referred" and res["review"]
-              and res["reviewText"] == "Risk officer review required" and res["exData"] == 3
-              and res["exNext"] > 0 and res["checks"] == 3
+        # 95th-percentile line (the known blind spot, Decision 31), so the
+        # applicant is told the application needs a manual review, with their
+        # own details and model-tested changes, and nothing about the model's
+        # issue or the cutoff (Decision 33).
+        leaks = [w for w in ("blind spot", "less reliable", "6.57", "cutoff", "threshold",
+                             "past customers") if w in res["panel"].lower()]
+        check("assessment: applicant outcome, own-detail reasons, changes; no model issues shown",
+              res["exTitle"] == "Your application needs a manual review" and res["exWhy"] > 0
+              and res["exChanges"] > 0 and res["exNext"] > 0 and not leaks
+              and res["checks"] == 3
               and res["record"].get("error_type") == "missing_information"
+              and res["record"].get("customer_outcome") == "manual_review"
               and res["record"].get("approver_id") is None,
-              f"title {res['exTitle']!r}; review {res['review']} {res['reviewText']!r}; "
-              f"{res['exData']} data lines; {res['checks']} checks; "
-              f"record error_type {res['record'].get('error_type')}")
+              f"headline {res['exTitle']!r}; {res['exWhy']} reasons; {res['exChanges']} changes; "
+              f"leaked words {leaks}; record {res['record'].get('error_type')}/"
+              f"{res['record'].get('customer_outcome')}")
         ev = page.js("""(() => ({ types: document.querySelectorAll('#ev-types tbody tr').length,
             details: [...document.querySelectorAll('#ev-details tbody tr')].map(r => r.innerText),
             total: document.getElementById('ev-total').textContent }))()""")

@@ -1,4 +1,4 @@
-/* Sentinel Credit — plain-English reasons and decision checks (Decisions 30, 31).
+/* Sentinel Credit — applicant explanations and decision checks (Decisions 30, 31, 33).
  *
  * Line-for-line port of serving/reasons.py (new applicants), using the same
  * files as the API and the dashboard: model/reason_templates.json (wording),
@@ -6,9 +6,10 @@
  * computed from the training partition). parity.html checks this port
  * against Python-generated outputs, word for word.
  *
- * Three outputs (Decision 7): the explanation for the applicant, in a genre
- * matched to the error type detected; the risk officer view; the decision
- * record. "Risk officer review required" is a statement, not a routing.
+ * Three outputs (Decision 7): the applicant's explanation (outcome first:
+ * approved or needs a manual review; their own details; details to check;
+ * model-tested changes; next steps; Decision 33), the risk officer view and
+ * the decision record. Model issues are never shown to the applicant.
  */
 import { buildFeatures, scoreMany, PROFILE_FIELDS } from "./model.js";
 
@@ -73,39 +74,24 @@ function sentence(field, inputs, typ, effect, t) {
     value: formatValue(field, inputs[field], t), typical: formatValue(field, typ[field], t) });
 }
 
-function join(labels) {
-  if (labels.length <= 1) return labels.join("");
-  return labels.slice(0, -1).join(", ") + " and " + labels[labels.length - 1];
-}
+const round10 = v => 10 * Math.round(v / 10);
+const capitalise = s => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** Same output structure and text as serving/reasons.py build_reasons(). */
-export function buildReasons(inputs, typ, effectByInput, refer, t) {
+/** Same output as serving/reasons.py build_reasons(): {against, favour}. */
+export function buildReasons(inputs, typ, effectByInput, t) {
   const tol = t.numerical_tolerance;
   const order = Object.fromEntries(INPUTS.map((f, i) => [f, i]));
   const entries = Object.entries(effectByInput);
   const against = entries.filter(([, e]) => e > tol).sort((a, b) => (b[1] - a[1]) || (order[a[0]] - order[b[0]]));
   const favour = entries.filter(([, e]) => e < -tol).sort((a, b) => (a[1] - b[1]) || (order[a[0]] - order[b[0]]));
-  let main, side, block, sideText;
-  if (refer) {
-    main = against.slice(0, t.max_reasons); side = favour.slice(0, t.max_favourable); block = t.refer;
-    sideText = side.length ? `${block.favour_intro} ${join(side.map(([f]) => t.fields[f].label))}.` : "";
-  } else {
-    main = favour.slice(0, t.max_reasons); side = against.slice(0, t.max_favourable); block = t.pass;
-    sideText = side.length ? `${block.against_intro} ${join(side.map(([f]) => t.fields[f].label))}.` : "";
-  }
+  const n = t.max_reasons;
   return {
-    decision: refer ? "refer" : "pass",
-    title: block.title,
-    intro: main.length ? block.intro : block.none,
-    reasons: main.map(([f, e]) => ({ input: f, text: sentence(f, inputs, typ, e, t) })),
-    link: (refer && main.length) ? (block.link || "") : "",
-    other: sideText,
-    next_steps: [...t.next_steps[refer ? "refer" : "pass"]],
-    method: t.method.new,
+    against: against.slice(0, n).map(([f, e]) => ({ input: f, text: sentence(f, inputs, typ, e, t) })),
+    favour: favour.slice(0, n).map(([f, e]) => ({ input: f, text: sentence(f, inputs, typ, e, t) })),
   };
 }
 
-// ── Decision 31: checks, genre, three outputs ─────────────────────
+// ── Decision 31: checks ───────────────────────────────────────────
 
 function featureOf(name, feats) {
   if (name === "order_value_gbp") return "avg_order_value_gbp";
@@ -125,7 +111,7 @@ export function bandText(feature, value, rules) {
 }
 
 function dataInputIssues(feats, inputs, rules, t) {
-  const issues = [], words = t.review.issues;
+  const issues = [], words = t.issues;
   for (const f of FEATURES) {
     const r = rules.ranges[f], v = feats[f];
     if ((r.check_min && v < r.min) || v > r.max) {
@@ -166,73 +152,111 @@ function singleDetail(p, effectByInput, cutoff, share) {
   return (flips && Math.abs(e) / total >= share) ? name : null;
 }
 
+// ── Decision 33: what could change the outcome ────────────────────
+
+const ACTIONABLE = ["order_value_gbp", "n_instalments", "existing_monthly_obligations_gbp", "savings_balance_gbp"];
+const SPAN_FEATURE = { order_value_gbp: "avg_order_value_gbp", n_instalments: "avg_n_instalments" };
+
+export function changeCandidates(inputs, rules) {
+  const out = [];
+  let cur = inputs.order_value_gbp, seen = [];
+  for (let k = 1; k < 20; k++) {
+    const v = Math.max(20, round10(cur * (1 - k / 20)));
+    if (v < cur && !seen.includes(v)) seen.push(v);
+  }
+  seen.forEach(v => out.push(["order_value_gbp", v]));
+  [3, 6, 12].filter(n => n !== inputs.n_instalments).forEach(n => out.push(["n_instalments", n]));
+  cur = inputs.existing_monthly_obligations_gbp; seen = [];
+  for (let k = 1; k < 11; k++) {
+    const v = round10(cur * (1 - k / 10));
+    if (v < cur && !seen.includes(v)) seen.push(v);
+  }
+  seen.forEach(v => out.push(["existing_monthly_obligations_gbp", v]));
+  cur = inputs.savings_balance_gbp; seen = [];
+  const top = rules.ranges.savings_balance_gbp.max;
+  for (let k = 1; k < 21; k++) {
+    const v = round10(cur + (top - cur) * k / 20);
+    if (v > cur && !seen.includes(v)) seen.push(v);
+  }
+  seen.forEach(v => out.push(["savings_balance_gbp", v]));
+  return out;
+}
+
+async function outcomeChanges(inputs, cutoff, rules, t, score) {
+  const cands = changeCandidates(inputs, rules);
+  if (!cands.length) return [];
+  const probs = await score(cands.map(([f, v]) => featuresOf({ ...inputs, [f]: v })));
+  const line = rules.blind_spot.line;
+  const fullFile = inputs.thin_file_flag === 0;
+  const best = {};
+  cands.forEach(([f, v], i) => {
+    const p = probs[i];
+    if (p >= cutoff || (fullFile && p >= line)) return;
+    const r = rules.ranges[SPAN_FEATURE[f] || f];
+    const d = Math.abs(v - inputs[f]) / (r.max - r.min);
+    if (!(f in best) || d < best[f][0]) best[f] = [d, v];
+  });
+  return Object.entries(best)
+    .sort((a, b) => (a[1][0] - b[1][0]) || (ACTIONABLE.indexOf(a[0]) - ACTIONABLE.indexOf(b[0])))
+    .slice(0, 3)
+    .map(([f, [, v]]) => fill(t.changes[f], { value: formatValue(f, v, t), current: formatValue(f, inputs[f], t) }));
+}
+
+// ── the three outputs ─────────────────────────────────────────────
+
 /** Same three outputs, keys and text as serving/reasons.py review(). */
-export function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rules) {
+export async function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rules, score = scoreMany) {
   const refer = p >= cutoff;
   const bs = rules.blind_spot;
   const issues = dataInputIssues(feats, inputs, rules, t);
   const fullFile = feats.thin_file_flag === 0;
   const blind = fullFile && p >= bs.line;
   const decisive = singleDetail(p, effectByInput, cutoff, rules.choices.single_detail_share);
-
-  let errorType, genre;
-  if (issues.length) { errorType = "data_input"; genre = "features"; }
-  else if (blind) { errorType = "missing_information"; genre = "data_centric"; }
-  else if (decisive) { errorType = "overreliance"; genre = "data_centric"; }
-  else { errorType = "none"; genre = "combination"; }
+  let errorType;
+  if (issues.length) errorType = "data_input";
+  else if (blind) errorType = "missing_information";
+  else if (decisive) errorType = "overreliance";
+  else errorType = "none";
   const required = errorType !== "none";
+  const outcome = (refer || required) ? "manual_review" : "approved";
 
-  const ex = { ...reasons };
-  const words = t.review;
-  let data = [];
-  if (genre === "combination") {
-    if (ex.reasons.length) {
-      const f = featureOf(ex.reasons[0].input, feats);
-      data = [bandText(f, feats[f], rules)];
-    } else data = [rules.overall.text];
-  } else if (errorType === "overreliance") {
-    const f = featureOf(decisive, feats);
-    data = [bandText(f, feats[f], rules), rules.overall.text];
-  } else if (errorType === "missing_information") {
-    data = [bs.text_segment, bs.text_top, rules.overall.text];
-  }
-  if (genre === "data_centric") {
-    ex.intro = words.data_only_intro; ex.reasons = []; ex.link = ""; ex.other = "";
-  }
-  let reviewText = "";
-  if (errorType === "data_input") reviewText = fill(words.data_input, { issues: issues.join("; ") });
-  else if (errorType === "missing_information") reviewText = fill(words.missing_information, { top: bs.top_percent });
-  else if (errorType === "overreliance") reviewText = words.overreliance;
-  let nextSteps = [...ex.next_steps];
-  if (required && !refer) nextSteps = [words.next_step, ...nextSteps];
-
+  const o = t.outcome[outcome];
+  const why = outcome === "manual_review" ? reasons.against : reasons.favour;
+  const showChanges = outcome === "manual_review" && errorType !== "data_input";
+  const changes = showChanges ? await outcomeChanges(inputs, cutoff, rules, t, score) : [];
   const explanation = {
-    decision: ex.decision,
-    title: ex.title,
-    review: { required, heading: required ? words.heading : "", text: reviewText },
-    intro: ex.intro,
-    reasons: ex.reasons,
-    link: ex.link,
-    other: ex.other,
-    data_intro: (data.length && genre === "combination") ? words.data_intro : "",
-    data,
-    next_steps: nextSteps,
-    method: genre === "data_centric" ? rules.data_method : ex.method,
+    outcome,
+    headline: o.headline,
+    summary: o.summary,
+    why_intro: why.length ? o.why_intro : o.why_none,
+    why,
+    check_intro: issues.length ? t.check.intro : "",
+    check: issues.map(s => capitalise(s) + "."),
+    changes_intro: showChanges ? (changes.length ? t.changes_text.intro : t.changes_text.none) : "",
+    changes,
+    changes_note: changes.length ? t.changes_text.note : "",
+    next_steps: [...o.next_steps],
+    method: t.method.new,
   };
 
-  const o = t.officer, cw = o.checks;
+  const w = t.officer, cw = w.checks;
   const pct = Math.round(bs.percentile * 100);
   const blindDetail = !fullFile ? cw.missing_information.not_applicable
     : fill(cw.missing_information[blind ? "triggered" : "ok"], { pct, line: bs.line_text });
+  const context = [];
+  if (reasons.against.length) {
+    const f = featureOf(reasons.against[0].input, feats);
+    context.push(bandText(f, feats[f], rules));
+  }
+  if (blind) context.push(bs.text_segment, bs.text_top);
   const officer = {
     error_type: errorType,
-    error_label: o.error_labels[errorType],
-    genre,
-    genre_reason: o.genre_reasons[genre],
+    error_label: w.error_labels[errorType],
     review_required: required,
     model_recommendation: refer ? "refer" : "pass",
+    customer_outcome: outcome,
     divergence: required && !refer,
-    divergence_note: (required && !refer) ? o.divergence_note : "",
+    divergence_note: (required && !refer) ? w.divergence_note : "",
     checks: [
       { id: "data_input", name: cw.data_input.name, triggered: issues.length > 0,
         detail: issues.length ? issues.join("; ") : cw.data_input.ok },
@@ -240,12 +264,13 @@ export function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rule
       { id: "overreliance", name: cw.overreliance.name, triggered: decisive !== null,
         detail: decisive ? fill(cw.overreliance.triggered, { name: t.fields[decisive].name }) : cw.overreliance.ok },
     ],
+    context,
   };
 
   const m = rules.model;
   const record = {
     record_type: "sentinel_credit_decision_record",
-    record_version: "1",
+    record_version: "2",
     applicant_type: "new",
     model_version: m.model_version,
     feature_set_label: m.feature_set_label,
@@ -253,9 +278,9 @@ export function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rule
     business_cutoff: m.cutoff,
     model_recommendation: refer ? "refer" : "pass",
     risk_officer_review_required: required,
+    customer_outcome: outcome,
     divergence: required && !refer,
     error_type: errorType,
-    explanation_genre: genre,
     rules_version: rules.rules_version,
     rules_generated_at: rules.generated_at,
     approver_id: null,
@@ -270,7 +295,7 @@ export function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rule
 export async function explain(inputs, cutoff, score = scoreMany) {
   const { templates: t, typical: typ, rules } = await loadReasonFiles();
   const [p, eff] = await effects(inputs, typ, score);
-  const reasons = buildReasons(inputs, typ, eff, p >= cutoff, t);
+  const reasons = buildReasons(inputs, typ, eff, t);
   return { probability: p, effects: eff, typical: typ,
-           ...review(inputs, featuresOf(inputs), p, eff, reasons, cutoff, t, rules) };
+           ...(await review(inputs, featuresOf(inputs), p, eff, reasons, cutoff, t, rules, score)) };
 }
