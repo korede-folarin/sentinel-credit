@@ -27,7 +27,34 @@ const MONEY = new Set(["monthly_income_gbp", "existing_monthly_obligations_gbp",
 const INTEGER = new Set(["credit_score", "months_credit_history", "num_credit_accounts",
                          "num_defaults_24m"]);
 
-let contract, bands, rules;
+let contract, bands, rules, typicalPd = null, files_ = null;
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Probability counts up (<= 600 ms); instant with reduced motion.
+function countUp(el, target, fmt) {
+  if (REDUCED) { el.textContent = fmt(target); return; }
+  const t0 = performance.now(), dur = 600;
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = fmt(target * e);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// Risk scale: the applicant (knob), the typical applicant (tick), the cutoff (orange line).
+function drawScale(p, typ, cutoff) {
+  const max = Math.max(0.15, p * 1.12, cutoff * 1.6);
+  const at = v => `${Math.min(100, (v / max) * 100).toFixed(2)}%`;
+  $("r-scale-safe").style.width = at(cutoff);
+  $("r-scale-cut").style.left = at(cutoff);
+  $("r-scale-tag").style.left = at(cutoff);
+  $("r-scale-tag").textContent = `Review cutoff ${fmtPct(cutoff, 2)}`;
+  $("r-scale-typ").style.left = typ === null ? "-99%" : at(typ);
+  const knob = $("r-scale-knob");
+  if (REDUCED) knob.style.left = at(p);
+  else { knob.style.left = "0%"; requestAnimationFrame(() => requestAnimationFrame(() => { knob.style.left = at(p); })); }
+}
 
 function show(field, v) {
   if (field === "thin_file_flag") return v ? "yes" : "no";
@@ -117,7 +144,13 @@ async function assess(event) {
     const probs = await scoreMany(rows);
     const p = probs[0], refer = p >= cutoff;
 
-    $("r-pd").textContent = fmtPct(p, p < 0.1 ? 1 : 0);
+    countUp($("r-pd"), p, v => fmtPct(v, p < 0.1 ? 1 : 0));
+    if (typicalPd === null) {
+      const typ = files_.typical;
+      typicalPd = (await scoreMany([featuresOf({ ...typ, thin_file_flag: deriveThinFile(
+        typ.credit_score, typ.months_credit_history, typ.num_credit_accounts, rules) })]))[0];
+    }
+    drawScale(p, typicalPd, cutoff);
     $("r-rec").innerHTML = refer ? '<span class="pill refer">Refer for manual review</span>'
                                  : '<span class="pill ok">Below review threshold</span>';
     $("r-rank").textContent = `Higher than about ${Math.round(percentileOf(p) * 100)}% of `
@@ -137,10 +170,13 @@ async function assess(event) {
     $("r-ex-summary").textContent = x.summary;
     $("r-ex-why-intro").textContent = x.why_intro;
     list("r-ex-why", x.why.map(r => r.text));
+    // icons: + strengths (approved), − risk factors (manual review), neutral for a decline
+    $("r-ex-why").className = "reasons " + { approved: "plus", manual_review: "minus", declined: "neutral" }[x.outcome];
     $("r-ex-why").classList.toggle("hidden", !x.why.length);
     $("r-ex-changes-box").classList.toggle("hidden", !x.changes_intro);
     $("r-ex-changes-intro").textContent = x.changes_intro;
     list("r-ex-changes", x.changes);
+    $("r-ex-changes").className = "changes-list" + (x.outcome === "declined" ? " neutral" : "");
     $("r-ex-changes-note").textContent = x.changes_note;
     // repayment plan (approved): real dates from today, 30 days apart
     $("r-ex-plan-box").classList.toggle("hidden", !x.plan);
@@ -154,8 +190,9 @@ async function assess(event) {
     }
     list("r-ex-next", x.next_steps);
     // 2 · for a risk officer (Decision 34: plain language)
-    $("r-off-pill").innerHTML = `<span class="pill ${{ "No concerns": "ok", "Declined": "refer" }[off.status]
-      || "warn"}">${esc(off.status)}</span>`;
+    // navy = no concerns, orange = a person needs to look, neutral white = declined
+    const offCls = { "No concerns": "ok", "Declined": "" }[off.status];
+    $("r-off-pill").innerHTML = `<span class="pill ${offCls === undefined ? "warn" : offCls}">${esc(off.status)}</span>`;
     $("r-off-detail").textContent = off.status_detail;
     $("r-off-why-box").classList.toggle("hidden", !off.review_reasons.length);
     list("r-off-why", off.review_reasons);
@@ -177,7 +214,7 @@ async function assess(event) {
     $("r-drivers").innerHTML = drivers.length ? drivers.map(d => {
       const w = Math.abs(d.delta) / scale * 50;
       const left = d.delta >= 0 ? 50 : 50 - w;
-      const colour = d.delta >= 0 ? "var(--risk)" : "var(--accent)";
+      const colour = d.delta >= 0 ? "var(--orange)" : "var(--navy)";
       return `<div class="bar-row"><div>${LABELS[d.f]}: <span class="note">${show(d.f, inp[d.f])}</span></div>
         <div class="bar-track"><div class="mid"></div><div class="bar-fill" style="left:${left}%;width:${w}%;background:${colour}"></div></div>
         <div class="bar-value">${d.delta >= 0 ? "+" : "−"}${(Math.abs(d.delta) * 100).toFixed(2)} pts</div></div>`;
@@ -227,6 +264,7 @@ async function assess(event) {
     bands = await fetch("data/cutoff_simulator.json").then(r => r.json());
     const files = await loadReasonFiles();   // start from the typical applicant
     const typical = files.typical;
+    files_ = files;
     rules = files.rules;
     for (const f of PROFILE_FIELDS) {
       if (f === "thin_file_flag") continue;
@@ -235,12 +273,18 @@ async function assess(event) {
     $("order_value_gbp").value = typical.order_value_gbp;
     $("n_instalments").value = String(typical.n_instalments);
     $("merchant_category").value = typical.merchant_category;
-    $("chips").innerHTML = [
-      ["Model", `${contract.model} ${contract.model_version}`],
-      ["Features", contract.features.length],
-      ["Review cutoff", `PD ≥ ${fmtPct(contract.cutoff, 2)}`],
-      ["Browser vs Python", "verified, 0 decisions changed"],
-    ].map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("");
+    let rescored = "41,604";
+    try {
+      const rep = await fetch("model/python_parity_report.json").then(r => r.json());
+      rescored = rep.sets.modelable_population.n.toLocaleString("en-GB");
+    } catch (e) { /* keep the published figure */ }
+    const facts = [`XGBoost ${contract.model_version}`, `${contract.features.length} features`,
+      `Review cutoff PD ≥ ${fmtPct(contract.cutoff, 2)}`, `${rescored} re-scored`, "0 decisions changed",
+      "Synthetic data"];
+    const group = hidden => `<div class="mq"${hidden ? ' aria-hidden="true"' : ""}>`
+      + facts.map(f => `<span class="item">${f}</span><span class="sep" aria-hidden="true"></span>`).join("")
+      + "</div>";
+    $("facts-track").innerHTML = group(false) + group(true);
     const showThin = () => {
       const v = ["credit_score", "months_credit_history", "num_credit_accounts"].map(f => Number($(f).value));
       if (v.some(x => !Number.isFinite(x))) return;

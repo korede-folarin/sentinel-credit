@@ -5,8 +5,10 @@
 const $ = id => document.getElementById(id);
 const pct = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
 const NS = "http://www.w3.org/2000/svg";
-// Light theme: "gold" and "grey" keep the chart captions true; both pass 3:1 on white.
-const C = { gold: "#A9741B", stone: "#6B7280", line: "#E4DCCF", text: "#18243A" };
+// Midnight navy: navy and warm grey series (the captions say "Navy" and "Grey"),
+// orange only for the cutoff marker. Axis text in muted ink.
+const C = { gold: "#17233a", stone: "#b9b4a8", line: "rgba(14,14,12,0.14)", text: "#565a62",
+            cut: "#ff4f12" };
 const NAMES = { f1_optimal: "F1-optimal", youden_j: "Youden's J",
                 review_capacity_constrained: "Review capacity 15%" };
 
@@ -36,24 +38,24 @@ function lineChart(svg, series, k, yLabel) {
   const x = v => L + (v / xMax) * (W - L - R), y = v => T + (1 - v) * (H - T - B);
   for (let t = 0; t <= 1.0001; t += 0.25) {
     svg.append(el("line", { x1: L, x2: W - R, y1: y(t), y2: y(t), stroke: C.line }));
-    svg.append(el("text", { x: L - 8, y: y(t) + 4, "text-anchor": "end", fill: C.stone,
+    svg.append(el("text", { x: L - 8, y: y(t) + 4, "text-anchor": "end", fill: C.text,
                             "font-size": 11 }, `${t * 100}%`));
   }
   const step = xMax > 0.1 ? 0.025 : 0.01;
   for (let v = 0; v <= xMax + 1e-9; v += step) {
-    svg.append(el("text", { x: x(v), y: H - B + 18, "text-anchor": "middle", fill: C.stone,
+    svg.append(el("text", { x: x(v), y: H - B + 18, "text-anchor": "middle", fill: C.text,
                             "font-size": 11 }, `${(v * 100).toFixed(1)}%`));
   }
-  svg.append(el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle", fill: C.stone,
+  svg.append(el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle", fill: C.text,
                           "font-size": 11 }, "Review cutoff (probability of default)"));
   series.forEach(s => {
     const pts = D.edges.slice(0, -1).map((e, i) => `${x(e).toFixed(1)},${y(s.values[i]).toFixed(1)}`);
     svg.append(el("polyline", { points: pts.join(" "), fill: "none", stroke: s.colour,
-                                "stroke-width": 2 }));
+                                "stroke-width": 2.5 }));
   });
   const cx = x(D.edges[k]);
-  svg.append(el("line", { x1: cx, x2: cx, y1: T, y2: H - B, stroke: C.text,
-                          "stroke-dasharray": "3 3", "stroke-width": 1 }));
+  svg.append(el("line", { x1: cx, x2: cx, y1: T, y2: H - B, stroke: C.cut,
+                          "stroke-width": 2.5 }));
   series.forEach(s => svg.append(el("circle", { cx, cy: y(s.values[k]), r: 4, fill: s.colour })));
   svg.append(el("title", {}, yLabel));
 }
@@ -63,6 +65,8 @@ function render() {
   const cut = D.edges[k];
   const all = metrics(D.groups.all, k);
   $("cut-value").textContent = pct(cut, 2);
+  const sl = $("cut");   // track: navy below the handle, orange above it
+  sl.style.setProperty("--pct", `${(Number(sl.value) / Math.max(Number(sl.max), 1)) * 100}%`);
   const named = D.comparators.find(c => Math.abs(c.threshold - cut) < 1e-7);
   $("cut-label").textContent = Math.abs(cut - D.configured_cutoff) < 1e-7
     ? "Configured cutoff (review capacity 15%)" : named ? NAMES[named.method] || named.method : "";
@@ -82,7 +86,10 @@ function render() {
     + "<th class=num>Wrongly reviewed</th></tr></thead><tbody>"
     + seg.map(s => `<tr><td>${s.name}</td><td class=num>${s.n.toLocaleString("en-GB")}</td>`
       + `<td class=num>${(s.tp + s.fn).toLocaleString("en-GB")}</td><td class=num>${pct(s.flagged)}</td>`
-      + `<td class=num>${pct(s.fnr)}</td><td class=num>${pct(s.fpr)}</td></tr>`).join("") + "</tbody>";
+      // The one highlight: the established-file miss rate when it reads 100% (explained below).
+      + `<td class=num>${s.name === "Established credit file" && pct(s.fnr) === "100.0%"
+          ? '<span class="flag-dot" title="Every defaulter in this group is missed"></span>' : ""}${pct(s.fnr)}</td>`
+      + `<td class=num>${pct(s.fpr)}</td></tr>`).join("") + "</tbody>";
 
   const est = seg[0], thin = seg[1];
   $("finding").textContent = `At this cutoff the model misses ${pct(est.fnr, 0)} of defaulters with an `

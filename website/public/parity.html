@@ -5,22 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Model Verification · Sentinel Credit</title>
 <meta name="description" content="Re-run, in your own browser, the checks proving this site's model scores exactly like the governed Python champion.">
+<link rel="preload" href="fonts/bricolage-grotesque-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
+<div class="bridge"><div class="wrap">
+  <a href="https://koredefolarin.com/sentinel-credit.html"><span class="dot" aria-hidden="true"></span>← Korede Folarin · Read the case study</a>
+  <span class="bridge-r">A portfolio project · synthetic data</span>
+</div></div>
 <header class="top"><div class="wrap">
-  <a class="brand" href="./">Sentinel <span class="accent">Credit</span></a>
-  <nav class="top" aria-label="Site">
+  <a class="brand" href="./"><span class="glyph" aria-hidden="true"></span>Sentinel Credit</a>
+  <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu"><span></span></button>
+  <nav class="top" id="site-nav" aria-label="Site">
     <a href="./">Assessment</a>
     <a href="simulator.html">Cutoff &amp; fairness</a>
     <a href="parity.html" aria-current="page">Verification</a>
-    <a href="https://github.com/korede-folarin/sentinel-credit">Source</a>
+    <a href="https://github.com/korede-folarin/sentinel-credit" target="_blank" rel="noopener">Source ↗</a>
   </nav>
 </div></header>
 
 <section class="hero"><div class="wrap">
     <div class="kicker">Verification · runs in your browser</div>
-    <h1>Does this site score like the real model?</h1>
+    <h1 class="long"><span class="line"><span>Does this site score like</span></span><span class="line navy"><span>the real model?</span></span></h1>
     <p class="lede">The model on this site was converted from the governed Python champion to ONNX.
       These checks run now, in your browser, and compare against answers the Python champion
       produced. Pass rule, fixed before the first run: every probability within 0.00001 and no
@@ -30,33 +37,37 @@
 <main><div class="wrap">
 
   <section class="grid half">
-    <div class="panel">
+    <div class="panel check-card lift">
+      <div class="check-num" aria-hidden="true">01</div>
       <h3>1 · The model</h3>
       <p class="note" style="margin-top:0">Generated applicants (none are customer records), including
         400 placed exactly on the decision boundary: an infinitesimal change in their inputs flips
         the recommendation, so any rounding difference between engines would show here first.</p>
-      <table class="data" id="t-model"><tr><td>Status</td><td>Running…</td></tr></table>
+      <table class="result" id="t-model"><tr><td>Status</td><td><span class="pill run">Running…</span></td></tr></table>
     </div>
-    <div class="panel">
+    <div class="panel check-card lift">
+      <div class="check-num" aria-hidden="true">02</div>
       <h3>2 · Building the inputs</h3>
       <p class="note" style="margin-top:0">Raw applications turned into model features by this site's
         JavaScript, then scored, against the same applications run through the Python feature code
         and champion.</p>
-      <table class="data" id="t-features"><tr><td>Status</td><td>Running…</td></tr></table>
+      <table class="result" id="t-features"><tr><td>Status</td><td><span class="pill run">Running…</span></td></tr></table>
     </div>
   </section>
 
-  <section class="panel" style="margin-bottom:24px">
+  <section class="panel check-card" style="margin:22px 0 22px">
+    <div class="check-num" aria-hidden="true">03</div>
     <h3>3 · Explanations, risk officer view and decision record</h3>
     <p class="note" style="margin-top:0">All three outputs (the applicant's explanation with its
       model-tested changes, the risk officer's checks and the decision record) built in this browser, against what the Python service
       (serving/reasons.py) produced for the same applications. Must match word for word. Every fifth
       application runs with a lowered, test-only single-detail share so that check's wording is covered
       (at the live share it cannot fire for a new applicant; Decision 31).</p>
-    <table class="data" id="t-reasons"><tr><td>Status</td><td>Running…</td></tr></table>
+    <table class="result" id="t-reasons"><tr><td>Status</td><td><span class="pill run">Running…</span></td></tr></table>
   </section>
 
-  <section class="panel" id="review-evidence" style="margin-bottom:24px">
+  <section class="panel check-card" id="review-evidence" style="margin-bottom:22px">
+    <div class="check-num" aria-hidden="true">04</div>
     <h3>4 · How often a person is asked to look</h3>
     <p class="note" style="margin-top:0">The same checks the assessment page runs, applied to the
       <span id="ev-n"></span> past customers the model never saw while it was being built. Most
@@ -80,6 +91,7 @@
 </div></main>
 
 <footer><div class="wrap">
+  <div class="made"><a href="https://koredefolarin.com/">A portfolio project by Korede Folarin ↗</a></div>
   <div>Scoring engine: onnxruntime-web 1.19.2, bundled with this site (MIT). Exported by
     <code>website/tools/export_model.py</code>; see Decision 29 in the decision log.</div>
 </div></footer>
@@ -89,12 +101,14 @@
 import { loadModel, buildFeatures, scoreMany } from "./assets/model.js";
 import { explainWith, loadReasonFiles } from "./assets/reasons.js";
 const MAX_ABS_DIFF = 1e-5;
-const pill = ok => `<span class="pill ${ok ? "ok" : "refer"}">${ok ? "Pass" : "Fail"}</span>`;
+const pill = ok => `<span class="pill ${ok ? "ok" : "refer"}">${ok ? "✓ Pass" : "Fail"}</span>`;
 const sci = x => x === 0 ? "0" : x.toExponential(2);
 
 function table(id, rows) {
+  // single-word figures (e.g. 1.79e-8) never break; sentences wrap
+  const fig = v => /\s/.test(String(v).replace(/<[^>]*>/g, "")) ? v : `<span class="nw">${v}</span>`;
   document.getElementById(id).innerHTML = rows.map(([k, v]) =>
-    `<tr><td>${k}</td><td class="num">${v}</td></tr>`).join("");
+    `<tr><td>${k}</td><td class="num">${fig(v)}</td></tr>`).join("");
 }
 
 window.__parity = {};
@@ -236,5 +250,6 @@ window.__parity = {};
   }
 })();
 </script>
+<script src="assets/chrome.js" defer></script>
 </body>
 </html>

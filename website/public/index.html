@@ -5,27 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sentinel Credit · Live Risk Assessment</title>
 <meta name="description" content="A closed-loop ML platform for BNPL credit risk. Score an application with the governed champion model, entirely in your browser. Synthetic data.">
+<link rel="preload" href="fonts/bricolage-grotesque-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
+<div class="bridge"><div class="wrap">
+  <a href="https://koredefolarin.com/sentinel-credit.html"><span class="dot" aria-hidden="true"></span>← Korede Folarin · Read the case study</a>
+  <span class="bridge-r">A portfolio project · synthetic data</span>
+</div></div>
 <header class="top"><div class="wrap">
-  <a class="brand" href="./">Sentinel <span class="accent">Credit</span></a>
-  <nav class="top" aria-label="Site">
+  <a class="brand" href="./"><span class="glyph" aria-hidden="true"></span>Sentinel Credit</a>
+  <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu"><span></span></button>
+  <nav class="top" id="site-nav" aria-label="Site">
     <a href="./" aria-current="page">Assessment</a>
     <a href="simulator.html">Cutoff &amp; fairness</a>
     <a href="parity.html">Verification</a>
-    <a href="https://github.com/korede-folarin/sentinel-credit">Source</a>
+    <a href="https://github.com/korede-folarin/sentinel-credit" target="_blank" rel="noopener">Source ↗</a>
   </nav>
 </div></header>
 
 <section class="hero"><div class="wrap">
     <div class="kicker">BNPL credit risk · governed model · v1.1</div>
-    <h1>Sentinel <span class="accent">Credit</span></h1>
+    <h1><span class="line"><span>Sentinel</span></span><span class="line navy"><span>Credit.</span></span></h1>
     <p class="lede">A closed-loop ML platform for BNPL credit risk integrating synthetic data
       generation, model governance, explainability, drift monitoring, and audit evidence.
-      This page runs the platform's governed champion model, in your browser.</p>
-    <div class="chips" id="chips"></div>
+      This page runs the platform's governed champion model, <mark class="hl">in your browser</mark>.</p>
+    <div class="badge" aria-hidden="true"><svg viewBox="0 0 150 150"><defs><path id="badge-c" d="M75,75 m-60,0 a60,60 0 1,1 120,0 a60,60 0 1,1 -120,0"/></defs><text><textPath href="#badge-c">Runs in your browser · nothing is sent ·</textPath></text></svg></div>
 </div></section>
+
+<div class="marquee" id="facts" aria-label="Key facts"><div class="track" id="facts-track"></div></div>
 
 <main><div class="wrap">
 
@@ -41,18 +50,18 @@
       <div class="grid two">
         <div>
           <div class="group income">
-          <h3>Income and commitments</h3>
+          <h3><span class="step" aria-hidden="true">01</span>Income and commitments</h3>
           <div class="fields">
             <div><label for="monthly_income_gbp">Monthly income (£)</label>
-              <input type="number" id="monthly_income_gbp" min="1" max="50000" step="10" required></div>
+              <div class="money"><span aria-hidden="true">£</span><input type="number" id="monthly_income_gbp" min="1" max="50000" step="10" required></div></div>
             <div><label for="existing_monthly_obligations_gbp">Existing monthly obligations (£)</label>
-              <input type="number" id="existing_monthly_obligations_gbp" min="0" max="50000" step="5" required></div>
+              <div class="money"><span aria-hidden="true">£</span><input type="number" id="existing_monthly_obligations_gbp" min="0" max="50000" step="5" required></div></div>
             <div><label for="savings_balance_gbp">Savings balance (£)</label>
-              <input type="number" id="savings_balance_gbp" min="0" max="1000000" step="50" required></div>
+              <div class="money"><span aria-hidden="true">£</span><input type="number" id="savings_balance_gbp" min="0" max="1000000" step="50" required></div></div>
           </div>
           </div>
           <div class="group credit">
-          <h3>Credit file</h3>
+          <h3><span class="step" aria-hidden="true">02</span>Credit file</h3>
           <div class="fields">
             <div><label for="credit_score">Credit score</label>
               <input type="number" id="credit_score" min="0" max="1000" step="1" required></div>
@@ -68,10 +77,10 @@
         </div>
         <div>
           <div class="group order">
-          <h3>This order</h3>
+          <h3><span class="step" aria-hidden="true">03</span>This order</h3>
           <div class="fields" style="grid-template-columns:1fr">
             <div><label for="order_value_gbp">Order value (£)</label>
-              <input type="number" id="order_value_gbp" min="1" max="20000" step="5" value="250" required></div>
+              <div class="money"><span aria-hidden="true">£</span><input type="number" id="order_value_gbp" min="1" max="20000" step="5" value="250" required></div></div>
             <div><label for="n_instalments">Instalments</label>
               <select id="n_instalments"><option>3</option><option>6</option><option>12</option></select></div>
             <div><label for="merchant_category">Merchant category</label>
@@ -88,13 +97,23 @@
   <section id="result" class="hidden" aria-live="polite">
     <div class="surface">
       <div class="kicker">Model view · for the lender, not shown to the applicant</div>
-      <div class="result-row">
+      <div class="model-top">
         <div><div class="result-label">Probability of default</div><div class="result-value" id="r-pd"></div></div>
         <div><div class="result-label">Model recommendation</div><div style="margin-top:10px" id="r-rec"></div></div>
-        <div><div class="result-label">Relative risk</div><div class="result-text" id="r-rank"></div></div>
-        <div><div class="result-label">Affordability ratio</div><div class="result-text" id="r-aff"></div></div>
       </div>
-      <p class="note" id="r-cutoff" style="margin:14px 0 0"></p>
+      <div class="scale" id="r-scale" aria-hidden="true">
+        <div class="bar"><div class="safe" id="r-scale-safe"></div>
+          <div class="tick" id="r-scale-typ"></div><div class="cut" id="r-scale-cut"></div>
+          <div class="cut-tag" id="r-scale-tag"></div><div class="knob" id="r-scale-knob"></div></div>
+        <div class="scale-legend"><span><i style="background:var(--ink);box-shadow:0 0 0 2px #fff"></i>This applicant</span>
+          <span><i style="background:var(--on-navy-soft)"></i>Typical applicant</span>
+          <span><i style="background:var(--orange)"></i>Review cutoff</span></div>
+      </div>
+      <div class="tiles">
+        <div class="tile"><div class="result-label">Relative risk</div><div class="v" id="r-rank"></div></div>
+        <div class="tile"><div class="result-label">Affordability ratio</div><div class="v" id="r-aff"></div></div>
+      </div>
+      <p class="note" id="r-cutoff" style="margin:16px 0 0"></p>
     </div>
     <div class="banner hidden" id="r-range" style="margin-top:14px"></div>
 
@@ -105,17 +124,17 @@
       <p id="r-ex-why-intro" style="margin:0 0 8px;font-weight:600"></p>
       <ol id="r-ex-why" class="reasons"></ol>
       <div class="hidden" id="r-ex-changes-box">
-        <h3 style="margin-top:18px">What could change the outcome</h3>
+        <h3 class="section-title">What could change the outcome</h3>
         <p id="r-ex-changes-intro" style="margin:0 0 8px"></p>
         <ul id="r-ex-changes" class="reasons changes-list"></ul>
         <p class="note" id="r-ex-changes-note" style="margin:6px 0 0"></p>
       </div>
       <div class="hidden" id="r-ex-plan-box">
-        <h3 style="margin-top:18px">Your repayment plan</h3>
+        <h3 class="section-title">Your repayment plan</h3>
         <div class="table-scroll"><table class="data plan" id="r-ex-plan"></table></div>
         <p class="note" id="r-ex-plan-note" style="margin:6px 0 0"></p>
       </div>
-      <h3 style="margin-top:18px">What happens next</h3>
+      <h3 class="section-title">What happens next</h3>
       <ul id="r-ex-next" class="next" style="margin-bottom:0"></ul>
     </div>
 
@@ -135,7 +154,7 @@
         <ul id="r-off-track" class="next"></ul>
         <p class="note" id="r-off-method" style="margin-bottom:0"></p>
       </div>
-      <div class="panel">
+      <div class="panel record-panel">
         <div class="kicker">Decision record</div>
         <p class="note" style="margin-top:4px">The structured record an auditor would see. Shown here only:
           this site stores and sends nothing. Approver identity is not recorded (Decision 23).</p>
@@ -165,19 +184,19 @@
   <section>
     <h2>How this is built</h2>
     <div class="grid half built">
-      <div class="panel"><h3>A governed champion</h3>
+      <div class="panel lift"><h3>A governed champion</h3>
         <p class="note">Calibrated XGBoost, 13 features, selected and promoted through a champion /
           challenger workflow with an automated evidence gate. One feature was removed because it
           leaked the outcome, a decision taken on validity even though it cost a little Gini.</p></div>
-      <div class="panel"><h3>Verified, not assumed</h3>
+      <div class="panel lift ink-block"><h3>Verified, not assumed</h3>
         <p class="note">The browser model was converted to ONNX and checked against the Python
-          champion before publishing: zero decisions changed across 41,604 customers.
-          <a href="parity.html">Re-run the check in your browser.</a></p></div>
-      <div class="panel"><h3>Honest about scope</h3>
+          champion before publishing: zero decisions changed across 41,604 customers.</p>
+        <a class="cream-pill" href="parity.html">Re-run the check in your browser →</a></div>
+      <div class="panel lift"><h3>Honest about scope</h3>
         <p class="note">A customer-level portfolio-risk model, not a validated application-time
           underwriting model. It returns a probability and a review recommendation, never an
           invented credit score or limit.</p></div>
-      <div class="panel"><h3>Every decision on record</h3>
+      <div class="panel lift"><h3>Every decision on record</h3>
         <p class="note">Each consequential choice, including the mistakes found and fixed, is in the
           <a href="https://github.com/korede-folarin/sentinel-credit/blob/main/docs/engineering_decision_log.md">Engineering Decision Log</a>.</p></div>
     </div>
@@ -185,11 +204,13 @@
 </div></main>
 
 <footer><div class="wrap">
+  <div class="made"><a href="https://koredefolarin.com/">A portfolio project by Korede Folarin ↗</a></div>
   <div>Sentinel Credit · synthetic data only · no data leaves your browser.</div>
-  <div>Model scoring: onnxruntime-web (MIT). Fonts: DM Serif Display, DM Sans (SIL OFL).</div>
+  <div>Model scoring: onnxruntime-web (MIT). Fonts: Bricolage Grotesque, JetBrains Mono (SIL OFL).</div>
 </div></footer>
 
 <script src="vendor/onnxruntime-web-1.19.2/ort.min.js"></script>
 <script type="module" src="assets/assess.js"></script>
+<script src="assets/chrome.js" defer></script>
 </body>
 </html>

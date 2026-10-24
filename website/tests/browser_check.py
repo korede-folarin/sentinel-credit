@@ -85,7 +85,7 @@ class Page:
         return self.js("""(() => { const vw = document.documentElement.clientWidth;
             const off = [...document.querySelectorAll('body *')].filter(e => {
               const r = e.getBoundingClientRect(); return r.width > 0 && r.right > vw + 1
-                && !e.closest('.table-scroll'); });
+                && !e.closest('.table-scroll') && !e.closest('.marquee'); });
             return { pageScrolls: document.documentElement.scrollWidth > vw + 1,
                      offenders: off.slice(0, 5).map(e => e.tagName + '.' + e.className) }; })()""")
 
@@ -241,6 +241,26 @@ def main():
               and "close to those of a typical applicant" not in ok_res["panel"],
               f"{ok_res['head']!r}; plan rows {ok_res['plan']}; first reason {ok_res['why'][:1]}")
         page.screenshot(os.path.join(args.out, "index_approved.png"))
+        # declined path: over the 45% affordability limit -> neutral ink/white, never orange
+        page.js("document.getElementById('existing_monthly_obligations_gbp').value='900';"
+                "document.getElementById('order_value_gbp').value='900';"
+                "document.getElementById('form').requestSubmit(); true")
+        page.wait_for("document.getElementById('r-ex-headline').textContent"
+                      ".startsWith('We cannot approve')", 120)
+        time.sleep(0.8)
+        dec = page.js("""(() => { const orange = 'rgb(255, 79, 18)';
+            const panel = document.querySelector('.panel.explain');
+            const orangeIn = [...panel.querySelectorAll('*')].concat([panel]).filter(e => {
+              const cs = getComputedStyle(e), b = getComputedStyle(e, '::before');
+              return cs.color === orange || cs.backgroundColor === orange || b.backgroundColor === orange; }).length;
+            const orangeText = [...document.querySelectorAll('body *')].filter(e =>
+              getComputedStyle(e).color === orange && e.textContent.trim()).length;
+            return { head: document.getElementById('r-ex-headline').className,
+                     why: document.getElementById('r-ex-why').className,
+                     changes: document.getElementById('r-ex-changes').className, orangeIn, orangeText }; })()""")
+        check("assessment: a decline is neutral (no orange) and orange is never text",
+              dec["head"] == "outcome-declined" and "neutral" in dec["why"] and "neutral" in dec["changes"]
+              and dec["orangeIn"] == 0 and dec["orangeText"] == 0, str(dec))
         ov = page.overflow()
         check("assessment (approved, with plan): no overflow at 1440px",
               not ov["pageScrolls"] and not ov["offenders"], str(ov))
@@ -285,6 +305,20 @@ def main():
             time.sleep(2.5)
             ov = page.overflow()
             check(f"{name}: no overflow at 390px", not ov["pageScrolls"] and not ov["offenders"], str(ov))
+            # same-origin only: no font CDNs, scripts or analytics (Decision 29)
+            foreign = page.js("""[...performance.getEntriesByType('resource')]
+                .map(r => r.name).filter(u => new URL(u).origin !== location.origin)""")
+            check(f"{name}: every request is same-origin", not foreign, str(foreign[:3]))
+            menu = page.js("""(() => { const b = document.querySelector('.menu-btn');
+                const before = getComputedStyle(document.getElementById('site-nav')).display;
+                b.click(); const nav = document.getElementById('site-nav');
+                const r = { before, after: getComputedStyle(nav).display,
+                  expanded: b.getAttribute('aria-expanded'),
+                  links: [...nav.querySelectorAll('a')].filter(a => a.getBoundingClientRect().height >= 44).length };
+                b.click(); return r; })()""")
+            check(f"{name}: mobile menu opens a full-screen list with 44px links",
+                  menu["before"] == "none" and menu["after"] == "flex" and menu["expanded"] == "true"
+                  and menu["links"] == 4, str(menu))
             page.screenshot(os.path.join(args.out, f"{name}_mobile.png"))
     finally:
         # Close the whole browser process tree, not just the launcher.

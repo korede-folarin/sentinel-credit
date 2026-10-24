@@ -1,16 +1,13 @@
 /* Self-hosted so the site makes no third-party requests (Decision 29).
-   Latin subset only. Both families: SIL Open Font License 1.1, see OFL.md. */
+   Latin subset, variable weight. Both families: SIL Open Font License 1.1
+   (OFL-bricolage.txt, OFL-jetbrains.txt). From @fontsource-variable 5.3.0. */
 @font-face {
-  font-family: "DM Serif Display";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("dm-serif-display-400-latin.woff2") format("woff2");
+  font-family: "Bricolage Grotesque";
+  src: url("bricolage-grotesque-latin-wght-normal.woff2") format("woff2");
+  font-weight: 200 800; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "DM Sans";
-  font-style: normal;
-  font-weight: 400 600;          /* variable font: one file, all weights */
-  font-display: swap;
-  src: url("dm-sans-latin-var.woff2") format("woff2");
+  font-family: "JetBrains Mono";
+  src: url("jetbrains-mono-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 800; font-style: normal; font-display: swap;
 }

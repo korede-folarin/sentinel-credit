@@ -5,22 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cutoff &amp; Fairness Simulator · Sentinel Credit</title>
 <meta name="description" content="Move the review cutoff of a BNPL credit-risk model and see recall, workload and error rates by customer segment change. Real held-out results, synthetic data.">
+<link rel="preload" href="fonts/bricolage-grotesque-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
+<div class="bridge"><div class="wrap">
+  <a href="https://koredefolarin.com/sentinel-credit.html"><span class="dot" aria-hidden="true"></span>← Korede Folarin · Read the case study</a>
+  <span class="bridge-r">A portfolio project · synthetic data</span>
+</div></div>
 <header class="top"><div class="wrap">
-  <a class="brand" href="./">Sentinel <span class="accent">Credit</span></a>
-  <nav class="top" aria-label="Site">
+  <a class="brand" href="./"><span class="glyph" aria-hidden="true"></span>Sentinel Credit</a>
+  <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu"><span></span></button>
+  <nav class="top" id="site-nav" aria-label="Site">
     <a href="./">Assessment</a>
     <a href="simulator.html" aria-current="page">Cutoff &amp; fairness</a>
     <a href="parity.html">Verification</a>
-    <a href="https://github.com/korede-folarin/sentinel-credit">Source</a>
+    <a href="https://github.com/korede-folarin/sentinel-credit" target="_blank" rel="noopener">Source ↗</a>
   </nav>
 </div></header>
 
 <section class="hero"><div class="wrap">
     <div class="kicker">Decision policy · held-out evidence</div>
-    <h1>Where should the line be drawn?</h1>
+    <h1 class="long"><span class="line"><span>Where should the line</span></span><span class="line navy"><span>be drawn?</span></span></h1>
     <p class="lede">A model produces a probability; the business decides the cutoff. Move it and
       watch the trade-off: how many applications go to manual review, how many defaults are
       caught, and who bears the errors. Results are the champion's real held-out test outcomes,
@@ -30,7 +37,7 @@
 
 <main><div class="wrap">
 
-  <section class="panel">
+  <section class="panel slider-panel">
     <div class="slider-head">
       <div><div class="kicker" style="margin:0">Review cutoff</div>
         <div class="slider-value" id="cut-value"></div></div>
@@ -53,11 +60,11 @@
     <div class="panel"><h3>Workload against defaults caught</h3>
       <svg class="chart" id="chart-tradeoff" viewBox="0 0 520 300" role="img"
            aria-label="Share sent to review and share of defaults caught, by cutoff"></svg>
-      <p class="note">Gold: defaults caught. Grey: applications sent to review.</p></div>
+      <p class="note">Navy: defaults caught. Grey: applications sent to review.</p></div>
     <div class="panel"><h3>Defaulters missed, by credit-file depth</h3>
       <svg class="chart" id="chart-fnr" viewBox="0 0 520 300" role="img"
            aria-label="False negative rate by credit-file segment, by cutoff"></svg>
-      <p class="note">Gold: thin credit file. Grey: established credit file.</p></div>
+      <p class="note">Navy: thin credit file. Grey: established credit file.</p></div>
   </section>
 
   <section>
@@ -68,7 +75,7 @@
       monitoring label, never a model input.</p>
   </section>
 
-  <section class="panel">
+  <section class="panel navy-block">
     <h3>What this shows</h3>
     <p id="finding"></p>
     <p class="note">This is why the cutoff is treated as policy, not a model setting: the trade-off
@@ -79,9 +86,11 @@
 </div></main>
 
 <footer><div class="wrap">
+  <div class="made"><a href="https://koredefolarin.com/">A portfolio project by Korede Folarin ↗</a></div>
   <div>Synthetic data. Counts per score band from the champion's held-out test set; no customer
     records are published. Metrics are exact at band edges, including every marked cutoff.</div>
 </div></footer>
 <script type="module" src="assets/simulator.js"></script>
+<script src="assets/chrome.js" defer></script>
 </body>
 </html>
