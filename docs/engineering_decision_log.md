@@ -4333,6 +4333,9 @@ were put to the owner as choices.
    - The outcome is **manual review** if the model refers the application
      **or** any Decision 31 check fires. A person is needed in either case.
    - Otherwise the application is approved.
+   - *Corrected in Decision 35:* the project does have a decline rule.
+     The FCA affordability threshold in the data generator is now
+     applied at 45%.
 2. **Own details only; no thresholds.** The applicant sees their own
    values against the typical applicant's, and never their PD or the
    cutoff (Belton et al. 2025, Decision 7). Model issues (blind spot,
@@ -4391,6 +4394,227 @@ record outputs are unchanged (record version 2 adds `customer_outcome`).
   portfolio-risk model, not a validated application-time underwriting
   model (Decision 18). The page keeps that scope statement.
 
+## Decision 34 — Thin-File Status Worked Out, Plain-Language Risk Officer View, Material Effects Only
+
+### Challenge
+The owner reviewed the outputs on 22nd October 2026 and found three
+problems:
+1. **The applicant was asked about their credit file.** They had to
+   tick "thin credit file", and was then told to check details when the
+   tick contradicted their history. An applicant should not have to know
+   or check this; it should be worked out once they enter their details.
+2. **The risk officer view used modelling language.** "Combination
+   explanation (Decision 7)", "training ranges", "95th-percentile line"
+   and "error type" are not how a credit risk officer reads a case.
+   They need risk factors, strengths, and why the case is in front of
+   them.
+3. **The held-out evidence sat on the applicant page.** "When the model
+   asks for a person" is evidence for reviewers, not for applicants.
+
+### Decision
+**1. Thin-file status is worked out, never asked.**
+- In the data, thin-file status is set first and the credit file is
+  drawn to match. Thin files have scores up to 579, 0–23 months of
+  history and 0–1 accounts.
+- **Rule:** an applicant is thin-file if their credit score is at most
+  579, their history at most 23 months, and they have at most 1 account.
+  The limits are computed from the training partition by
+  `models/build_explanation_rules.py`.
+
+| Check | Result |
+|---|---|
+| Training partition (33,283) | Agrees with the recorded flag for 33,252 (99.91%). 31 full-file customers whose figures fall inside the thin-file limits are treated as thin; no thin file is ever missed |
+| All customers (50,000) | 99.90% agreement |
+
+- The site and dashboard forms no longer ask. The site shows the
+  worked-out status as the applicant types.
+- The API works it out when `thin_file_flag` is left out. If a caller
+  supplies it (as a bureau would), the supplied value is used.
+- The decision record says which: `thin_file_source` is `derived` or
+  `supplied`.
+- An application whose figures still contradict each other (for example
+  a credit score of 720 with 5 months of history) goes to a risk officer
+  automatically. The applicant is no longer told to check anything.
+
+**2. The risk officer view is in plain language.** It now shows, in
+order:
+- **Status:** "Review needed" or "No concerns", with one plain sentence.
+- **Why a person needs to look:** for example "Estimated chance of
+  falling 90 or more days behind: 8.5%, at or above the 6.57% review
+  line", or "Established credit file, but riskier than 95% of similar
+  applicants…".
+- **Risk factors and strengths:** the applicant's own details, for
+  example "Low savings buffer: £150 (typical £2,165)" or "Has recent
+  defaults: 2 defaults in the last 24 months".
+- **Checks:** plain names, each with a "Yes" or "No" sentence.
+- **Track record of similar past customers.**
+
+The modelling terms stay in the decision record and the decision log.
+
+**3. Only material effects are given as reasons** (declared choice:
+`material_effect` = 0.1 percentage points of estimated risk). On 1,500
+held-out customers:
+
+| | All details | Material details (0.1 points or more) |
+|---|---:|---:|
+| Share of details kept | 100% | 35% |
+| Share where the model's effect runs against conventional credit-risk expectation | 22.8% | 3.0% |
+
+The median one-at-a-time effect was 0.04 points: model noise from a
+tree model's step functions. The floor applies to the applicant's
+reasons as well as the officer's lists. It also stops trivial details,
+such as "Small order", being given as reasons (cf. A31).
+
+**4. Surprising directions are flagged to the officer.**
+- Each detail carries its conventional expectation (`risk_when`; a
+  declared assumption, for example more defaults means more risk).
+- When a material effect runs the other way, the officer reads
+  "Unusually, the model counts this in the application's favour".
+
+**5. The held-out evidence moved to the Verification page**, reworded:
+"How often a person is asked to look" and "When one detail decides the
+outcome".
+
+### Evidence
+| Check | Result |
+|---|---|
+| Site (JavaScript) vs Python, word for word: 300 applications (294 with derived thin-file status, 6 supplied), all three outputs | 0 differences, 2,339 sentences. Thin-file status matches on all 294 |
+| Deploy gate (headless browser checks) | 17 of 17 pass. New checks cover the worked-out status line, no modelling jargon in the officer view, and the evidence on the Verification page |
+| Dashboard vs API | identical outputs (both derive thin-file status) |
+| Streamlit demo mode, database unreachable | all pages render |
+
+### Answer recorded for the owner: data features vs model features
+- **What the feature store holds.** `feature_store.customer_features`
+  has 61 columns besides `customer_id`, `target_default` and
+  `has_outcome`. They are built from `raw.customers`,
+  `raw.transactions` and `raw.repayments`.
+- **What the model uses.** 13 features (`models/model_features.py`
+  MODEL_FEATURES):
+  - eight profile fields: income, existing commitments, savings,
+    credit score, months of history, accounts, defaults in 24 months,
+    thin-file flag;
+  - five behaviour features: maximum affordability ratio, average order
+    value, average instalments, and the shares of high- and
+    medium-risk purchases.
+- **Why the rest are excluded** (all recorded in `model_features.py`):
+  - exact duplicates or near-duplicates;
+  - outcome leakage (`pct_late_payments`; days-late aggregates);
+  - exposure-time contamination;
+  - resolution-tied fields (DPD, SICR, arrears);
+  - generator internals;
+  - identifiers and protected or sensitive characteristics (age,
+    vulnerability, employment status, income band).
+- **Global importance**, mean |SHAP| share (Decision 14):
+
+| Feature | Share |
+|---|---:|
+| thin_file_flag | 29.0% |
+| savings_balance_gbp | 18.4% |
+| avg_n_instalments | 12.1% |
+| avg_order_value_gbp | 11.3% |
+| pct_high_risk_category | 10.4% |
+| pct_medium_risk_category | 6.6% |
+| max_affordability_ratio | 3.0% |
+| credit_score | 3.0% |
+| The remaining five | 1.8% or less each |
+
+## Decision 35 — Affordability Limit (45%), a Declined Outcome, and the Repayment Plan
+
+### Challenge
+The owner reviewed the approved view on 22nd October 2026.
+
+**What was wrong:**
+- "Your details were close to those of a typical applicant" does not
+  explain an approval.
+- The applicant saw no affordability figure.
+- There was no repayment plan.
+- The method line belonged to the risk officer, not the applicant.
+
+**What the pasted proposal asked for:** a 35% affordability limit,
+showing the PD against the 6.57% cutoff, and a plan table with
+placeholder fields (deposit, frequency, dates, fees).
+
+**A correction to Decision 33.** Decision 33 said "the project has no
+evidence-based decline rule". That was wrong. The data generator applies
+the FCA CONC 5.2A affordability ratio, (existing monthly commitments +
+this instalment) ÷ monthly income, and **declines** an application above
+the threshold (`application_approved = 0` when `fca_affordability_flag =
+1`). The A/B test compared two thresholds: 45% (strict, group A) and
+60% (relaxed, group B). The live app never applied that rule.
+
+### Decision (owner's choices, 22nd October 2026)
+1. **Affordability limit 45%** (`config.yaml` `model.affordability_limit`).
+   This is the strict threshold, whose customers defaulted at 0.65%
+   against 1.15% under 60% (Decisions 15–16). The pasted 35% is not a
+   project limit: it is only a risk multiplier inside the generator.
+2. **Over the limit, the application is declined**, as the project's
+   own application process does. The applicant sees:
+   - "We cannot approve this application";
+   - the affordability figure against the limit, in their own numbers;
+   - arithmetic changes that would bring it within the limit: a
+     smaller order, a longer plan, or lower commitments.
+3. **The PD and the cutoff stay hidden from the applicant** (Decision 33
+   kept). The affordability limit is shown because it is a rule about
+   the applicant's own figures, which they can check and act on.
+
+**Outcome order:**
+- affordability over the limit → **declined**;
+- otherwise, the model refers or a check fires → **manual review**;
+- otherwise → **approved**.
+
+Model-tested changes for a manual review must also keep the repayments
+within the limit.
+
+**Approved view:**
+- **What supported the decision**, each line from real figures and checks:
+  - the affordability figure against the limit;
+  - the credit file: enough history, or a thin file noted as such;
+  - "overall position, not a single detail" (true because the
+    over-reliance check did not fire);
+  - the applicant's material favourable details.
+- **The repayment plan**, filled only from the product as the data
+  defines it:
+  - monthly plans;
+  - the first instalment taken at checkout, the rest every 30 days;
+  - instalment = order ÷ number of instalments, any rounding penny on
+    the final repayment;
+  - interest and fees £0, total = order value.
+  The site and dashboard show real calendar dates. There are no
+  placeholders, and nothing the project lacks (deposit, payment method,
+  fees) is shown.
+- **The method line** moved to the risk officer view.
+
+**Risk officer view:**
+- an "Affordable" check, first in the list;
+- a "Declined" status with the affordability reason.
+
+**Decision record (version 4):** adds `affordability_limit`,
+`affordability_ratio` and `customer_outcome`.
+
+**Existing customers:** affordability is checked when the API is given
+an order. The dashboard's lookup has no order, so it shows "not
+assessed".
+
+**The demo page's score card**, which shows the PD and the cutoff, is now
+labelled "Model view · for the lender, not shown to the applicant".
+
+### Evidence
+| Check | Result |
+|---|---|
+| Applications in the project's data above 45% | 35.1%. The strict group's actual decline rate was 34.95%, so the rule reproduces the project's own process |
+| Site (JavaScript) vs Python, all three outputs word for word: 300 generated applications (83 approved, 142 manual review, 75 declined) | 0 differences, 2,562 sentences, including plans and decline changes |
+| Arithmetic of the decline changes (worked example: £2,442 income, £900 commitments, £900 order over 3) | A £596 order gives 44.99%; commitments of £798 give 44.99%; a 6-instalment plan gives 44.99%. All within the limit |
+| Deploy gate (headless browser checks) | 19 of 19 pass, including an approved run (affordability vs limit, 7-row plan, no method line) |
+| Dashboard vs API | identical outputs |
+| Streamlit demo mode, database unreachable | all pages render |
+
+### Limits
+- **35% of applications would be declined.** That is the policy the
+  project's data was generated under, and it is reported, not tuned.
+- **The 45% limit is a demonstration policy.** It is not an FCA-set
+  number. CONC 5.2A requires a creditworthiness assessment, not a
+  specific ratio.
+
 ---
 
 ## Summary Table
@@ -4430,6 +4654,8 @@ record outputs are unchanged (record version 2 adds `customer_outcome`).
 | 31 | Decision 7 completed: error-type checks, genre, three outputs | Genre selection, risk officer and regulatory outputs, existing customers not built | Blind spot: full-file FNR 100%, top 5% default 2.9x (held-out); limits from training data; declared choices in config | models/build_explanation_rules.py, serving/reasons.py, serving/explanation_rules.json |
 | 32 | Public Streamlit demo, snapshot mode | Dashboard needs a database and git-ignored files; some evidence is per-customer | Exporter refuses customer rows and local paths; clean-copy test with no database | dashboard/tools/export_demo_data.py, dashboard/demo_data/, dashboard/utils.py |
 | 33 | Applicant sees outcome, own reasons, model-tested changes | "Not referred" read as a workflow status; model issues and statistics shown to applicants | Owner's choices: two outcomes (no invented decline), no thresholds (Belton), model-tested changes; held-out 80.5% approved / 19.5% manual review | serving/reasons.py, serving/reason_templates.json, website/public/assets/reasons.js |
+| 34 | Thin-file status worked out; plain-language officer view; material effects only | Applicant asked about their credit file; officer view in modelling language; noisy factors | Thin-file rule 99.91% agreement; materiality floor cuts 'wrong-way' factors 22.8% to 3.0% | serving/reasons.py, models/build_explanation_rules.py, website/public/ |
+| 35 | Affordability limit 45%, declined outcome, repayment plan | Approval not explained; affordability never applied; Decision 33 wrongly said no decline rule exists | Project's FCA CONC 5.2A ratio and A/B thresholds (45% vs 60%: 0.65% vs 1.15% default); 35.1% of applications over 45% | config.yaml, serving/reasons.py, website/public/ |
 
 ---
 
@@ -4492,3 +4718,6 @@ Reference material that supports the decisions above, but is not itself a decisi
 | 3.34 | 15th October 2026 | Decision 31 addendum (owner's request). Held-out check evidence is published on the demo site as aggregates (`website/public/data/review_evidence.json`), verified by the deploy gate. Only two details decide a recommendation on their own: average order value (71 customers pass only because their orders are small) and thin credit file (37 referred only because of it). Mobile layout fix: grid items may shrink so wide tables scroll inside their panel. |
 | 3.35 | 15th October 2026 | Added Decision 32: a public Streamlit demo in snapshot mode (owner's choice of option A; approved committing the model package and aggregate reports). Demo mode replays recorded aggregate query results and allowlisted reports from `dashboard/demo_data/`. The exporter refuses customer rows and local paths. Existing-customer lookup and per-customer case studies stay local. Verified on a clean copy with the database unreachable: all 7 pages render, and new-applicant scoring matches the API. |
 | 3.36 | 22nd October 2026 | Added Decision 33 (owner's review of the applicant view). Two outcomes: approved, or needs a manual review (never declined; no evidence-based decline rule exists). Manual review if the model refers or any check fires. The applicant sees only their own details, no PD or cutoff and no model issues. Model-tested single changes to order, plan, commitments or savings show what could change the outcome. Supersedes Decision 31's applicant-facing genre selection. Held-out: 80.5% approved, 19.5% manual review. JavaScript matches Python on 975 sentences. |
+| 3.37 | 22nd October 2026 | Added Decision 34 (owner's review). Thin-file status is worked out from the score, history and accounts (training limits 579 / 23 months / 1 account; 99.91% agreement), never asked; the record says derived or supplied. The applicant is no longer asked to check details. Plain-language risk officer view: status, why a person needs to look, risk factors, strengths, plain checks, track record. Materiality floor of 0.1 points for reasons and factors, plus a flag when a material effect runs against convention. Held-out evidence moved to the Verification page. The owner's question on data features vs model features is answered in the decision. |
+| 3.38 | 22nd October 2026 | Added Decision 35 (owner's choices): affordability limit 45% (FCA CONC 5.2A ratio, the project's strict A/B threshold), declined above it. The approved view shows the affordability figure, credit-file and check-based reasons, and the repayment plan as the data defines it: monthly, first at checkout, every 30 days, £0 fees. The declined view shows arithmetic changes that bring it within the limit. The method line moved to the officer view. PD and cutoff stay hidden from applicants. Corrects Decision 33's claim that no decline rule existed. |
+| 3.39 | 23rd October 2026 | Demo site restyled to a light editorial theme (owner's brief: warm ivory, navy ink, Sentinel teal, one meaning per colour). Styling only: no wording, figures or logic changed. DM Serif Display and DM Sans replace Cormorant Garamond and Inter, still self-hosted (owner approved the download), so Decision 29's no-third-party-requests promise holds. Chart colours keep their gold and grey captions true. Applied to the current site, not the mock-up's older layout (no thin-file checkbox; the held-out evidence stays on Verification). 19 of 19 browser checks pass. |

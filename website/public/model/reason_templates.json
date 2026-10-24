@@ -5,97 +5,174 @@
       "name": "Monthly income",
       "label": "your monthly income",
       "lower": "Your monthly income of {value} is lower than is typical for applicants ({typical}).",
-      "higher": "Your monthly income of {value} is higher than is typical for applicants ({typical})."
+      "higher": "Your monthly income of {value} is higher than is typical for applicants ({typical}).",
+      "officer": {
+        "higher": "Higher income: {value} a month (typical {typical})",
+        "lower": "Low income: {value} a month (typical {typical})"
+      },
+      "risk_when": "lower"
     },
     "existing_monthly_obligations_gbp": {
       "name": "Existing monthly obligations",
       "label": "your existing monthly repayments",
       "lower": "You pay {value} a month towards other commitments, less than is typical ({typical}).",
-      "higher": "You already pay {value} a month towards other commitments, more than is typical ({typical})."
+      "higher": "You already pay {value} a month towards other commitments, more than is typical ({typical}).",
+      "officer": {
+        "higher": "High existing commitments: {value} a month (typical {typical})",
+        "lower": "Low existing commitments: {value} a month (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "savings_balance_gbp": {
       "name": "Savings balance",
       "label": "your savings",
       "lower": "Your savings of {value} are lower than is typical ({typical}), leaving less to fall back on if money gets tight.",
-      "higher": "Your savings of {value} are higher than is typical ({typical})."
+      "higher": "Your savings of {value} are higher than is typical ({typical}).",
+      "officer": {
+        "higher": "Strong savings buffer: {value} (typical {typical})",
+        "lower": "Low savings buffer: {value} (typical {typical})"
+      },
+      "risk_when": "lower"
     },
     "credit_score": {
       "name": "Credit score",
       "label": "your credit score",
       "lower": "Your credit score of {value} is lower than is typical for applicants ({typical}).",
-      "higher": "Your credit score of {value} is higher than is typical for applicants ({typical})."
+      "higher": "Your credit score of {value} is higher than is typical for applicants ({typical}).",
+      "officer": {
+        "higher": "Good credit score: {value} (typical {typical})",
+        "lower": "Low credit score: {value} (typical {typical})"
+      },
+      "risk_when": "lower"
     },
     "months_credit_history": {
       "name": "Months of credit history",
       "label": "the length of your credit history",
       "lower": "Your credit history covers {value}, shorter than is typical ({typical}).",
-      "higher": "Your credit history covers {value}, longer than is typical ({typical})."
+      "higher": "Your credit history covers {value}, longer than is typical ({typical}).",
+      "officer": {
+        "higher": "Long credit history: {value} (typical {typical})",
+        "lower": "Short credit history: {value} (typical {typical})"
+      },
+      "risk_when": "lower"
     },
     "num_credit_accounts": {
       "name": "Credit accounts",
       "label": "your number of credit accounts",
       "lower": "You have {value}, fewer than is typical ({typical}).",
-      "higher": "You have {value}, more than is typical ({typical})."
+      "higher": "You have {value}, more than is typical ({typical}).",
+      "officer": {
+        "higher": "More credit accounts: {value} (typical {typical})",
+        "lower": "Few credit accounts: {value} (typical {typical})"
+      },
+      "risk_when": "lower"
     },
     "num_defaults_24m": {
       "name": "Defaults in last 24 months",
       "label": "your recent repayment record",
       "lower": "Your credit file shows {value} in the last two years, fewer than is typical ({typical}).",
-      "higher": "Your credit file shows {value} in the last two years."
+      "higher": "Your credit file shows {value} in the last two years.",
+      "officer": {
+        "higher": "Has recent defaults: {value} in the last 24 months",
+        "lower": "Fewer recent defaults than typical: {value} in the last 24 months"
+      },
+      "risk_when": "higher"
     },
     "thin_file_flag": {
       "name": "Thin credit file",
       "label": "the depth of your credit file",
       "lower": "Your credit file has a full borrowing history.",
-      "higher": "Your credit file has limited borrowing history, so there is less evidence of how you manage repayments."
+      "higher": "Your credit file has limited borrowing history, so there is less evidence of how you manage repayments.",
+      "officer": {
+        "higher": "Thin credit file: little borrowing history to judge",
+        "lower": "Established credit file"
+      }
     },
     "order_value_gbp": {
       "name": "Order value",
       "label": "the size of this order",
       "lower": "This order of {value} is smaller than a typical order ({typical}).",
-      "higher": "This order of {value} is larger than a typical order ({typical})."
+      "higher": "This order of {value} is larger than a typical order ({typical}).",
+      "officer": {
+        "higher": "Large order: {value} (typical {typical})",
+        "lower": "Small order: {value} (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "n_instalments": {
       "name": "Instalments",
       "label": "the repayment plan",
       "lower": "You chose to repay over {value}, fewer than is typical ({typical}).",
-      "higher": "You chose to spread repayments over {value}, more than is typical ({typical})."
+      "higher": "You chose to spread repayments over {value}, more than is typical ({typical}).",
+      "officer": {
+        "higher": "Long repayment plan: {value} (typical {typical})",
+        "lower": "Short repayment plan: {value} (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "merchant_category": {
       "name": "Merchant category",
       "label": "the type of purchase",
       "lower": "This purchase is in the {value} category.",
-      "higher": "This purchase is in the {value} category, which the model links to more missed repayments than {typical} purchases."
+      "higher": "This purchase is in the {value} category, which the model links to more missed repayments than {typical} purchases.",
+      "officer": {
+        "higher": "Higher-risk purchase category: {value}",
+        "lower": "Lower-risk purchase category: {value}"
+      }
     },
     "max_affordability_ratio": {
       "name": "Affordability ratio",
       "label": "your repayments compared with your income",
       "lower": "Your repayments took up to {value} of your monthly income, less than is typical ({typical}).",
-      "higher": "Your repayments took up to {value} of your monthly income, more than is typical ({typical})."
+      "higher": "Your repayments took up to {value} of your monthly income, more than is typical ({typical}).",
+      "officer": {
+        "higher": "Repayments take a large share of income: up to {value} (typical {typical})",
+        "lower": "Repayments take a small share of income: up to {value} (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "avg_order_value_gbp": {
       "name": "Average order value",
       "label": "the size of your orders",
       "lower": "Your orders averaged {value}, smaller than is typical ({typical}).",
-      "higher": "Your orders averaged {value}, larger than is typical ({typical})."
+      "higher": "Your orders averaged {value}, larger than is typical ({typical}).",
+      "officer": {
+        "higher": "Large orders: average {value} (typical {typical})",
+        "lower": "Small orders: average {value} (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "avg_n_instalments": {
       "name": "Average instalments",
       "label": "your repayment plans",
       "lower": "Your plans averaged {value}, fewer than is typical ({typical}).",
-      "higher": "Your plans averaged {value}, more than is typical ({typical})."
+      "higher": "Your plans averaged {value}, more than is typical ({typical}).",
+      "officer": {
+        "higher": "Long repayment plans: average {value} (typical {typical})",
+        "lower": "Short repayment plans: average {value} (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "pct_high_risk_category": {
       "name": "Share of travel and electronics purchases",
       "label": "your share of travel and electronics purchases",
       "lower": "{value} of your purchases were travel or electronics, less than is typical ({typical}).",
-      "higher": "{value} of your purchases were travel or electronics, which the model links to more missed repayments (typical: {typical})."
+      "higher": "{value} of your purchases were travel or electronics, which the model links to more missed repayments (typical: {typical}).",
+      "officer": {
+        "higher": "Many higher-risk purchases: {value} travel or electronics (typical {typical})",
+        "lower": "Few higher-risk purchases: {value} travel or electronics (typical {typical})"
+      },
+      "risk_when": "higher"
     },
     "pct_medium_risk_category": {
       "name": "Share of fashion, home and other purchases",
       "label": "your share of fashion, home and other purchases",
       "lower": "{value} of your purchases were fashion, home or other goods, less than is typical ({typical}).",
-      "higher": "{value} of your purchases were fashion, home or other goods, more than is typical ({typical})."
+      "higher": "{value} of your purchases were fashion, home or other goods, more than is typical ({typical}).",
+      "officer": {
+        "higher": "Many fashion, home or other purchases: {value} (typical {typical})",
+        "lower": "Few fashion, home or other purchases: {value} (typical {typical})"
+      }
     }
   },
   "units": {
@@ -123,12 +200,13 @@
   "outcome": {
     "approved": {
       "headline": "Your application has been approved",
-      "summary": "The details you gave allowed an automatic approval.",
-      "why_intro": "What counted most in your favour:",
-      "why_none": "Your details were close to those of a typical applicant.",
+      "summary": "Based on the information you provided, the repayments appear affordable and your application met our approval criteria.",
+      "why_intro": "What supported the decision:",
+      "why_none": "Your overall financial position supported the decision.",
       "next_steps": [
-        "Your repayments will follow the plan you chose.",
-        "This is a demonstration on synthetic data. It is not financial advice."
+        "Your first repayment is taken today at checkout, then one every 30 days as shown in the plan.",
+        "Check the repayment amounts and dates before you accept the agreement.",
+        "This is a demonstration on synthetic data. It is not a real credit decision or financial advice."
       ]
     },
     "manual_review": {
@@ -139,20 +217,28 @@
       "next_steps": [
         "A risk officer will review your application and the details you gave.",
         "If any detail is wrong, ask for it to be corrected before the review.",
-        "This is a demonstration on synthetic data. It is not financial advice."
+        "This is a demonstration on synthetic data. It is not a real credit decision or financial advice."
+      ]
+    },
+    "declined": {
+      "headline": "We cannot approve this application",
+      "summary": "On the figures you gave, the repayments would not be affordable.",
+      "why_intro": "Why:",
+      "why_none": "",
+      "next_steps": [
+        "You can apply again with a smaller order or a longer repayment plan.",
+        "If any figure you gave is wrong, correct it and apply again: the outcome could be different.",
+        "This is a demonstration on synthetic data. It is not a real credit decision or financial advice."
       ]
     }
   },
-  "check": {
-    "intro": "Please check these details are correct:"
-  },
   "issues": {
-    "out_of_range": "{label} of {value} is outside the range we can assess automatically",
-    "thin_long_history": "your credit file is marked as limited, but shows {months} of credit history",
-    "thin_many_accounts": "your credit file is marked as limited, but shows {accounts}",
-    "full_short_history": "your credit file is marked as full, but shows only {months} of credit history",
-    "full_no_accounts": "your credit file is marked as full, but shows {accounts}",
-    "commitments_vs_income": "your existing commitments of {obligations} a month are high against an income of {income}"
+    "out_of_range": "{name} of {value} is outside the normal range",
+    "thin_long_history": "thin credit file but {months} of credit history",
+    "thin_many_accounts": "thin credit file but {accounts}",
+    "full_short_history": "established credit file but only {months} of credit history",
+    "full_no_accounts": "established credit file but {accounts}",
+    "commitments_vs_income": "existing commitments of {obligations} a month against an income of {income}"
   },
   "changes": {
     "order_value_gbp": "Apply for a smaller amount: an order of {value} instead of {current}.",
@@ -163,37 +249,60 @@
   "changes_text": {
     "intro": "Each of these on its own, with everything else the same, would have led to an automatic approval:",
     "none": "No single change to the order, the repayment plan, your existing commitments or your savings would be enough on its own. A risk officer will look at the application as a whole.",
-    "note": "These changes do not guarantee approval. A future application will be assessed on your circumstances at that time."
+    "note": "These changes do not guarantee approval. A future application will be assessed on your circumstances at that time.",
+    "declined_intro": "Each of these on its own would bring the repayments within our affordability limit:"
   },
   "method": {
     "new": "Each detail was compared with a typical applicant by changing that one detail and re-scoring with the model.",
     "existing": "Each detail was compared with a typical customer by changing that one detail and re-scoring with the model."
   },
   "officer": {
-    "error_labels": {
-      "data_input": "Possible data-input error",
-      "missing_information": "Known blind spot (information the model lacks)",
-      "overreliance": "Recommendation rests on one detail",
-      "none": "No issue detected"
+    "status": {
+      "review": "Review needed",
+      "clear": "No concerns",
+      "declined": "Declined"
+    },
+    "status_detail": {
+      "refer": "The risk score is at or above the review line.",
+      "divergence": "The risk score alone would approve this, but a check below needs a person to look first.",
+      "clear": "Nothing needs a person. The application can be approved automatically.",
+      "declined": "The repayments are over the affordability limit, so the application is declined automatically."
+    },
+    "review_reasons": {
+      "refer": "Estimated chance of falling 90 or more days behind on repayments: {pd}, at or above the {cutoff} review line.",
+      "data_input": "Some details do not fit together or are outside the normal range: {issues}.",
+      "missing_information": "Established credit file, but riskier than {pct}% of similar applicants. The risk score rarely flags this group on its own, so a person should check it.",
+      "overreliance": "The decision rests almost entirely on one factor: {name}.",
+      "unaffordable": "Not affordable: commitments of {obligations} a month plus the {instalment} instalment take {ratio} of income ({income}), above the {limit} limit."
     },
     "checks": {
+      "affordability": {
+        "name": "Repayments affordable",
+        "ok": "Yes: {ratio} of income, within the {limit} limit.",
+        "triggered": "No: {ratio} of income, above the {limit} limit.",
+        "not_assessed": "Not assessed: no order given."
+      },
       "data_input": {
-        "name": "Inputs consistent with the training data",
-        "ok": "All inputs inside the training ranges and consistent with each other."
+        "name": "Details make sense together",
+        "ok": "Yes: all details are in normal ranges and consistent with each other."
       },
       "missing_information": {
-        "name": "Known blind spot: full credit file",
-        "not_applicable": "Not applicable: limited credit file.",
-        "triggered": "Full credit file, score at or above the group's {pct}th-percentile line ({line}).",
-        "ok": "Full credit file, score below the group's {pct}th-percentile line ({line})."
+        "name": "Established credit file with an unusually high risk score",
+        "not_applicable": "Not applicable: thin credit file.",
+        "triggered": "Yes: among the riskiest {top}% of applicants with an established file.",
+        "ok": "No: not among the riskiest {top}% of applicants with an established file."
       },
       "overreliance": {
-        "name": "Recommendation rests on one detail",
-        "triggered": "{name}: setting it alone to typical would change the recommendation, and it carries most of the total effect.",
-        "ok": "No single detail decides the recommendation."
+        "name": "Decision depends on one factor",
+        "triggered": "Yes: {name} alone decides the outcome.",
+        "ok": "No: several factors contribute."
       }
     },
-    "divergence_note": "The model's score is below the review threshold, but a check requires a person: the applicant is told the application needs a manual review."
+    "unexpected": {
+      "_about": "risk_when on each field is the conventional credit-risk expectation (a declared assumption, Decision 34). When the model's effect runs the other way, the officer is told.",
+      "against": "{factor}. Unusually, the model counts this against the application",
+      "favour": "{factor}. Unusually, the model counts this in the application's favour"
+    }
   },
   "record": {
     "approver_note": "Not recorded: the approval gate does not capture approver identity (Decision 23).",
@@ -202,7 +311,9 @@
       "Decision 27: business cutoff {cutoff}, PD at or above it refers for review",
       "Decision 30: plain-English reasons, one input at a time against a typical applicant",
       "Decision 31: error-type checks and risk officer flag (rules {rules_version})",
-      "Decision 33: applicant outcome (approved or manual review), own-detail reasons, model-tested changes"
+      "Decision 33: applicant outcome (approved or manual review), own-detail reasons, model-tested changes",
+      "Decision 34: thin-file status worked out automatically; plain-language risk officer view",
+      "Decision 35: affordability limit {limit} (FCA CONC 5.2A ratio); over it the application is declined"
     ]
   },
   "data": {
@@ -213,5 +324,33 @@
     "method": "These figures count the {n} past customers in the model's training data, in groups of at least {min_group}. They describe what happened to similar customers, not what will happen to you."
   },
   "max_reasons": 3,
-  "numerical_tolerance": 1e-06
+  "numerical_tolerance": 1e-06,
+  "supported": {
+    "affordable": "Repayments appear affordable: your existing commitments of {obligations} a month plus the new monthly instalment of {instalment} would use {ratio} of your monthly income of {income}, below our limit of {limit}.",
+    "full_file": "Enough credit history to assess: your credit file shows {months} of history and {accounts}.",
+    "thin_file": "Your credit file is thin ({months} of history), but the rest of your application supported approval.",
+    "overall": "Your overall financial position supported the decision, rather than any single detail."
+  },
+  "declined_why": "Repayments would not be affordable: your existing commitments of {obligations} a month plus the new monthly instalment of {instalment} would use {ratio} of your monthly income of {income}. Our limit is {limit}.",
+  "declined_changes": {
+    "order": "Apply for a smaller amount: an order of {value} or less on the same plan.",
+    "plan": "Choose a {n}-instalment plan: the monthly instalment would be {instalment}.",
+    "commitments": "Reduce your existing monthly commitments to {value} or less (currently {current})."
+  },
+  "plan": {
+    "labels": {
+      "credit": "Credit amount",
+      "number": "Number of repayments",
+      "amount": "Amount per repayment",
+      "first": "First repayment",
+      "final": "Final repayment",
+      "fees": "Interest and fees",
+      "total": "Total amount repayable"
+    },
+    "number": "{n}, monthly",
+    "amount_final": "{amount} (final repayment {final})",
+    "first": "Today, at checkout",
+    "final": "{days} days after checkout",
+    "note": "Repayments are every 30 days. This demonstration's plans are interest-free with no fees, as in the project's product data."
+  }
 }

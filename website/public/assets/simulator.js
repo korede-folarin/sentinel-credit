@@ -5,7 +5,8 @@
 const $ = id => document.getElementById(id);
 const pct = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
 const NS = "http://www.w3.org/2000/svg";
-const C = { gold: "#B89A61", stone: "#A8A49D", line: "#2E3236", text: "#F5F1E9" };
+// Light theme: "gold" and "grey" keep the chart captions true; both pass 3:1 on white.
+const C = { gold: "#A9741B", stone: "#6B7280", line: "#E4DCCF", text: "#18243A" };
 const NAMES = { f1_optimal: "F1-optimal", youden_j: "Youden's J",
                 review_capacity_constrained: "Review capacity 15%" };
 

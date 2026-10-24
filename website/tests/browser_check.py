@@ -135,7 +135,8 @@ def main():
         page.goto(args.base + "parity.html", 1440, 900)
         page.wait_for("window.__parity && (window.__parity.model || window.__parity.modelError) "
                       "&& (window.__parity.features || window.__parity.featureError) "
-                      "&& (window.__parity.reasons || window.__parity.reasonsError)", 180)
+                      "&& (window.__parity.reasons || window.__parity.reasonsError)"
+                      "&& (window.__parity.evidence || window.__parity.evidenceError)", 180)
         par = page.js("window.__parity")
         m, f = par.get("model", {}), par.get("features", {})
         check("parity: model (browser vs Python)", bool(m.get("ok")),
@@ -143,6 +144,14 @@ def main():
         check("parity: JS feature construction end to end", bool(f.get("ok")),
               f"n={f.get('n')} feature mismatches={f.get('featMismatch')} max|d|={f.get('max')} "
               f"flips={f.get('flips')} err={par.get('featureError')}")
+
+        ev = par.get("evidence", {})
+        exp = json.load(urllib.request.urlopen(args.base + "data/review_evidence.json"))
+        check("verification: how often a person is asked to look, from the published aggregates",
+              bool(ev.get("ok")) and ev.get("rows") == 4
+              and ev.get("details") == len(exp["single_detail_by_detail"])
+              and ev.get("total") == exp["review_required"],
+              f"{ev} err={par.get('evidenceError')}")
 
         r = par.get("reasons", {})
         types = r.get("types") or {}
@@ -161,8 +170,7 @@ def main():
                      "savings_balance_gbp": 150, "credit_score": 610, "months_credit_history": 18,
                      "num_credit_accounts": 2, "num_defaults_24m": 0, "order_value_gbp": 500}
         fill = "".join(f"document.getElementById('{k}').value='{v}';" for k, v in applicant.items())
-        page.js(fill + "document.getElementById('thin_file_flag').checked=false;"
-                "document.getElementById('n_instalments').value='6';"
+        page.js(fill + "document.getElementById('n_instalments').value='6';"
                 "document.getElementById('merchant_category').value='Electronics';"
                 "document.getElementById('form').requestSubmit(); true")
         page.wait_for("!document.getElementById('result').classList.contains('hidden')", 120)
@@ -182,6 +190,8 @@ def main():
                      exNext: document.querySelectorAll('#r-ex-next li').length,
                      panel: document.querySelector('.panel.explain').innerText,
                      checks: document.querySelectorAll('#r-off-checks tr').length,
+                     officer: document.querySelector('.panel.officer').innerText,
+                     thin: document.getElementById('thin-status').textContent,
                      record: JSON.parse(document.getElementById('r-record').textContent || '{}') };
         })()""")
         # Python champion, same applicant (dashboard/API parity test): 0.031834
@@ -196,26 +206,46 @@ def main():
         # own details and model-tested changes, and nothing about the model's
         # issue or the cutoff (Decision 33).
         leaks = [w for w in ("blind spot", "less reliable", "6.57", "cutoff", "threshold",
-                             "past customers") if w in res["panel"].lower()]
+                             "past customers", "check these details") if w in res["panel"].lower()]
+        jargon = [w for w in ("training", "percentile", "genre", "decision 7", "decision 31",
+                              "belton", "combination explanation") if w in res["officer"].lower()]
+        check("assessment: thin-file status worked out automatically; plain-language officer view",
+              res["thin"].startswith("Credit file: established") and not jargon
+              and "risk factors" in res["officer"].lower()
+              and "why a person needs to look" in res["officer"].lower(),
+              f"thin line {res['thin']!r}; jargon {jargon}")
         check("assessment: applicant outcome, own-detail reasons, changes; no model issues shown",
               res["exTitle"] == "Your application needs a manual review" and res["exWhy"] > 0
               and res["exChanges"] > 0 and res["exNext"] > 0 and not leaks
-              and res["checks"] == 3
+              and res["checks"] == 4
               and res["record"].get("error_type") == "missing_information"
               and res["record"].get("customer_outcome") == "manual_review"
               and res["record"].get("approver_id") is None,
               f"headline {res['exTitle']!r}; {res['exWhy']} reasons; {res['exChanges']} changes; "
               f"leaked words {leaks}; record {res['record'].get('error_type')}/"
               f"{res['record'].get('customer_outcome')}")
-        ev = page.js("""(() => ({ types: document.querySelectorAll('#ev-types tbody tr').length,
-            details: [...document.querySelectorAll('#ev-details tbody tr')].map(r => r.innerText),
-            total: document.getElementById('ev-total').textContent }))()""")
-        exp = json.load(urllib.request.urlopen(args.base + "data/review_evidence.json"))
-        check("assessment: held-out review evidence rendered from the published aggregates",
-              ev["types"] == 4 and len(ev["details"]) == len(exp["single_detail_by_detail"])
-              and f"{exp['review_required']:,} of {exp['n_customers']:,}" in ev["total"],
-              f"{ev['types']} outcome rows; details {ev['details']}; {ev['total']!r}")
         page.screenshot(os.path.join(args.out, "index_desktop.png"))
+        # approved path: the typical applicant (form defaults) with an affordable order
+        page.goto(args.base, 1440, 900)
+        page.wait_for("!document.getElementById('submit').disabled", 120)
+        page.js("document.getElementById('form').requestSubmit(); true")
+        page.wait_for("!document.getElementById('result').classList.contains('hidden')", 120)
+        ok_res = page.js("""(() => ({ head: document.getElementById('r-ex-headline').textContent,
+            why: [...document.querySelectorAll('#r-ex-why li')].map(l => l.textContent),
+            plan: document.querySelectorAll('#r-ex-plan tr').length,
+            panel: document.querySelector('.panel.explain').innerText }))()""")
+        check("assessment: approved shows affordability vs limit, the repayment plan, no method line",
+              ok_res["head"] == "Your application has been approved" and ok_res["plan"] == 7
+              and ok_res["why"] and "below our limit of 45%" in ok_res["why"][0]
+              and "compared with a typical applicant" not in ok_res["panel"]
+              and "close to those of a typical applicant" not in ok_res["panel"],
+              f"{ok_res['head']!r}; plan rows {ok_res['plan']}; first reason {ok_res['why'][:1]}")
+        page.screenshot(os.path.join(args.out, "index_approved.png"))
+        ov = page.overflow()
+        check("assessment (approved, with plan): no overflow at 1440px",
+              not ov["pageScrolls"] and not ov["offenders"], str(ov))
+        page.goto(args.base, 1440, 900)
+        page.wait_for("!document.getElementById('submit').disabled", 120)
         ov = page.overflow()
         check("assessment: no overflow at 1440px", not ov["pageScrolls"] and not ov["offenders"], str(ov))
         page.js("document.getElementById('monthly_income_gbp').value='-5';"

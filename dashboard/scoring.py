@@ -39,13 +39,14 @@ from serving.features import (  # noqa: E402
     MERCHANT_CATEGORIES, PROFILE_FIELDS, build_new_customer_features,
 )
 from serving.reasons import (  # noqa: E402
-    explain as _explain_new, explain_existing as _explain_existing, load_typical,
+    derive_thin_file as _derive_thin_file, explain as _explain_new,
+    explain_existing as _explain_existing, load_rules, load_typical,
 )
 from utils import DEMO, DEMO_DATA_DIR, load_config, package_dir, query_db  # noqa: E402
 
 __all__ = ["MERCHANT_CATEGORIES", "PROFILE_FIELDS", "champion", "score",
            "lookup_customer", "training_ranges", "explain_new", "explain_existing",
-           "typical_applicant"]
+           "typical_applicant", "derive_thin_file"]
 
 
 def _package_dir() -> str:
@@ -158,6 +159,11 @@ def new_customer(profile: dict, order_value_gbp: float, n_instalments: int,
 def typical_applicant() -> dict:
     """The typical applicant the reasons compare against (serving/typical_applicant.json)."""
     return load_typical()
+
+
+def derive_thin_file(credit_score, months_credit_history, num_credit_accounts) -> int:
+    """Thin-file status from the applicant's own figures (Decision 34); never asked."""
+    return _derive_thin_file(credit_score, months_credit_history, num_credit_accounts, load_rules())
 
 
 def _score_many():

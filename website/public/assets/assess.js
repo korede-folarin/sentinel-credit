@@ -3,7 +3,7 @@
  * change" search are all real model evaluations run in this browser. */
 import { loadModel, buildFeatures, scoreMany, MERCHANT_CATEGORIES, PROFILE_FIELDS,
          fmtPct, fmtGbp } from "./model.js";
-import { explain, loadReasonFiles } from "./reasons.js";
+import { explain, loadReasonFiles, deriveThinFile } from "./reasons.js";
 
 const $ = id => document.getElementById(id);
 
@@ -27,7 +27,7 @@ const MONEY = new Set(["monthly_income_gbp", "existing_monthly_obligations_gbp",
 const INTEGER = new Set(["credit_score", "months_credit_history", "num_credit_accounts",
                          "num_defaults_24m"]);
 
-let contract, bands;
+let contract, bands, rules;
 
 function show(field, v) {
   if (field === "thin_file_flag") return v ? "yes" : "no";
@@ -46,7 +46,8 @@ function readInputs() {
     if (INTEGER.has(f) && !Number.isInteger(x)) throw new Error(`${LABELS[f]}: must be a whole number.`);
     v[f] = x;
   }
-  v.thin_file_flag = $("thin_file_flag").checked ? 1 : 0;
+  // Decision 34: worked out from the score, history and accounts; never asked
+  v.thin_file_flag = deriveThinFile(v.credit_score, v.months_credit_history, v.num_credit_accounts, rules);
   v.n_instalments = Number($("n_instalments").value);
   v.merchant_category = $("merchant_category").value;
   return v;
@@ -98,16 +99,19 @@ async function assess(event) {
   try {
     const cutoff = contract.cutoff;
     const base = featuresOf(inp);
-    const fields = [...Object.keys(BOUNDS), "thin_file_flag", "n_instalments", "merchant_category"];
+    const fields = [...Object.keys(BOUNDS), "n_instalments", "merchant_category"];
 
     // Plain-English reasons (shared logic with the API and dashboard, Decision 30).
-    const ex = await explain(inp, cutoff);
+    const ex = await explain({ ...inp, thin_file_flag: null }, cutoff);   // derived inside, recorded as such
 
     // One batch: the applicant and every what-if candidate.
     const rows = [base], meta = [{ kind: "base" }];
     for (const f of fields) {
       for (const c of candidates(f, inp[f])) {
-        rows.push(featuresOf({ ...inp, [f]: c })); meta.push({ kind: "whatif", f, v: c });
+        const variant = { ...inp, [f]: c };
+        variant.thin_file_flag = deriveThinFile(variant.credit_score, variant.months_credit_history,
+                                                variant.num_credit_accounts, rules);
+        rows.push(featuresOf(variant)); meta.push({ kind: "whatif", f, v: c });
       }
     }
     const probs = await scoreMany(rows);
@@ -128,30 +132,39 @@ async function assess(event) {
     // 1 · for the applicant (Decision 33): outcome, why, check, changes, next
     const list = (id, items) => { $(id).innerHTML = items.map(i => `<li>${esc(i)}</li>`).join(""); };
     $("r-ex-headline").textContent = x.headline;
-    $("r-ex-headline").className = x.outcome === "approved" ? "outcome-ok" : "outcome-review";
+    $("r-ex-headline").className = { approved: "outcome-ok", manual_review: "outcome-review",
+                                      declined: "outcome-declined" }[x.outcome];
     $("r-ex-summary").textContent = x.summary;
     $("r-ex-why-intro").textContent = x.why_intro;
     list("r-ex-why", x.why.map(r => r.text));
     $("r-ex-why").classList.toggle("hidden", !x.why.length);
-    $("r-ex-check-box").classList.toggle("hidden", !x.check.length);
-    $("r-ex-check-intro").textContent = x.check_intro;
-    list("r-ex-check", x.check);
     $("r-ex-changes-box").classList.toggle("hidden", !x.changes_intro);
     $("r-ex-changes-intro").textContent = x.changes_intro;
     list("r-ex-changes", x.changes);
     $("r-ex-changes-note").textContent = x.changes_note;
+    // repayment plan (approved): real dates from today, 30 days apart
+    $("r-ex-plan-box").classList.toggle("hidden", !x.plan);
+    if (x.plan) {
+      const day = d => new Date(Date.now() + d * 864e5).toLocaleDateString("en-GB",
+        { day: "numeric", month: "long", year: "numeric" });
+      const dated = { 3: day(x.plan.first_due_days), 4: day(x.plan.final_due_days) };
+      $("r-ex-plan").innerHTML = x.plan.rows.map(([k, v], i) => `<tr><td>${esc(k)}</td>
+        <td class="num"><b>${esc(v)}</b>${i in dated ? `<br><span class="note">${dated[i]}</span>` : ""}</td></tr>`).join("");
+      $("r-ex-plan-note").textContent = x.plan.note;
+    }
     list("r-ex-next", x.next_steps);
-    $("r-ex-method").textContent = x.method;
-    // 2 · for a risk officer
-    $("r-off-pill").innerHTML = off.review_required
-      ? '<span class="pill warn">Risk officer review required</span>'
-      : '<span class="pill ok">No review flag</span>';
-    $("r-off-type").textContent = off.error_label;
-    $("r-off-div").textContent = off.divergence_note;
+    // 2 · for a risk officer (Decision 34: plain language)
+    $("r-off-pill").innerHTML = `<span class="pill ${{ "No concerns": "ok", "Declined": "refer" }[off.status]
+      || "warn"}">${esc(off.status)}</span>`;
+    $("r-off-detail").textContent = off.status_detail;
+    $("r-off-why-box").classList.toggle("hidden", !off.review_reasons.length);
+    list("r-off-why", off.review_reasons);
+    list("r-off-risks", off.risk_factors.length ? off.risk_factors : ["None that moved the risk score."]);
+    list("r-off-strengths", off.strengths.length ? off.strengths : ["None that moved the risk score."]);
     $("r-off-checks").innerHTML = off.checks.map(c => `<tr><td>${esc(c.name)}</td>
-      <td>${c.triggered ? '<span class="pill warn">Flag</span>' : '<span class="pill ok">Clear</span>'}</td>
       <td>${esc(c.detail)}</td></tr>`).join("");
-    list("r-off-context", off.context);
+    list("r-off-track", off.track_record);
+    $("r-off-method").textContent = off.method;
     // 3 · the decision record (shown, never stored or sent)
     const fullRecord = { ...rec, calibrated_probability: Number(ex.probability.toFixed(6)),
                          generated_at: new Date().toISOString().slice(0, 19) + "Z" };
@@ -164,7 +177,7 @@ async function assess(event) {
     $("r-drivers").innerHTML = drivers.length ? drivers.map(d => {
       const w = Math.abs(d.delta) / scale * 50;
       const left = d.delta >= 0 ? 50 : 50 - w;
-      const colour = d.delta >= 0 ? "var(--crimson)" : "var(--emerald)";
+      const colour = d.delta >= 0 ? "var(--risk)" : "var(--accent)";
       return `<div class="bar-row"><div>${LABELS[d.f]}: <span class="note">${show(d.f, inp[d.f])}</span></div>
         <div class="bar-track"><div class="mid"></div><div class="bar-fill" style="left:${left}%;width:${w}%;background:${colour}"></div></div>
         <div class="bar-value">${d.delta >= 0 ? "+" : "−"}${(Math.abs(d.delta) * 100).toFixed(2)} pts</div></div>`;
@@ -206,45 +219,15 @@ async function assess(event) {
   }
 }
 
-// Held-out evidence for the checks (aggregates from models/build_explanation_rules.py)
-async function loadReviewEvidence() {
-  try {
-    const ev = await fetch("data/review_evidence.json").then(r => r.json());
-    const pct = x => (x > 0 && x < 0.001) ? "<0.1%" : `${(x * 100).toFixed(1)}%`;
-    $("ev-types").querySelector("tbody").innerHTML = ev.by_error_type.map(r => `<tr>
-      <td>${r.error_type === "none" ? "No issue: no review" : r.label}</td>
-      <td class="num">${r.n.toLocaleString("en-GB")}</td><td class="num">${pct(r.share)}</td>
-      <td class="num">${r.defaults.toLocaleString("en-GB")}</td></tr>`).join("");
-    $("ev-total").textContent = `Risk officer review required for ${ev.review_required.toLocaleString("en-GB")} `
-      + `of ${ev.n_customers.toLocaleString("en-GB")} held-out customers (${pct(ev.review_share)}). `
-      + `Model ${ev.model_version}, rules ${ev.rules_version}.`;
-    $("ev-details").querySelector("tbody").innerHTML = ev.single_detail_by_detail.map(r => `<tr>
-      <td>${r.name}</td><td>${r.recommendation === "refer" ? "Refer" : "Pass"}</td>
-      <td class="num">${r.n.toLocaleString("en-GB")}</td>
-      <td class="num">${"median_probability" in r ? pct(r.median_probability) : "—"}</td>
-      <td class="num">${"median_probability_if_typical" in r ? pct(r.median_probability_if_typical) : "—"}</td>
-      <td class="num">${"median_share_of_effect" in r ? Math.round(r.median_share_of_effect * 100) + "%" : "—"}</td>
-      </tr>`).join("");
-    const order = ev.single_detail_by_detail.find(r => r.detail === "avg_order_value_gbp");
-    const thin = ev.single_detail_by_detail.find(r => r.detail === "thin_file_flag");
-    const parts = [];
-    if (order) parts.push(`${order.n} customers ${order.recommendation === "pass" ? "pass" : "are referred"} `
-      + "only because their orders are small: at a typical order size they would cross the cutoff.");
-    if (thin) parts.push(`${thin.n} are ${thin.recommendation === "refer" ? "referred" : "passed"} only because `
-      + "their credit file is thin.");
-    $("ev-reading").textContent = parts.join(" ") + " A person should look at both.";
-  } catch (e) {
-    $("review-evidence").classList.add("hidden");
-  }
-}
-
 (async () => {
   const sel = $("merchant_category");
   MERCHANT_CATEGORIES.forEach(c => sel.add(new Option(c, c)));
   try {
     ({ contract } = await loadModel());
     bands = await fetch("data/cutoff_simulator.json").then(r => r.json());
-    const { typical } = await loadReasonFiles();   // start from the typical applicant
+    const files = await loadReasonFiles();   // start from the typical applicant
+    const typical = files.typical;
+    rules = files.rules;
     for (const f of PROFILE_FIELDS) {
       if (f === "thin_file_flag") continue;
       $(f).value = typical[f];
@@ -258,7 +241,15 @@ async function loadReviewEvidence() {
       ["Review cutoff", `PD ≥ ${fmtPct(contract.cutoff, 2)}`],
       ["Browser vs Python", "verified, 0 decisions changed"],
     ].map(([k, v]) => `<span class="chip">${k} <b>${v}</b></span>`).join("");
-    loadReviewEvidence();   // independent of scoring; failure only hides the section
+    const showThin = () => {
+      const v = ["credit_score", "months_credit_history", "num_credit_accounts"].map(f => Number($(f).value));
+      if (v.some(x => !Number.isFinite(x))) return;
+      $("thin-status").textContent = (deriveThinFile(v[0], v[1], v[2], rules)
+        ? "Credit file: thin (little borrowing history)" : "Credit file: established")
+        + ". Worked out from the credit score, history and accounts above.";
+    };
+    ["credit_score", "months_credit_history", "num_credit_accounts"].forEach(f => $(f).addEventListener("input", showThin));
+    showThin();
     $("submit").disabled = false; $("submit").textContent = "Assess application";
     $("form").addEventListener("submit", assess);
   } catch (e) {

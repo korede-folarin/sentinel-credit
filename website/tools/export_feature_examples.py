@@ -31,7 +31,7 @@ import yaml
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 from serving.features import MERCHANT_CATEGORIES, PROFILE_FIELDS, build_new_customer_features  # noqa: E402
-from serving.reasons import explain, load_rules, load_templates, load_typical  # noqa: E402
+from serving.reasons import derive_thin_file, explain, load_rules, load_templates, load_typical  # noqa: E402
 
 MODEL_DIR = os.path.join(PROJECT_ROOT, "website", "public", "model")
 TYPICAL = load_typical("new")
@@ -87,7 +87,11 @@ def application(i, rng):
             app.update(palette[k])
     elif kind == 2:   # inconsistent or out-of-range details: data input
         app.update(rng.choice([
-            {"thin_file_flag": 1, "months_credit_history": int(rng.integers(30, 300))},
+            # a supplied (bureau-style) flag that contradicts the history
+            {"thin_file_flag": 1, "months_credit_history": int(rng.integers(30, 300)),
+             "_supplied": True},
+            {"thin_file_flag": 0, "num_credit_accounts": 0, "credit_score": 700},
+            {"thin_file_flag": 0, "months_credit_history": 5, "credit_score": 720},
             {"thin_file_flag": 0, "num_credit_accounts": 0},
             {"existing_monthly_obligations_gbp": 1900.0, "monthly_income_gbp": 1200.0},
             {"monthly_income_gbp": 30000.0},
@@ -117,6 +121,11 @@ def main():
     examples = []
     for i in range(300):
         app = application(i, rng)
+        # Decision 34: thin-file status is worked out, unless an example supplies it
+        source = "supplied" if app.pop("_supplied", False) else "derived"
+        if source == "derived":
+            app["thin_file_flag"] = derive_thin_file(app["credit_score"], app["months_credit_history"],
+                                                     app["num_credit_accounts"], rules)
         profile = {f: app[f] for f in PROFILE_FIELDS}
         feats = build_new_customer_features(profile, app["order_value_gbp"],
                                             app["n_instalments"], app["merchant_category"])
@@ -125,8 +134,10 @@ def main():
         # code path word for word, every 5th example runs with a lowered, test-only share.
         override = {"single_detail_share": TEST_SHARE} if i % 5 == 4 else None
         r = ({**rules, "choices": {**rules["choices"], **override}} if override else rules)
-        out = explain(app, score_many, cutoff, typical, templates, r)
-        examples.append({"rules_override": override, "profile": profile, "order_value_gbp": app["order_value_gbp"],
+        out = explain({**app, "thin_file_flag": None} if source == "derived" else app,
+                      score_many, cutoff, typical, templates, r)
+        assert out["thin_file_flag"] == app["thin_file_flag"]
+        examples.append({"rules_override": override, "thin_file_source": source, "profile": profile, "order_value_gbp": app["order_value_gbp"],
                          "n_instalments": app["n_instalments"],
                          "merchant_category": app["merchant_category"],
                          "expected_features": feats,

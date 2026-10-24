@@ -9,7 +9,7 @@
 </head>
 <body>
 <header class="top"><div class="wrap">
-  <a class="brand" href="./">Sentinel Credit</a>
+  <a class="brand" href="./">Sentinel <span class="accent">Credit</span></a>
   <nav class="top" aria-label="Site">
     <a href="./">Assessment</a>
     <a href="simulator.html">Cutoff &amp; fairness</a>
@@ -18,15 +18,16 @@
   </nav>
 </div></header>
 
-<main><div class="wrap">
-  <section>
+<section class="hero"><div class="wrap">
     <div class="kicker">Verification · runs in your browser</div>
     <h1>Does this site score like the real model?</h1>
     <p class="lede">The model on this site was converted from the governed Python champion to ONNX.
       These checks run now, in your browser, and compare against answers the Python champion
       produced. Pass rule, fixed before the first run: every probability within 0.00001 and no
       decision changed at the cutoff.</p>
-  </section>
+</div></section>
+
+<main><div class="wrap">
 
   <section class="grid half">
     <div class="panel">
@@ -55,6 +56,23 @@
     <table class="data" id="t-reasons"><tr><td>Status</td><td>Running…</td></tr></table>
   </section>
 
+  <section class="panel" id="review-evidence" style="margin-bottom:24px">
+    <h3>4 · How often a person is asked to look</h3>
+    <p class="note" style="margin-top:0">The same checks the assessment page runs, applied to the
+      <span id="ev-n"></span> past customers the model never saw while it was being built. Most
+      applications can be decided automatically; these are the ones a risk officer would see.</p>
+    <div class="table-scroll"><table class="data" id="ev-types">
+      <thead><tr><th>Reason a person looks</th><th class="num">Customers</th><th class="num">Share</th>
+        <th class="num">Later fell 90+ days behind</th></tr></thead><tbody></tbody></table></div>
+    <p class="note" id="ev-total"></p>
+    <h3 style="margin-top:18px">When one detail decides the outcome</h3>
+    <div class="table-scroll"><table class="data" id="ev-details">
+      <thead><tr><th>Detail</th><th>Risk score says</th><th class="num">Customers</th>
+        <th class="num">Typical risk</th><th class="num">Risk if the detail were typical</th>
+        </tr></thead><tbody></tbody></table></div>
+    <p class="note" id="ev-reading"></p>
+  </section>
+
   <section class="panel">
     <h3>Evidence from the full check</h3>
     <p class="note" id="python-evidence">Loading…</p>
@@ -69,7 +87,7 @@
 <script src="vendor/onnxruntime-web-1.19.2/ort.min.js"></script>
 <script type="module">
 import { loadModel, buildFeatures, scoreMany } from "./assets/model.js";
-import { effects, buildReasons, review, featuresOf, loadReasonFiles } from "./assets/reasons.js";
+import { explainWith, loadReasonFiles } from "./assets/reasons.js";
 const MAX_ABS_DIFF = 1e-5;
 const pill = ok => `<span class="pill ${ok ? "ok" : "refer"}">${ok ? "Pass" : "Fail"}</span>`;
 const sci = x => x === 0 ? "0" : x.toExponential(2);
@@ -139,31 +157,69 @@ window.__parity = {};
   try {
     const ex = await fetch("model/feature_examples.json").then(r => r.json());
     const { templates, typical, rules } = await loadReasonFiles();
-    let mismatches = 0, first = null, nReasons = 0;
+    let mismatches = 0, first = null, nReasons = 0, thinMismatch = 0;
     const types = {};
     for (const e of ex.examples) {
-      const inputs = { ...e.profile, order_value_gbp: e.order_value_gbp,
-                       n_instalments: e.n_instalments, merchant_category: e.merchant_category };
+      // Thin-file status: worked out in this browser unless the example supplies it (Decision 34)
+      const inputs = { ...e.profile, order_value_gbp: e.order_value_gbp, n_instalments: e.n_instalments,
+                       merchant_category: e.merchant_category,
+                       thin_file_flag: e.thin_file_source === "derived" ? null : e.profile.thin_file_flag };
       const r = e.rules_override ? { ...rules, choices: { ...rules.choices, ...e.rules_override } } : rules;
-      const [p, eff] = await effects(inputs, typical);
-      const reasons = buildReasons(inputs, typical, eff, templates);
-      const got = await review(inputs, featuresOf(inputs), p, eff, reasons, contract.cutoff, templates, r);
-      nReasons += got.explanation.why.length + got.explanation.check.length + got.explanation.changes.length;
+      const full = await explainWith(inputs, contract.cutoff, templates, typical, r);
+      if (full.thin_file_flag !== e.profile.thin_file_flag) thinMismatch++;
+      const got = { explanation: full.explanation, risk_officer: full.risk_officer,
+                    decision_record: full.decision_record };
+      nReasons += got.explanation.why.length + got.explanation.changes.length
+        + got.risk_officer.risk_factors.length + got.risk_officer.strengths.length;
       types[got.risk_officer.error_type] = (types[got.risk_officer.error_type] || 0) + 1;
       if (JSON.stringify(got) !== JSON.stringify(e.expected_outputs)) {
         mismatches++;
         if (!first) first = { expected: e.expected_outputs, got };
       }
     }
-    const ok = mismatches === 0;
+    const ok = mismatches === 0 && thinMismatch === 0;
+    const derived = ex.examples.filter(e => e.thin_file_source === "derived").length;
     const referred = ex.examples.filter(e => e.expected_outputs.explanation.outcome === "manual_review").length;
     const flagged = ex.examples.filter(e => e.expected_outputs.risk_officer.review_required).length;
-    window.__parity.reasons = { ok, n: ex.examples.length, mismatches, referred, flagged, nReasons, types, first };
+    window.__parity.reasons = { ok, n: ex.examples.length, mismatches, referred, flagged, nReasons, types,
+                                thinMismatch, derived, first };
     table("t-reasons", [["Status", pill(ok)], ["Applications compared", ex.examples.length.toLocaleString()],
       ["Of which manual review", referred], ["Risk officer review required", flagged],
       ["Error types covered", Object.entries(types).map(([k, v]) => `${k.replace("_", " ")} ${v}`).join(" · ")],
+      ["Thin-file status worked out in the browser", `${derived} (${thinMismatch} differ)`],
       ["Sentences compared", nReasons], ["Outputs that differ", mismatches]]);
   } catch (e) { table("t-reasons", [["Status", `Error: ${e.message}`]]); window.__parity.reasonsError = String(e); }
+
+  // 4 · held-out evidence for the checks (aggregates, models/build_explanation_rules.py)
+  try {
+    const ev = await fetch("data/review_evidence.json").then(r => r.json());
+    const pct = x => (x > 0 && x < 0.001) ? "<0.1%" : `${(x * 100).toFixed(1)}%`;
+    const n = x => x.toLocaleString("en-GB");
+    document.getElementById("ev-n").textContent = n(ev.n_customers);
+    document.querySelector("#ev-types tbody").innerHTML = ev.by_error_type.map(r => `<tr>
+      <td>${r.label}</td><td class="num">${n(r.n)}</td><td class="num">${pct(r.share)}</td>
+      <td class="num">${n(r.defaults)}</td></tr>`).join("");
+    document.getElementById("ev-total").textContent = `A person is asked to look at `
+      + `${n(ev.review_required)} of ${n(ev.n_customers)} (${pct(ev.review_share)}) because of these `
+      + "checks, on top of the applications the risk score itself sends for review.";
+    document.querySelector("#ev-details tbody").innerHTML = ev.single_detail_by_detail.map(r => `<tr>
+      <td>${r.name}</td><td>${r.recommendation === "refer" ? "Review" : "Approve"}</td>
+      <td class="num">${n(r.n)}</td>
+      <td class="num">${"median_probability" in r ? pct(r.median_probability) : "—"}</td>
+      <td class="num">${"median_probability_if_typical" in r ? pct(r.median_probability_if_typical) : "—"}</td>
+      </tr>`).join("");
+    const order = ev.single_detail_by_detail.find(r => r.detail === "avg_order_value_gbp");
+    const thin = ev.single_detail_by_detail.find(r => r.detail === "thin_file_flag");
+    const parts = [];
+    if (order) parts.push(`${order.n} customers would be approved only because their orders are small; `
+      + "with a typical order size they would need a review.");
+    if (thin) parts.push(`${thin.n} would need a review only because their credit file is thin.`);
+    document.getElementById("ev-reading").textContent = parts.join(" ")
+      + " Risk is shown as the chance of falling 90 or more days behind (median for each group).";
+    window.__parity.evidence = { ok: true, rows: ev.by_error_type.length,
+                                 details: ev.single_detail_by_detail.length, total: ev.review_required };
+  } catch (e) { document.getElementById("review-evidence").classList.add("hidden");
+                window.__parity.evidenceError = String(e); }
 
   // Full-population evidence from the export (Python onnxruntime)
   try {

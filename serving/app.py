@@ -65,7 +65,9 @@ from pydantic import BaseModel, Field
 
 from serving.features import PROFILE_FIELDS
 from serving.features import build_new_customer_features as shared_build_features
-from serving.reasons import explain as explain_reasons, explain_existing, load_rules
+from serving.reasons import (
+    derive_thin_file, explain as explain_reasons, explain_existing, load_rules,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -93,7 +95,8 @@ MODEL = joblib.load(os.path.join(ARTIFACTS_DIR, "champion_calibrated.joblib"))
 
 # The explanation rules are built for one champion (Decision 31); after a
 # promotion or rollback they must be rebuilt before explanations are served.
-RULES_MODEL_VERSION = load_rules()["model"]["model_version"]
+EXPLANATION_RULES = load_rules()
+RULES_MODEL_VERSION = EXPLANATION_RULES["model"]["model_version"]
 
 app = FastAPI(
 
@@ -186,7 +189,10 @@ class ScoreRequest(BaseModel):
     num_credit_accounts: Optional[float] = Field(default=None, description="New-customer only.")
     num_defaults_24m: Optional[float] = Field(default=None, description="New-customer only.")
     thin_file_flag: Optional[int] = Field(
-        default=None, description="New-customer only. 1 if limited bureau history, else 0."
+        default=None,
+        description=("New-customer only. Leave out to have it worked out from the credit "
+                     "score, months of history and number of accounts (Decision 34); supply "
+                     "it only if it comes from a bureau. 1 = limited history."),
     )
 
     class Config:
@@ -206,7 +212,6 @@ class ScoreRequest(BaseModel):
                 "months_credit_history": 18,
                 "num_credit_accounts": 2,
                 "num_defaults_24m": 0,
-                "thin_file_flag": 0,
             },
         },
                 {
@@ -241,9 +246,10 @@ class ScoreResponse(BaseModel):
     explanation: Optional[dict] = Field(
         default=None,
         description=(
-            "For the applicant (Decision 33): the outcome (approved, or needs a manual "
-            "review; never declined), the applicant's own details that counted most, "
-            "details to check, and model-tested changes that could alter the outcome. "
+            "For the applicant (Decisions 33-35): the outcome (approved, declined when "
+            "over the 45% affordability limit, or needs a manual review), what supported "
+            "or counted against it in the applicant's own figures, the repayment plan when "
+            "approved, and what could change the outcome. "
             "Model issues and the cutoff are not shown here. Each detail is compared with a "
             "typical applicant by changing that one detail and re-scoring; this "
             "describes how the model responds, not what causes default."),
@@ -301,6 +307,12 @@ def build_new_customer_features(request: ScoreRequest) -> dict:
     build features identically. Missing profile fields -> HTTP 422.
     """
     profile = {f: getattr(request, f) for f in PROFILE_FIELDS}
+    if profile["thin_file_flag"] is None and None not in (
+            profile["credit_score"], profile["months_credit_history"],
+            profile["num_credit_accounts"]):
+        profile["thin_file_flag"] = derive_thin_file(   # Decision 34: never asked
+            profile["credit_score"], profile["months_credit_history"],
+            profile["num_credit_accounts"], EXPLANATION_RULES)
     try:
         return shared_build_features(
             profile, request.order_value_gbp, request.n_instalments,
@@ -394,7 +406,10 @@ def score(request: ScoreRequest):
                        merchant_category=request.merchant_category)
             outputs = explain_reasons(raw, score_many, BUSINESS_CUTOFF)
         else:
-            outputs = explain_existing(feature_values, score_many, BUSINESS_CUTOFF)
+            outputs = explain_existing(
+                feature_values, score_many, BUSINESS_CUTOFF,
+                order={"order_value_gbp": request.order_value_gbp,
+                       "n_instalments": request.n_instalments})
         outputs["decision_record"].update(
             customer_id=request.customer_id,
             calibrated_probability=round(calibrated_probability, 6),

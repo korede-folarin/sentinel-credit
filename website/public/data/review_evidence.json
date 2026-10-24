@@ -7,7 +7,7 @@
   "by_error_type": [
     {
       "error_type": "none",
-      "label": "No issue detected",
+      "label": "No check needed a person",
       "n": 7986,
       "share": 0.9597,
       "referred": 1286,
@@ -15,7 +15,7 @@
     },
     {
       "error_type": "missing_information",
-      "label": "Known blind spot (information the model lacks)",
+      "label": "Established credit file with an unusually high risk score",
       "n": 224,
       "share": 0.0269,
       "referred": 0,
@@ -23,7 +23,7 @@
     },
     {
       "error_type": "overreliance",
-      "label": "Recommendation rests on one detail",
+      "label": "Decision depends on one factor",
       "n": 108,
       "share": 0.013,
       "referred": 37,
@@ -31,7 +31,7 @@
     },
     {
       "error_type": "data_input",
-      "label": "Possible data-input error",
+      "label": "Details make sense together",
       "n": 3,
       "share": 0.0004,
       "referred": 0,

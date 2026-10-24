@@ -1,6 +1,6 @@
 {
   "_about": "Decision 31 reference limits, computed from the champion's training partition by models/build_explanation_rules.py. Declared choices (percentile, single-detail share, minimum group, band quantiles) come from config.yaml explainability.decision_review and are choices, not findings.",
-  "generated_at": "2026-10-22T14:53:19+01:00",
+  "generated_at": "2026-10-22T23:22:01+01:00",
   "rules_version": "1.0",
   "model": {
     "model_version": "v1.1",
@@ -8,9 +8,13 @@
     "trained_at": "2026-10-14T23:00:21",
     "cutoff": 0.0657
   },
+  "policy": {
+    "affordability_limit": 0.45
+  },
   "choices": {
     "blind_spot_percentile": 0.95,
     "single_detail_share": 0.6,
+    "material_effect": 0.001,
     "min_group_size": 500,
     "band_quantiles": [
       0.2,
@@ -97,6 +101,15 @@
     "full_file_min_months_credit_history": 12,
     "full_file_min_num_credit_accounts": 1,
     "max_commitments_to_income": 0.5957
+  },
+  "thin_file_rule": {
+    "max_credit_score": 579,
+    "max_months_credit_history": 23,
+    "max_num_credit_accounts": 1,
+    "n": 33283,
+    "agree": 33252,
+    "derived_thin_but_full": 31,
+    "derived_full_but_thin": 0
   },
   "blind_spot": {
     "segment": "thin_file_flag = 0 (full credit file)",

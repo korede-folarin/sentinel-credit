@@ -399,6 +399,42 @@ routing; declared choices allowed):**
 None of these has evidence or policy in the project; they were put to
 the owner as choices.
 
+### 22nd October 2026 (later): automatic thin file, plain officer view (Decision 34)
+
+**Found by the owner:**
+- Applicants were asked to tick and check their credit-file status.
+- The risk officer view used modelling jargon.
+- The held-out evidence sat on the applicant page.
+
+**Fixed:**
+- Thin-file status is derived from the applicant's figures (99.91%
+  agreement with the data).
+- Contradictory figures go to a person automatically.
+- The officer view is in plain language.
+- The evidence moved to the Verification page.
+
+**Found while fixing:**
+- Two-thirds of held-out customers had at least one factor whose model
+  effect ran against convention. Almost all were noise below 0.1
+  percentage points.
+- A materiality floor (declared) now applies to reasons and factors.
+  Material surprises (3%) are flagged to the officer.
+
+### 22nd October 2026 (evening): affordability rule applied (Decision 35)
+
+**Found:**
+- The project's FCA CONC 5.2A affordability rule (strict threshold 45%)
+  was never applied in the live app.
+- Decision 33 wrongly recorded that no decline rule existed.
+- Approvals were "explained" by closeness to a typical applicant.
+
+**Fixed:**
+- 45% limit, with a declined outcome above it.
+- The affordability figure is shown in the applicant's own numbers.
+- The repayment plan is built from the product's data definition, with
+  no placeholders.
+- The method line moved to the risk officer view.
+
 ---
 
 ## Findings that could change the "Remaining work" priorities

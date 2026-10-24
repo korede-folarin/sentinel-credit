@@ -101,8 +101,8 @@ if mode == "New applicant":
                                       int(start("num_credit_accounts")))
             defaults = b.number_input(LABELS["num_defaults_24m"], 0, 20,
                                       int(start("num_defaults_24m")))
-            thin = st.checkbox("Thin credit file (limited bureau history)",
-                               value=bool(TYPICAL["thin_file_flag"]))
+            st.caption("Whether the credit file is thin is worked out from the credit score, "
+                       "history and accounts (Decision 34).")
         with right:
             theme.section("This order")
             order_value = st.number_input(LABELS["avg_order_value_gbp"], 1.0, 20000.0,
@@ -120,11 +120,13 @@ if mode == "New applicant":
         profile = {"monthly_income_gbp": income, "existing_monthly_obligations_gbp": obligations,
                    "savings_balance_gbp": savings, "credit_score": score_in,
                    "months_credit_history": history, "num_credit_accounts": accounts,
-                   "num_defaults_24m": defaults, "thin_file_flag": int(thin)}
+                   "num_defaults_24m": defaults,
+                   "thin_file_flag": scoring.derive_thin_file(score_in, history, accounts)}
         try:
             features = scoring.new_customer(profile, order_value, int(instalments), category)
             context = {"type": "New applicant", "category": category,
-                       "inputs": {**profile, "order_value_gbp": order_value,
+                       "inputs": {**profile, "thin_file_flag": None,   # derived, recorded as such
+                                  "order_value_gbp": order_value,
                                   "n_instalments": int(instalments),
                                   "merchant_category": category}}
         except (KeyError, ValueError) as error:
@@ -196,10 +198,21 @@ if saved:
         ex, off = outputs["explanation"], outputs["risk_officer"]
         ul = lambda xs, tag="ul": (f'<{tag} style="margin:0.2rem 0 0.5rem 1.2rem">'
                                    + "".join(f"<li>{esc(x)}</li>" for x in xs) + f"</{tag}>")
-        colour = theme.EMERALD if ex["outcome"] == "approved" else theme.AMBER
-        check = (f"<div style='border:1px solid {theme.AMBER};border-left:3px solid {theme.AMBER};"
-                 f"padding:0.6rem 0.9rem;margin:0.6rem 0'><b>{esc(ex['check_intro'])}</b>"
-                 f"{ul(ex['check'])}</div>") if ex["check"] else ""
+        colour = {"approved": theme.EMERALD, "manual_review": theme.AMBER,
+                  "declined": theme.CRIMSON}[ex["outcome"]]
+        plan = ""
+        if ex["plan"]:
+            from datetime import date, timedelta
+            when = {3: ex["plan"]["first_due_days"], 4: ex["plan"]["final_due_days"]}
+            rows = "".join(
+                f"<tr><td style='padding:0.3rem 0.6rem'>{esc(k)}</td><td style='padding:0.3rem 0.6rem;"
+                f"text-align:right'><b>{esc(v)}</b>"
+                + (f"<br><span class='sc-note'>{(date.today() + timedelta(days=when[i])):%d %B %Y}</span>"
+                   if i in when else "") + "</td></tr>"
+                for i, (k, v) in enumerate(ex["plan"]["rows"]))
+            plan = ('<div class="sc-kicker" style="margin-top:0.8rem">Your repayment plan</div>'
+                    f'<table style="width:100%;border-collapse:collapse">{rows}</table>'
+                    f'<div class="sc-note">{esc(ex["plan"]["note"])}</div>')
         changes = ""
         if ex["changes_intro"]:
             changes = ('<div class="sc-kicker" style="margin-top:0.8rem">What could change the outcome</div>'
@@ -212,33 +225,31 @@ if saved:
               <div style="font-family:'Cormorant Garamond', Georgia, serif;font-size:1.7rem;font-weight:600;color:{colour}">
                 {esc(ex['headline'])}</div>
               <p style="margin:0.3rem 0 0.7rem">{esc(ex['summary'])}</p>
-              <div class="sc-kicker">Why</div>
-              <p style="margin:0.3rem 0">{esc(ex['why_intro'])}</p>
+              <p style="margin:0.3rem 0;font-weight:600">{esc(ex['why_intro'])}</p>
               {ul([r['text'] for r in ex['why']], 'ol') if ex['why'] else ''}
-              {check}
               {changes}
+              {plan}
               <div class="sc-kicker" style="margin-top:0.8rem">What happens next</div>
               {ul(ex['next_steps'])}
-              <div class="sc-note">{esc(ex['method'])}</div>
             </div>""",
             unsafe_allow_html=True)
 
         theme.section("For a risk officer")
-        st.markdown(
-            theme.pill("Risk officer review required", "warning") if off["review_required"]
-            else theme.pill("No review flag", "positive"), unsafe_allow_html=True)
-        st.markdown(f"**{off['error_label']}**"
-                    + (f"  \n{off['divergence_note']}" if off["divergence_note"] else ""))
+        st.markdown(theme.pill(off["status"], {"No concerns": "positive", "Declined": "critical"}
+                               .get(off["status"], "warning")), unsafe_allow_html=True)
+        st.markdown(off["status_detail"])
+        bullets = lambda xs: "  \n".join(f"- {x}" for x in xs) or "- None that moved the risk score."
+        if off["review_reasons"]:
+            st.markdown("**Why a person needs to look**  \n" + bullets(off["review_reasons"]))
+        left, right = st.columns(2, gap="large")
+        left.markdown("**Risk factors**  \n" + bullets(off["risk_factors"]))
+        right.markdown("**Strengths**  \n" + bullets(off["strengths"]))
         st.dataframe({"Check": [c["name"] for c in off["checks"]],
-                      "Result": ["Flag" if c["triggered"] else "Clear" for c in off["checks"]],
                       "Detail": [c["detail"] for c in off["checks"]]},
                      use_container_width=True, hide_index=True)
-        if off["context"]:
-            st.markdown("Similar past customers (training data):  \n"
-                        + "  \n".join(f"- {c}" for c in off["context"]))
-        theme.note("Limits come from the training data; the blind-spot percentile and the "
-                   "single-detail share are declared choices (Decision 31). Review required is a "
-                   "statement, not a routing.")
+        if off["track_record"]:
+            st.markdown("**Track record of similar past customers**  \n" + bullets(off["track_record"]))
+        theme.note(off["method"])
         with st.expander("Decision record"):
             st.json({**outputs["decision_record"],
                      "calibrated_probability": round(res["probability"], 6)})

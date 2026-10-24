@@ -58,7 +58,7 @@ refer to the [Engineering Decision Log](docs/engineering_decision_log.md).
 | Scoring API | FastAPI, runs locally (`serving/app.py`) | ✅ |
 | Streamlit dashboard | Risk officer interface (`dashboard/`); public demo mode on Streamlit Community Cloud from a published snapshot (D32) | ✅ |
 | Power BI report | DirectQuery against local PostgreSQL (`dashboard/powerbi/`) | ✅ |
-| Plain-English reasons | Applicants are told the outcome (approved or manual review), why in their own details, and what could change it, model-tested: API, dashboard and demo site, one shared wording (D30, D31, D33) | ✅ |
+| Plain-English reasons | Applicants are told the outcome (approved, declined over the 45% affordability limit, or manual review), why in their own figures, the repayment plan, and what could change it: API, dashboard and demo site, one shared wording (D30, D31, D33–D35) | ✅ |
 | Adaptive explanation engine | Error-type checks, genre selection, "Risk officer review required" flag; applicant, risk officer and audit-record outputs (D7, D31). Approver identity not recorded (D23) | ✅ |
 | Public demo site | In-browser ONNX champion on GitHub Pages, gated on parity and browser checks (D29, D30, D31) | ✅ |
 | Cloud deployment / AWS | BentoML · Docker · AWS RDS. The API, database and dashboard run locally (D3, D6) | ⬜ |

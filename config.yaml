@@ -204,6 +204,14 @@ model:
   # See Decisions 19 and 27.
   business_cutoff: 0.0657
 
+  # Affordability limit (Decision 35, owner's choice): applications whose
+  # FCA CONC 5.2A ratio, (existing monthly commitments + this instalment)
+  # / monthly income, is above this are declined, as the project's own
+  # application process does (data_generator ab_test). 0.45 is the
+  # strict threshold: its customers defaulted at 0.65% vs 1.15% under
+  # the relaxed 0.60 (Decisions 15-16).
+  affordability_limit: 0.45
+
   # Out-of-time split, in use: first_transaction_date >= this
   # date is the temporal test set (4,857 customers, 124 defaults
   # since the Decision 16 horizon extension). An earlier note here
@@ -283,6 +291,13 @@ explainability:
     # (min £0.99), yet £0 is a plausible answer, not a typo, so these two
     # are checked against their training maximum only.
     no_lower_range_check: ["savings_balance_gbp", "existing_monthly_obligations_gbp"]
+    # Smallest change in the estimated probability of default (0.001 =
+    # 0.1 percentage points) for a detail to be given as a reason or listed
+    # as a risk factor or strength (Decision 34). On 1,500 held-out
+    # customers the median one-at-a-time effect was 0.04 points; details
+    # below this floor are model noise, and 23% of them pointed the
+    # "wrong" way (3% above the floor).
+    material_effect: 0.001
     # Smallest group shown in a "past customers like you" statement.
     min_group_size: 500
     # Quantile cut points for continuous features' bands.

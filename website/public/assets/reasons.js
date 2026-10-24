@@ -1,4 +1,4 @@
-/* Sentinel Credit — applicant explanations and decision checks (Decisions 30, 31, 33).
+/* Sentinel Credit — applicant explanations and decision checks (Decisions 30, 31, 33-35).
  *
  * Line-for-line port of serving/reasons.py (new applicants), using the same
  * files as the API and the dashboard: model/reason_templates.json (wording),
@@ -78,8 +78,8 @@ const round10 = v => 10 * Math.round(v / 10);
 const capitalise = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Same output as serving/reasons.py build_reasons(): {against, favour}. */
-export function buildReasons(inputs, typ, effectByInput, t) {
-  const tol = t.numerical_tolerance;
+export function buildReasons(inputs, typ, effectByInput, t, material = null) {
+  const tol = material !== null ? material : t.numerical_tolerance;
   const order = Object.fromEntries(INPUTS.map((f, i) => [f, i]));
   const entries = Object.entries(effectByInput);
   const against = entries.filter(([, e]) => e > tol).sort((a, b) => (b[1] - a[1]) || (order[a[0]] - order[b[0]]));
@@ -89,6 +89,25 @@ export function buildReasons(inputs, typ, effectByInput, t) {
     against: against.slice(0, n).map(([f, e]) => ({ input: f, text: sentence(f, inputs, typ, e, t) })),
     favour: favour.slice(0, n).map(([f, e]) => ({ input: f, text: sentence(f, inputs, typ, e, t) })),
   };
+}
+
+/** Thin file if all three are within what thin-file customers had (Decision 34). */
+export function deriveThinFile(creditScore, months, accounts, rules) {
+  const r = rules.thin_file_rule;
+  return (creditScore <= r.max_credit_score && months <= r.max_months_credit_history
+          && accounts <= r.max_num_credit_accounts) ? 1 : 0;
+}
+
+function officerFactor(field, inputs, typ, effect, t) {
+  let direction;
+  if (field === "merchant_category" || field === "thin_file_flag") direction = effect > 0 ? "higher" : "lower";
+  else direction = inputs[field] > typ[field] ? "higher" : "lower";
+  let text = fill(t.fields[field].officer[direction], {
+    value: formatValue(field, inputs[field], t), typical: formatValue(field, typ[field], t) });
+  const expected = t.fields[field].risk_when;
+  if (expected && (direction === expected) !== (effect > 0))
+    text = fill(t.officer.unexpected[effect > 0 ? "against" : "favour"], { factor: text });
+  return text;
 }
 
 // ── Decision 31: checks ───────────────────────────────────────────
@@ -117,7 +136,7 @@ function dataInputIssues(feats, inputs, rules, t) {
     if ((r.check_min && v < r.min) || v > r.max) {
       const key = FEATURE_TO_INPUT[f] || f;
       const shown = key in inputs ? inputs[key] : v;
-      issues.push(fill(words.out_of_range, { label: t.fields[key].label, value: formatValue(key, shown, t) }));
+      issues.push(fill(words.out_of_range, { name: t.fields[key].name, value: formatValue(key, shown, t) }));
     }
   }
   const c = rules.consistency;
@@ -187,11 +206,14 @@ async function outcomeChanges(inputs, cutoff, rules, t, score) {
   if (!cands.length) return [];
   const probs = await score(cands.map(([f, v]) => featuresOf({ ...inputs, [f]: v })));
   const line = rules.blind_spot.line;
+  const limit = rules.policy.affordability_limit;
   const fullFile = inputs.thin_file_flag === 0;
   const best = {};
   cands.forEach(([f, v], i) => {
     const p = probs[i];
-    if (p >= cutoff || (fullFile && p >= line)) return;
+    const c = { ...inputs, [f]: v };
+    if (p >= cutoff || (fullFile && p >= line) || affordabilityRatio(
+      c.monthly_income_gbp, c.existing_monthly_obligations_gbp, c.order_value_gbp, c.n_instalments) > limit) return;
     const r = rules.ranges[SPAN_FEATURE[f] || f];
     const d = Math.abs(v - inputs[f]) / (r.max - r.min);
     if (!(f in best) || d < best[f][0]) best[f] = [d, v];
@@ -202,12 +224,73 @@ async function outcomeChanges(inputs, cutoff, rules, t, score) {
     .map(([f, [, v]]) => fill(t.changes[f], { value: formatValue(f, v, t), current: formatValue(f, inputs[f], t) }));
 }
 
+// ── Decision 35: affordability and the repayment plan ─────────────
+
+export const affordabilityRatio = (income, obligations, orderValue, n) => (obligations + orderValue / n) / income;
+const pct1 = r => `${(Math.round(r * 1000) / 10).toFixed(1)}%`;
+const moneyP = p => `£${Math.floor(p / 100).toLocaleString("en-GB")}.${String(p % 100).padStart(2, "0")}`;
+
+export function repaymentPlan(orderValue, n, t) {
+  const total = Math.round(orderValue * 100);
+  const each = Math.floor(total / n);
+  const final = total - each * (n - 1);
+  const w = t.plan;
+  const amount = final === each ? moneyP(each) : fill(w.amount_final, { amount: moneyP(each), final: moneyP(final) });
+  const finalDays = 30 * (n - 1);
+  return {
+    rows: [
+      [w.labels.credit, moneyP(total)],
+      [w.labels.number, fill(w.number, { n })],
+      [w.labels.amount, amount],
+      [w.labels.first, w.first],
+      [w.labels.final, fill(w.final, { days: finalDays })],
+      [w.labels.fees, moneyP(0)],
+      [w.labels.total, moneyP(total)],
+    ],
+    first_due_days: 0,
+    final_due_days: finalDays,
+    note: w.note,
+  };
+}
+
+function declinedChanges(income, obligations, orderValue, n, limit, t) {
+  const w = t.declined_changes;
+  const room = limit * income - obligations;
+  const out = [];
+  if (room > 0) {
+    const maxOrder = Math.floor(room * n);
+    if (maxOrder >= 1) out.push(fill(w.order, { value: `£${maxOrder.toLocaleString("en-GB")}` }));
+    for (const m of [3, 6, 12]) {
+      if (m > n && affordabilityRatio(income, obligations, orderValue, m) <= limit) {
+        out.push(fill(w.plan, { n: m, instalment: moneyP(Math.floor(Math.round(orderValue * 100) / m)) }));
+        break;
+      }
+    }
+  }
+  const maxCommit = Math.floor(limit * income - orderValue / n);
+  if (maxCommit >= 0) out.push(fill(w.commitments, { value: `£${maxCommit.toLocaleString("en-GB")}`,
+    current: formatValue("existing_monthly_obligations_gbp", obligations, t) }));
+  return out;
+}
+
 // ── the three outputs ─────────────────────────────────────────────
 
 /** Same three outputs, keys and text as serving/reasons.py review(). */
-export async function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rules, score = scoreMany) {
+export async function review(inputs, feats, p, effectByInput, reasons, cutoff, t, rules,
+                             score = scoreMany, typ = null, thinSource = "data") {
   const refer = p >= cutoff;
   const bs = rules.blind_spot;
+  const limit = rules.policy.affordability_limit;
+  const order = { order_value_gbp: inputs.order_value_gbp, n_instalments: inputs.n_instalments };
+  const income = feats.monthly_income_gbp, obligations = feats.existing_monthly_obligations_gbp;
+  const ratio = affordabilityRatio(income, obligations, order.order_value_gbp, order.n_instalments);
+  const affordable = ratio <= limit;
+  const affordVals = {
+    obligations: formatValue("existing_monthly_obligations_gbp", obligations, t),
+    instalment: moneyP(Math.floor(Math.round(order.order_value_gbp * 100) / order.n_instalments)),
+    ratio: pct1(ratio), income: formatValue("monthly_income_gbp", income, t),
+    limit: `${Math.round(limit * 100)}%` };
+
   const issues = dataInputIssues(feats, inputs, rules, t);
   const fullFile = feats.thin_file_flag === 0;
   const blind = fullFile && p >= bs.line;
@@ -218,84 +301,140 @@ export async function review(inputs, feats, p, effectByInput, reasons, cutoff, t
   else if (decisive) errorType = "overreliance";
   else errorType = "none";
   const required = errorType !== "none";
-  const outcome = (refer || required) ? "manual_review" : "approved";
+  const outcome = !affordable ? "declined" : ((refer || required) ? "manual_review" : "approved");
 
-  const o = t.outcome[outcome];
-  const why = outcome === "manual_review" ? reasons.against : reasons.favour;
-  const showChanges = outcome === "manual_review" && errorType !== "data_input";
-  const changes = showChanges ? await outcomeChanges(inputs, cutoff, rules, t, score) : [];
+  // applicant output
+  const o = t.outcome[outcome], s = t.supported;
+  let why, plan = null, changes = [], changesIntro = "";
+  if (outcome === "declined") {
+    why = [{ input: "affordability", text: fill(t.declined_why, affordVals) }];
+    changes = declinedChanges(income, obligations, order.order_value_gbp, order.n_instalments, limit, t);
+    changesIntro = changes.length ? t.changes_text.declined_intro : "";
+  } else if (outcome === "approved") {
+    const months = formatValue("months_credit_history", feats.months_credit_history, t);
+    const accounts = formatValue("num_credit_accounts", feats.num_credit_accounts, t);
+    why = [
+      { input: "affordability", text: fill(s.affordable, affordVals) },
+      { input: "credit_file", text: fill(fullFile ? s.full_file : s.thin_file, { months, accounts }) },
+      { input: "overall", text: s.overall },
+      ...reasons.favour,
+    ];
+    plan = repaymentPlan(order.order_value_gbp, order.n_instalments, t);
+  } else {
+    why = reasons.against;
+    if (errorType !== "data_input") {
+      changes = await outcomeChanges(inputs, cutoff, rules, t, score);
+      changesIntro = changes.length ? t.changes_text.intro : t.changes_text.none;
+    }
+  }
   const explanation = {
     outcome,
     headline: o.headline,
     summary: o.summary,
     why_intro: why.length ? o.why_intro : o.why_none,
     why,
-    check_intro: issues.length ? t.check.intro : "",
-    check: issues.map(s => capitalise(s) + "."),
-    changes_intro: showChanges ? (changes.length ? t.changes_text.intro : t.changes_text.none) : "",
+    changes_intro: changesIntro,
     changes,
     changes_note: changes.length ? t.changes_text.note : "",
+    plan,
     next_steps: [...o.next_steps],
-    method: t.method.new,
   };
 
+  // risk officer output (Decision 34: plain language)
   const w = t.officer, cw = w.checks;
-  const pct = Math.round(bs.percentile * 100);
-  const blindDetail = !fullFile ? cw.missing_information.not_applicable
-    : fill(cw.missing_information[blind ? "triggered" : "ok"], { pct, line: bs.line_text });
-  const context = [];
+  const top = bs.top_percent;
+  const rank = Object.fromEntries(INPUTS.map((f, i) => [f, i]));
+  const tol = rules.choices.material_effect;
+  const entries = Object.entries(effectByInput);
+  const against = entries.filter(([, e]) => e > tol).sort((a, b) => (b[1] - a[1]) || (rank[a[0]] - rank[b[0]]));
+  const favour = entries.filter(([, e]) => e < -tol).sort((a, b) => (a[1] - b[1]) || (rank[a[0]] - rank[b[0]]));
+  const rr = w.review_reasons;
+  const reviewReasons = [];
+  if (!affordable) reviewReasons.push(fill(rr.unaffordable, affordVals));
+  if (refer) reviewReasons.push(fill(rr.refer, { pd: `${(p * 100).toFixed(1)}%`, cutoff: `${(cutoff * 100).toFixed(2)}%` }));
+  if (issues.length) reviewReasons.push(fill(rr.data_input, { issues: issues.join("; ") }));
+  if (blind) reviewReasons.push(fill(rr.missing_information, { pct: 100 - top }));
+  if (decisive) reviewReasons.push(fill(rr.overreliance, { name: t.fields[decisive].name }));
+  const statusDetail = !affordable ? w.status_detail.declined
+    : (refer ? w.status_detail.refer : (required ? w.status_detail.divergence : w.status_detail.clear));
+  const track = [];
   if (reasons.against.length) {
     const f = featureOf(reasons.against[0].input, feats);
-    context.push(bandText(f, feats[f], rules));
+    track.push(bandText(f, feats[f], rules));
   }
-  if (blind) context.push(bs.text_segment, bs.text_top);
+  if (blind) track.push(bs.text_segment, bs.text_top);
+  const ca = cw.affordability;
   const officer = {
     error_type: errorType,
-    error_label: w.error_labels[errorType],
+    status: w.status[{ declined: "declined", manual_review: "review", approved: "clear" }[outcome]],
+    status_detail: statusDetail,
     review_required: required,
     model_recommendation: refer ? "refer" : "pass",
     customer_outcome: outcome,
     divergence: required && !refer,
-    divergence_note: (required && !refer) ? w.divergence_note : "",
+    review_reasons: reviewReasons,
+    risk_factors: against.map(([f, e]) => officerFactor(f, inputs, typ, e, t)),
+    strengths: favour.map(([f, e]) => officerFactor(f, inputs, typ, e, t)),
     checks: [
+      { id: "affordability", name: ca.name, triggered: !affordable,
+        detail: fill(affordable ? ca.ok : ca.triggered, affordVals) },
       { id: "data_input", name: cw.data_input.name, triggered: issues.length > 0,
-        detail: issues.length ? issues.join("; ") : cw.data_input.ok },
-      { id: "missing_information", name: cw.missing_information.name, triggered: blind, detail: blindDetail },
+        detail: issues.length ? capitalise(issues.join("; ")) + "." : cw.data_input.ok },
+      { id: "missing_information", name: cw.missing_information.name, triggered: blind,
+        detail: !fullFile ? cw.missing_information.not_applicable
+          : fill(cw.missing_information[blind ? "triggered" : "ok"], { top }) },
       { id: "overreliance", name: cw.overreliance.name, triggered: decisive !== null,
         detail: decisive ? fill(cw.overreliance.triggered, { name: t.fields[decisive].name }) : cw.overreliance.ok },
     ],
-    context,
+    track_record: track,
+    method: t.method.new,
   };
 
   const m = rules.model;
   const record = {
     record_type: "sentinel_credit_decision_record",
-    record_version: "2",
+    record_version: "4",
     applicant_type: "new",
     model_version: m.model_version,
     feature_set_label: m.feature_set_label,
     model_trained_at: m.trained_at,
     business_cutoff: m.cutoff,
+    affordability_limit: limit,
+    affordability_ratio: Math.round(ratio * 10000) / 10000,
     model_recommendation: refer ? "refer" : "pass",
     risk_officer_review_required: required,
     customer_outcome: outcome,
     divergence: required && !refer,
     error_type: errorType,
+    thin_file_flag: feats.thin_file_flag,
+    thin_file_source: thinSource,
     rules_version: rules.rules_version,
     rules_generated_at: rules.generated_at,
     approver_id: null,
     approver_note: t.record.approver_note,
-    lineage: t.record.lineage.map(s => fill(s, { model_version: m.model_version, cutoff: m.cutoff,
-                                                 rules_version: rules.rules_version })),
+    lineage: t.record.lineage.map(x => fill(x, { model_version: m.model_version, cutoff: m.cutoff,
+                                                 rules_version: rules.rules_version,
+                                                 limit: `${Math.round(limit * 100)}%` })),
   };
   return { explanation, risk_officer: officer, decision_record: record };
+}
+
+/** Derive thin-file status if not supplied, score, explain and check (raw inputs). */
+export async function explainWith(inputs, cutoff, t, typ, rules, score = scoreMany) {
+  let source = "supplied";
+  if (inputs.thin_file_flag === null || inputs.thin_file_flag === undefined) {   // Decision 34
+    inputs = { ...inputs, thin_file_flag: deriveThinFile(inputs.credit_score, inputs.months_credit_history,
+                                                         inputs.num_credit_accounts, rules) };
+    source = "derived";
+  }
+  const [p, eff] = await effects(inputs, typ, score);
+  const reasons = buildReasons(inputs, typ, eff, t, rules.choices.material_effect);
+  return { probability: p, effects: eff, typical: typ, thin_file_flag: inputs.thin_file_flag,
+           ...(await review(inputs, featuresOf(inputs), p, eff, reasons, cutoff, t, rules, score, typ, source)) };
 }
 
 /** Score, explain and check one new applicant (raw inputs). */
 export async function explain(inputs, cutoff, score = scoreMany) {
   const { templates: t, typical: typ, rules } = await loadReasonFiles();
-  const [p, eff] = await effects(inputs, typ, score);
-  const reasons = buildReasons(inputs, typ, eff, t);
-  return { probability: p, effects: eff, typical: typ,
-           ...(await review(inputs, featuresOf(inputs), p, eff, reasons, cutoff, t, rules, score)) };
+  return explainWith(inputs, cutoff, t, typ, rules, score);
 }

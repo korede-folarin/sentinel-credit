@@ -252,6 +252,19 @@ def main():
         "full_file_min_num_credit_accounts": int(frame.loc[~thin, "num_credit_accounts"].min()),
         "max_commitments_to_income": round(float(ratio.max()), 4),
     }
+    # Automatic thin-file status (Decision 34): the applicant is not asked.
+    # In the data a thin file never exceeds these three limits together,
+    # so an applicant inside all three is treated as thin-file.
+    limits = {"max_credit_score": int(frame.loc[thin, "credit_score"].max()),
+              "max_months_credit_history": int(frame.loc[thin, "months_credit_history"].max()),
+              "max_num_credit_accounts": int(frame.loc[thin, "num_credit_accounts"].max())}
+    derived = ((frame["credit_score"] <= limits["max_credit_score"])
+               & (frame["months_credit_history"] <= limits["max_months_credit_history"])
+               & (frame["num_credit_accounts"] <= limits["max_num_credit_accounts"])).astype(int)
+    thin_rule = {**limits, "n": int(len(frame)),
+                 "agree": int((derived == frame["thin_file_flag"]).sum()),
+                 "derived_thin_but_full": int(((derived == 1) & ~thin).sum()),
+                 "derived_full_but_thin": int(((derived == 0) & thin).sum())}
     skip_low = set(choice.get("no_lower_range_check", []))
     ranges = {f: {"min": float(frame[f].min()), "max": float(frame[f].max()),
                   "check_min": f not in skip_low} for f in features}
@@ -307,14 +320,17 @@ def main():
         "rules_version": str(choice["rules_version"]),
         "model": {"model_version": gov["model_version"], "feature_set_label": gov["feature_set_label"],
                   "trained_at": meta["trained_at"], "cutoff": cutoff},
+        "policy": {"affordability_limit": float(cfg["model"]["affordability_limit"])},
         "choices": {"blind_spot_percentile": pctl,
                     "single_detail_share": float(choice["single_detail_share"]),
+                    "material_effect": float(choice["material_effect"]),
                     "min_group_size": int(choice["min_group_size"]),
                     "band_quantiles": list(choice["band_quantiles"]),
                     "no_lower_range_check": sorted(skip_low)},
         "n_training_customers": int(len(frame)),
         "ranges": ranges,
         "consistency": consistency,
+        "thin_file_rule": thin_rule,
         "blind_spot": blind,
         "overall": {"n": int(len(frame)), "per_1000": per_1000(y.sum(), len(frame)),
                     "text": t["data"]["overall"].format(n=f"{len(frame):,}",
@@ -351,6 +367,7 @@ def main():
     print("Typical applicant:", new_typ)
     print("Typical existing customer:", existing_typ)
     print("Consistency limits:", consistency)
+    print(f"Thin-file rule: {thin_rule} ({thin_rule['agree'] / thin_rule['n']:.2%} agreement)")
     b = blind
     print(f"Blind spot: full-file max OOF {b['segment_max_oof']:.4f}, flagged at cutoff "
           f"{b['segment_flagged_at_cutoff']}; {pctl:.0%} line {line:.4f}")
@@ -392,7 +409,8 @@ def heldout_evidence(pkg, features, cutoff, t, min_group):
                      "default": int(r["target_default"])})
     d = pd.DataFrame(rows)
     n = len(d)
-    labels = t["officer"]["error_labels"]
+    labels = {"none": "No check needed a person",
+              **{k: v["name"] for k, v in t["officer"]["checks"].items()}}
     by_type = []
     for k in ("none", "missing_information", "overreliance", "data_input"):
         g = d[d["error_type"] == k]
