@@ -1,0 +1,7 @@
+# Build context for v2/docker/api.Dockerfile: send only what the API needs.
+*
+!config.yaml
+!serving/
+!dashboard/demo_data/model/
+!v2/docker/requirements-api.txt
+serving/__pycache__

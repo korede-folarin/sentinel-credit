@@ -1,0 +1,10 @@
+# Lint covers NEW code only (v2/ and tests/); v1 files stay untouched (V2-01).
+line-length = 120
+target-version = "py311"
+include = ["v2/**/*.py", "tests/**/*.py"]
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+
+[lint.isort]
+known-first-party = ["conftest", "serving", "models", "v2"]

@@ -1,0 +1,1414 @@
+{
+ "_about": "Fingerprint of Sentinel Credit v1 at tag v1.0-evaluated (v2 log V2-01). Built by v2/tools/v1_manifest.py; verified in CI (--repo) and locally (--full).",
+ "tag": "v1.0-evaluated",
+ "commit": "e098ca0f4e7507076195dd363bdad0f644a91bdd",
+ "generated_at": "2026-10-29T21:38:52+00:00",
+ "repo_artefacts": {
+  "dashboard/demo_data/model/champion_calibrated.joblib": "96cb8bb4183adc856786c9bc0f0dbb2fcc4debb5a0ac6c7b2deab40eb90a4a98",
+  "dashboard/demo_data/model/champion_explanation_base.joblib": "ba2134b85090d59cf1e64d7136d3a853205fe35a0903a3fd58da45d2927b46b9",
+  "dashboard/demo_data/model/champion_metadata.json": "7d8b6afb1124ed8ae26862198b3fcf057d6df0224c41f9f231e430689a3b8993",
+  "dashboard/demo_data/model/feature_list.json": "ee2869421ab844d3415fe8f3e320ed228503b3a9e5e82d15e70e970cf567c503",
+  "dashboard/demo_data/model/heldout_score_quantiles.json": "dc12b5f474a1668af57eb47aa6e746cbfa658f7d0361e7022521f0159b598503",
+  "data_generator/bnpl_data_generator.py": "a186323f085dbb01668a6805722518723e3f8bef2a01356dbd030d649369fdb6",
+  "models/model_features.py": "61ad1a81c89f6a7828e3355b8f8b666e112b96bd39846720791515b987df732d",
+  "serving/explanation_rules.json": "703b74b2847e14a3deba1a307675911c97c03adabb8f0d429b97161cf0f30c99",
+  "serving/features.py": "e2fd49c5cecf1fa4c3b6d43d336a9f3912ca927ac2b1bd9b4d967ac5341b689a",
+  "serving/reason_templates.json": "a1a35401d2764ebf29e3a13da66882794227db07ae662a3c34d06f64cadb631e",
+  "serving/reasons.py": "304d39f4e429af7a58303592eaab348781a74e508b0367628c064359dac961db",
+  "serving/typical_applicant.json": "96d0d21ad221aa21ae8bf79e50b6dd0581a4bb65d2f4f54a3fef3339e967d079",
+  "sql/01_create_schema.sql": "ae6d70f2d5dfcffeaa1098a2a6bf36af97609e43601be75b5a94fbd6236f92c6",
+  "sql/02_feature_store.sql": "2204e2374e9d02c24e802abf79f1c0becb7010c86b827898ffceffdc08048715",
+  "sql/load_raw_data.sql": "37ced988ca0a82e603ddd62ec9f4db7f5356841a925a4b671614bac1da594c91",
+  "website/public/data/cutoff_simulator.json": "29cc8e43f25c57ac6f4aade8527481bb18b0c1e3f9fee47ddf87d09a39b619df",
+  "website/public/data/review_evidence.json": "0cf3b9cc2226c9fb63b3e2b49d645dd2c5acadf13c34567a953f66f6efd53ff4",
+  "website/public/model/explanation_rules.json": "703b74b2847e14a3deba1a307675911c97c03adabb8f0d429b97161cf0f30c99",
+  "website/public/model/feature_examples.json": "50ddbb8172c06f6036f67c5b026ec132f39ae2e47e7d5a185a6f009ae5a98c6d",
+  "website/public/model/model_contract.json": "14a52cacdbcee8f019567c1c51c10cfb8435fd82f64ced0202b2af8a79c4a42e",
+  "website/public/model/parity_vectors.json": "91b3675a83df0540cabcc30bd57187e64bf3d10270ec1657bfec6448faed4e38",
+  "website/public/model/python_parity_report.json": "1a90f0fdad29f2bfe3e48dc3607b9d8357fa55eedcce5467647b0608676ab5e5",
+  "website/public/model/reason_templates.json": "a1a35401d2764ebf29e3a13da66882794227db07ae662a3c34d06f64cadb631e",
+  "website/public/model/sentinel_champion.onnx": "4c89cab00f66266b49ed4992a76ab20c2bcfad16b9b076db347fde13b98fe8f9",
+  "website/public/model/typical_applicant.json": "96d0d21ad221aa21ae8bf79e50b6dd0581a4bb65d2f4f54a3fef3339e967d079"
+ },
+ "config_v1_sha256": "8c635e52e19fcef12cc1d3ce1c4d0f7161550fa5a8e4849cac078a635a4b15f6",
+ "local_artefacts": {
+  "models/artifacts/champion_calibrated.joblib": "5d6f2dcd061056e90c070b493906e3985366a8b8da3fa32e1d88424db63b2b45",
+  "models/artifacts/champion_explanation_base.joblib": "c89799c67dc27881a2c980adeae3921c155ce1e5eed82dfac44122fea56a318c",
+  "models/artifacts/champion_metadata.json": "dbff34dd85da218c395d33a6704643c1a1033c240c771af471076941de6ea63b",
+  "models/artifacts/feature_list.json": "3fed6b9f06a6874bc3b1a1528aad3355068d96b0e3f7d1976aa86b88b7d65dbe",
+  "models/artifacts/split_ids_test.csv": "09ad39a31666613867f62bbb1b7a9c51ba9cefb4759097a0dc21b0c1f5aefc5c",
+  "models/artifacts/split_ids_train.csv": "575f6996c5fda18f693ad86d2dc25ad36718d4ac4e7f08cea6822134f5c6f89a",
+  "models/artifacts/test_predictions_stratified.csv": "8362bd369d16e18b5e26835c2da376c58ea5bf6662b2212d4ccad9906b456584",
+  "models/artifacts/test_predictions_temporal.csv": "e7388c13b11cd7c9504f6075df84fe803f88432ce48db2b2d6d07dde7c8b6c22",
+  "models/artifacts_v1_1/champion_calibrated.joblib": "96cb8bb4183adc856786c9bc0f0dbb2fcc4debb5a0ac6c7b2deab40eb90a4a98",
+  "models/artifacts_v1_1/champion_explanation_base.joblib": "ba2134b85090d59cf1e64d7136d3a853205fe35a0903a3fd58da45d2927b46b9",
+  "models/artifacts_v1_1/champion_metadata.json": "f6ff66917573cda9f222f46c29b1399f0912a658d4b9d96b45612945b27eec93",
+  "models/artifacts_v1_1/feature_list.json": "99baeb06550912d3270769c07f9d92c360fb5fb79e14cc114dd7a38b1acf3b3d",
+  "models/artifacts_v1_1/split_ids_test.csv": "09ad39a31666613867f62bbb1b7a9c51ba9cefb4759097a0dc21b0c1f5aefc5c",
+  "models/artifacts_v1_1/split_ids_train.csv": "575f6996c5fda18f693ad86d2dc25ad36718d4ac4e7f08cea6822134f5c6f89a",
+  "models/artifacts_v1_1/test_predictions_stratified.csv": "22d7fc4ee0acd752453a40264ad3441cea4cfe650d43ee6ea3115e783466b6c8",
+  "models/artifacts_v1_1/test_predictions_temporal.csv": "aad0eb1835b76d3287999b5ff48979ce457423cfa127a37708b719e9973fa0af"
+ },
+ "database": {
+  "row_counts": {
+   "feature_store.customer_features": 50000,
+   "raw.customers": 50000,
+   "raw.repayments": 483579,
+   "raw.transactions": 174421
+  },
+  "schemas": {
+   "feature_store.customer_features": [
+    [
+     "customer_id",
+     "text"
+    ],
+    [
+     "target_default",
+     "integer"
+    ],
+    [
+     "has_outcome",
+     "integer"
+    ],
+    [
+     "age",
+     "integer"
+    ],
+    [
+     "annual_income_gbp",
+     "numeric"
+    ],
+    [
+     "monthly_income_gbp",
+     "numeric"
+    ],
+    [
+     "existing_monthly_obligations_gbp",
+     "numeric"
+    ],
+    [
+     "savings_balance_gbp",
+     "numeric"
+    ],
+    [
+     "credit_score",
+     "integer"
+    ],
+    [
+     "months_credit_history",
+     "integer"
+    ],
+    [
+     "num_credit_accounts",
+     "integer"
+    ],
+    [
+     "num_defaults_24m",
+     "integer"
+    ],
+    [
+     "thin_file_flag",
+     "integer"
+    ],
+    [
+     "vulnerability_score",
+     "numeric"
+    ],
+    [
+     "is_vulnerable",
+     "integer"
+    ],
+    [
+     "n_applications",
+     "bigint"
+    ],
+    [
+     "n_approved",
+     "bigint"
+    ],
+    [
+     "n_declined",
+     "bigint"
+    ],
+    [
+     "approval_rate",
+     "numeric"
+    ],
+    [
+     "avg_affordability_ratio",
+     "numeric"
+    ],
+    [
+     "max_affordability_ratio",
+     "numeric"
+    ],
+    [
+     "n_affordability_flags",
+     "bigint"
+    ],
+    [
+     "pct_affordability_flagged",
+     "numeric"
+    ],
+    [
+     "n_transactions",
+     "bigint"
+    ],
+    [
+     "total_order_value_gbp",
+     "numeric"
+    ],
+    [
+     "avg_order_value_gbp",
+     "numeric"
+    ],
+    [
+     "max_order_value_gbp",
+     "numeric"
+    ],
+    [
+     "avg_n_instalments",
+     "numeric"
+    ],
+    [
+     "total_instalment_exposure_gbp",
+     "numeric"
+    ],
+    [
+     "n_merchant_categories",
+     "bigint"
+    ],
+    [
+     "pct_high_risk_category",
+     "numeric"
+    ],
+    [
+     "pct_medium_risk_category",
+     "numeric"
+    ],
+    [
+     "pct_low_risk_category",
+     "numeric"
+    ],
+    [
+     "n_instalments_total",
+     "bigint"
+    ],
+    [
+     "n_transactions_with_repayments",
+     "bigint"
+    ],
+    [
+     "n_late_payments",
+     "bigint"
+    ],
+    [
+     "pct_late_payments",
+     "numeric"
+    ],
+    [
+     "avg_days_late",
+     "numeric"
+    ],
+    [
+     "max_days_late",
+     "integer"
+    ],
+    [
+     "total_days_late",
+     "bigint"
+    ],
+    [
+     "n_transactions_with_late_payment",
+     "bigint"
+    ],
+    [
+     "max_dpd_ever",
+     "integer"
+    ],
+    [
+     "avg_max_dpd",
+     "numeric"
+    ],
+    [
+     "n_reached_sicr",
+     "bigint"
+    ],
+    [
+     "pct_reached_sicr",
+     "numeric"
+    ],
+    [
+     "max_cycles_delinquent",
+     "integer"
+    ],
+    [
+     "avg_cycles_delinquent",
+     "numeric"
+    ],
+    [
+     "max_arrears_depth",
+     "integer"
+    ],
+    [
+     "avg_arrears_depth_when_behind",
+     "numeric"
+    ],
+    [
+     "n_terminal_current",
+     "bigint"
+    ],
+    [
+     "n_terminal_delinquent",
+     "bigint"
+    ],
+    [
+     "n_terminal_default",
+     "bigint"
+    ],
+    [
+     "avg_instalment_amount_gbp",
+     "numeric"
+    ],
+    [
+     "total_scheduled_repayment_gbp",
+     "numeric"
+    ],
+    [
+     "debt_to_income_ratio",
+     "numeric"
+    ],
+    [
+     "bnpl_exposure_to_monthly_income_ratio",
+     "numeric"
+    ],
+    [
+     "first_transaction_date",
+     "date"
+    ],
+    [
+     "last_transaction_date",
+     "date"
+    ],
+    [
+     "transaction_span_days",
+     "integer"
+    ],
+    [
+     "days_since_last_transaction",
+     "integer"
+    ],
+    [
+     "age_bracket",
+     "text"
+    ],
+    [
+     "income_band",
+     "text"
+    ],
+    [
+     "employment_status",
+     "text"
+    ],
+    [
+     "ab_test_group",
+     "text"
+    ]
+   ],
+   "raw.customers": [
+    [
+     "customer_id",
+     "text"
+    ],
+    [
+     "registration_date",
+     "date"
+    ],
+    [
+     "age",
+     "integer"
+    ],
+    [
+     "age_bracket",
+     "text"
+    ],
+    [
+     "gender",
+     "text"
+    ],
+    [
+     "income_band",
+     "text"
+    ],
+    [
+     "annual_income_gbp",
+     "numeric"
+    ],
+    [
+     "monthly_income_gbp",
+     "numeric"
+    ],
+    [
+     "employment_status",
+     "text"
+    ],
+    [
+     "existing_monthly_obligations_gbp",
+     "numeric"
+    ],
+    [
+     "savings_balance_gbp",
+     "numeric"
+    ],
+    [
+     "thin_file_flag",
+     "integer"
+    ],
+    [
+     "credit_score",
+     "integer"
+    ],
+    [
+     "months_credit_history",
+     "integer"
+    ],
+    [
+     "num_credit_accounts",
+     "integer"
+    ],
+    [
+     "num_defaults_24m",
+     "integer"
+    ],
+    [
+     "mental_health_flag",
+     "integer"
+    ],
+    [
+     "vulnerability_health",
+     "integer"
+    ],
+    [
+     "vulnerability_life_event",
+     "integer"
+    ],
+    [
+     "vulnerability_resilience",
+     "integer"
+    ],
+    [
+     "vulnerability_capability",
+     "integer"
+    ],
+    [
+     "vulnerability_score",
+     "numeric"
+    ],
+    [
+     "is_vulnerable",
+     "integer"
+    ],
+    [
+     "device_type",
+     "text"
+    ],
+    [
+     "acquisition_channel",
+     "text"
+    ],
+    [
+     "ab_test_group",
+     "text"
+    ]
+   ],
+   "raw.repayments": [
+    [
+     "repayment_id",
+     "text"
+    ],
+    [
+     "transaction_id",
+     "text"
+    ],
+    [
+     "customer_id",
+     "text"
+    ],
+    [
+     "instalment_number",
+     "integer"
+    ],
+    [
+     "instalment_amount_gbp",
+     "numeric"
+    ],
+    [
+     "due_date",
+     "date"
+    ],
+    [
+     "payment_status",
+     "text"
+    ],
+    [
+     "days_late",
+     "integer"
+    ],
+    [
+     "days_past_due",
+     "integer"
+    ],
+    [
+     "arrears_depth",
+     "integer"
+    ],
+    [
+     "amount_paid_gbp",
+     "numeric"
+    ],
+    [
+     "outstanding_balance_gbp",
+     "numeric"
+    ],
+    [
+     "default_flag",
+     "integer"
+    ],
+    [
+     "outcome_observed",
+     "integer"
+    ],
+    [
+     "max_dpd",
+     "integer"
+    ],
+    [
+     "reached_sicr",
+     "integer"
+    ],
+    [
+     "cycles_delinquent",
+     "integer"
+    ],
+    [
+     "terminal_state",
+     "text"
+    ],
+    [
+     "ab_test_group",
+     "text"
+    ],
+    [
+     "merchant_category",
+     "text"
+    ]
+   ],
+   "raw.transactions": [
+    [
+     "transaction_id",
+     "text"
+    ],
+    [
+     "customer_id",
+     "text"
+    ],
+    [
+     "transaction_date",
+     "date"
+    ],
+    [
+     "merchant_category",
+     "text"
+    ],
+    [
+     "order_value_gbp",
+     "numeric"
+    ],
+    [
+     "n_instalments",
+     "integer"
+    ],
+    [
+     "instalment_frequency",
+     "text"
+    ],
+    [
+     "instalment_amount_gbp",
+     "numeric"
+    ],
+    [
+     "affordability_ratio",
+     "numeric"
+    ],
+    [
+     "fca_affordability_flag",
+     "integer"
+    ],
+    [
+     "application_approved",
+     "integer"
+    ],
+    [
+     "merchant_risk_multiplier",
+     "numeric"
+    ],
+    [
+     "ab_test_group",
+     "text"
+    ]
+   ],
+   "reporting.customer_risk_snapshot": [
+    [
+     "customer_id",
+     "text"
+    ],
+    [
+     "thin_file_flag",
+     "integer"
+    ],
+    [
+     "is_vulnerable",
+     "integer"
+    ],
+    [
+     "target_default",
+     "integer"
+    ],
+    [
+     "has_outcome",
+     "integer"
+    ],
+    [
+     "monthly_income_gbp",
+     "numeric"
+    ],
+    [
+     "existing_monthly_obligations_gbp",
+     "numeric"
+    ],
+    [
+     "savings_balance_gbp",
+     "numeric"
+    ],
+    [
+     "credit_score",
+     "integer"
+    ],
+    [
+     "months_credit_history",
+     "integer"
+    ],
+    [
+     "num_credit_accounts",
+     "integer"
+    ],
+    [
+     "num_defaults_24m",
+     "integer"
+    ],
+    [
+     "max_affordability_ratio",
+     "numeric"
+    ],
+    [
+     "avg_order_value_gbp",
+     "numeric"
+    ],
+    [
+     "avg_n_instalments",
+     "numeric"
+    ],
+    [
+     "pct_high_risk_category",
+     "numeric"
+    ],
+    [
+     "pct_medium_risk_category",
+     "numeric"
+    ],
+    [
+     "pct_late_payments",
+     "numeric"
+    ],
+    [
+     "first_transaction_date",
+     "date"
+    ],
+    [
+     "last_transaction_date",
+     "date"
+    ],
+    [
+     "segment_key",
+     "text"
+    ]
+   ],
+   "reporting.default_rate_monthly": [
+    [
+     "month",
+     "date"
+    ],
+    [
+     "n_resolved",
+     "bigint"
+    ],
+    [
+     "n_defaulted",
+     "bigint"
+    ],
+    [
+     "default_rate",
+     "numeric"
+    ]
+   ],
+   "reporting.feature_drift_by_cohort": [
+    [
+     "cohort_period",
+     "text"
+    ],
+    [
+     "n_customers",
+     "integer"
+    ],
+    [
+     "scored",
+     "boolean"
+    ],
+    [
+     "feature",
+     "text"
+    ],
+    [
+     "psi",
+     "numeric"
+    ],
+    [
+     "psi_band",
+     "text"
+    ],
+    [
+     "psi_noise_floor",
+     "numeric"
+    ],
+    [
+     "cohort_bad_rate",
+     "numeric"
+    ],
+    [
+     "run_id",
+     "text"
+    ],
+    [
+     "computed_at",
+     "timestamp with time zone"
+    ]
+   ],
+   "reporting.feature_drift_log": [
+    [
+     "feature",
+     "text"
+    ],
+    [
+     "psi",
+     "numeric"
+    ],
+    [
+     "psi_band",
+     "text"
+    ],
+    [
+     "reference_null_rate",
+     "numeric"
+    ],
+    [
+     "comparison_null_rate",
+     "numeric"
+    ],
+    [
+     "null_rate_delta",
+     "numeric"
+    ],
+    [
+     "reference_mean",
+     "numeric"
+    ],
+    [
+     "comparison_mean",
+     "numeric"
+    ],
+    [
+     "mean_shift_sigma",
+     "numeric"
+    ],
+    [
+     "out_of_range_rate",
+     "numeric"
+    ],
+    [
+     "alerts",
+     "text"
+    ],
+    [
+     "any_alert",
+     "boolean"
+    ],
+    [
+     "logged_at",
+     "timestamp with time zone"
+    ],
+    [
+     "run_id",
+     "text"
+    ]
+   ],
+   "reporting.governance_status_latest": [
+    [
+     "gate_status",
+     "text"
+    ],
+    [
+     "evaluated_at",
+     "timestamp with time zone"
+    ],
+    [
+     "n_alerts",
+     "integer"
+    ],
+    [
+     "n_features_total",
+     "integer"
+    ],
+    [
+     "monitoring_age_hours",
+     "numeric"
+    ],
+    [
+     "max_monitoring_age_hours",
+     "integer"
+    ],
+    [
+     "recorded_gate_status",
+     "text"
+    ],
+    [
+     "evidence_age_hours_now",
+     "numeric"
+    ],
+    [
+     "is_stale",
+     "boolean"
+    ]
+   ],
+   "reporting.governance_status_log": [
+    [
+     "id",
+     "integer"
+    ],
+    [
+     "gate_status",
+     "text"
+    ],
+    [
+     "evaluated_at",
+     "timestamp with time zone"
+    ],
+    [
+     "n_alerts",
+     "integer"
+    ],
+    [
+     "n_features_total",
+     "integer"
+    ],
+    [
+     "monitoring_age_hours",
+     "numeric"
+    ],
+    [
+     "max_monitoring_age_hours",
+     "integer"
+    ],
+    [
+     "created_at",
+     "timestamp with time zone"
+    ]
+   ],
+   "reporting.originations_monthly": [
+    [
+     "month",
+     "date"
+    ],
+    [
+     "n_originations",
+     "bigint"
+    ],
+    [
+     "total_value_gbp",
+     "numeric"
+    ],
+    [
+     "avg_order_value_gbp",
+     "numeric"
+    ]
+   ],
+   "reporting.segment_summary": [
+    [
+     "thin_file_flag",
+     "integer"
+    ],
+    [
+     "is_vulnerable",
+     "integer"
+    ],
+    [
+     "n_customers",
+     "bigint"
+    ],
+    [
+     "actual_default_rate",
+     "numeric"
+    ],
+    [
+     "avg_credit_score",
+     "numeric"
+    ],
+    [
+     "avg_savings_balance_gbp",
+     "numeric"
+    ],
+    [
+     "segment_key",
+     "text"
+    ]
+   ]
+  }
+ },
+ "mlflow_runs": {
+  "0411d72e5d5c41958ac5c8afa03f4ff5": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "84ac11bec84ee0ccf8af2af4913e7925f548bdecc0335690cd2912d941237473"
+  },
+  "055727d28006410f9fe2ec783fd2f592": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "6fb21c328210a62261791e653ce9a3a8ca973ea8d70c95625365a6cce1696f8a"
+  },
+  "16c7b93b9a974dea9baa30af90592cc0": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "629196fe140b59ee913c67a7a1d775adf5400172d70848f5a1a4eb307533b462"
+  },
+  "4a71e44471684cf795b02e1c53986876": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "11cde52cc285c4f7a1adea4236268f419522484fe30bcbfc40782794a021d4bc"
+  },
+  "4bc6dd669504490db581de14cbf8ba11": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "e9c9f8dad9b91223f0395662155541d16285cea405d9150fee16b0031a37021b"
+  },
+  "54d0afecbd48447e95ead1c23e979a4e": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "111cdd0e1eb8cd5213641d28acc4682d1f5416aed280b01f38d133d4e9d093d5"
+  },
+  "5f4cd85e6ba14b26842a490aedb4ff91": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "f5df55908554f882cf36219919ad45d6abdd71a806894eb817ecf371ff3ae552"
+  },
+  "629d1840922149feba2b9ce89be96fad": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "ec1403cf2e7da65a89628a681bc5d53449b71cffb65e6b511f443be57b86cf1e"
+  },
+  "778bd2a8f0d6457a86431779b863ed42": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "eec7d697b40fc733f59294a1cb8041aa16d20b26a0911661e09455243624dc5d"
+  },
+  "8f11e0e770724b30858f1e281c635062": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "4e582e8125357211a715288eb439df4960be77c8048053dcef99d9bccd292693"
+  },
+  "9446b621a746458bbb75b9fe5e2a484a": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "1550c90281e53bc0511e9df809b2c1ec50f5d05b939b41a44fa315365c46fce4"
+  },
+  "a55f914a2d55481cadaadf89def0f206": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "d1e8413cf69c224ff8734e3f91e4edc2fa555e00611575814a501dfd81641626"
+  },
+  "ad90ec9c7bbe4e85a4e131c9df034798": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "59b161d7d18eea4793e057d3551e0f4dff2052f0382e7019de0f7dd78406187a"
+  },
+  "b105efe182f842e58803021d6fb0dd52": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "d497eb69510ef96b6a50c8648220dfedc7abb740094a59c8a76f9ceb53855ee5"
+  },
+  "b620ef04c5614ffeba79c5ce09d38eb2": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "2da05dd7ba9a8c875e588f39bfe17ac99c3d64ea526e93e10e946b0ffad9eb9a"
+  },
+  "ba6fbc29e66743f58228eeb29911469e": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "deee76ea5daea6bc3d6539e1e258843b79992432189f2a1b432b2611185a9d81"
+  },
+  "daab5a5c739c48feababfb3a1493a2e5": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "8a2771e815f6530472a109c3c6ba9be5e0dd556322ddbbd1b623903a908eac2c"
+  },
+  "e82fa4c99bcc48118cf2d26860226ce9": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "038b742b1643e3420e2728a4a7c004e208b39d752ba0d9b9e9f921336544c3ff"
+  },
+  "e96b3e21845e420db8e119b844bd30a9": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "2ea17b04f2fec37faf065a155f86dff21cc6d45c8e6a82b08367f9fb2f7e6657"
+  },
+  "f4fd63109fce4503a2dde4ef7f0a7967": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "1da4d8990ccd0ce6537d36708b3a8ed6affd17c86fab8a639ab5c156da12f32d"
+  },
+  "f69a6469ce0d4c77b89f68609c077248": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "45224ddaebae90b83c2a636f96ddd72dd1d1b5239e4e3c1b86c1ffad49cf84b4"
+  },
+  "fabdfec4b6b541ce83912bf4f5e8e9fd": {
+   "experiment": "sentinel_credit_monitoring",
+   "status": 3,
+   "content_sha256": "c32b06e568140357006a5b2f6be7048efc01ce74c49f9ba5d6ddbb3f5498edf7"
+  },
+  "011382e8f8a4407d8b5e69b73b588286": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "74da84b641680def4e8a0560e51e50a66d84572c7ebf18cf3d3107f32f697f8d"
+  },
+  "01723b2a8dcb4ffda46dc51331a7c6d0": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "202d31fee8e423591f6f42015dfb2e1af526d9a02bce96a6ad9d308bf9303649"
+  },
+  "04b14242b57c4a528112416c03520cb8": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "acecda187bbd0a7ec44c062fc80d9619b5a7c52e42e6233878b8a6f9588c430c"
+  },
+  "0a0d31af67f046cbb79be998ca33dfd5": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "bbe38226ebcf107b6486ac3e48fda5edcb8af3ff89ab347d5112f91aff8fce81"
+  },
+  "0d888fa5753e43a4b9d545144c7ccae7": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "6661d05e6436e5ef915ca8c0f65bd4444e6eb9ebd2df7a8609c1b4211dda0a3a"
+  },
+  "0ec868f41d6448b9aac0c6048ae1040a": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "81e473be469d6cb74b75be35ad57058be5ec7a8d7c8b0a30b48ff66e9a102a7c"
+  },
+  "0eed6535ce774e43a2dcf2869f5a4cac": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "43308ff96c052cba0da39042681f90809f91f7a6561b5342b1aeb05491b25b49"
+  },
+  "0f8392f9542441baa110ecc4d10ff042": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "cfb2cd8674f965e96c466c45e3cf95c525847e0ee3b3f013dd068e6d56ef3e48"
+  },
+  "111a025643e54541bddc9fabbfd30838": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "2aae42b8046a2088ff5693d92bc1287ab05579a731e10568b54bcd9aa610eb95"
+  },
+  "1123651d1b6f425ca811b70735da3d8c": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "e676445e96a15e1e9b6c2895fb2f9e9c4c2f1b84a2d0b23a0849403c26c189e9"
+  },
+  "11510f223b9b4cafbe4c8c3bff414868": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "6fb469993c428cb2b84d8ffc681bb5c61b9a97b6d0e24375cec96f8413708265"
+  },
+  "148de577dc3147c2b60d2e1af3bbf5f5": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "bdcc3be186b3a37685e3eae1f3934bc3269214b7f4365aa07e159fff73ba867f"
+  },
+  "16bffc24a08c4765a110c0d782b250e3": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "e2f9f4874e41885b134d9be45e9a15381ee817e9af755742aa470f0231252a50"
+  },
+  "1cca4f404b5744ab86f267a2e10674df": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "9cff12882454216f012603df57a238fd24a5d691c215a39cf27f75698b47ea77"
+  },
+  "299eff391fb64e4e91102d9f24dca880": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "7e2ac6513362f54b6358becbeb9417eb804d5e32728793fd2da41e4721b34084"
+  },
+  "2da086f12a544699abcb808d1ec982bf": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "0c546bda1fa69f9c37f7fe187de45c8fe257e46e955cef13729057ef3e7798d8"
+  },
+  "2f977677484f4819a4fb3c9341777077": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "e535dcba2500c9f0f8f1fbada9039147a6a3ba83875864bccac770b861567d61"
+  },
+  "2fa5d7af937e4691ad5f32489b87638e": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "b57e1698370ab09ba8f7b72461c0943ce7d06322ca14f6d5f94448988ff415e8"
+  },
+  "31ab1471eadb4590bfa59646497cbbe9": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "4923802257fc338b32303d1413fb9f6a60ff776bed1174f63da94072322abb57"
+  },
+  "3371ff5fd4c341d8b7d930cfd63ece22": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "0c62f3dca49e723cfc4b3c276ac0444f2652f687f3c8293a2dd05fc3fef6ce75"
+  },
+  "398b940da7074cb4b8b6c6a42975e5bc": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "05810cb27ca033887b0f33f7d3cdc6e270d6898f1dc4170fc7088063cbf814cf"
+  },
+  "3d16984018dc4112881cac86e41ed667": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "4b1b74391d21b8dbca5386de6451ecdeed004964c2b847a690a33b1707a604af"
+  },
+  "3fdab521b51144deabdabc043a30fb05": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "69ee739176b76632ec3a11600f4a9006c0a20cecd9327a9b8d77d003d79f35d1"
+  },
+  "41a159f3cf574d8c9ca9124febf296d4": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "b58053530e363fd07a1ab8dc02df6954d985c52f4aa8408f1b0cf30316052f22"
+  },
+  "44f90fdfad324c38bff5386816d50229": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "dde460dd0c0fa0e879359d72ab64f207c167a82b2b7c40f60e27fceca208ccbf"
+  },
+  "45b4fd7697894a37aa69544a48b75442": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "7e461c755ae331fe06e46d7f2e78016fda6f29ff5d319c4ea3bc200a1debc520"
+  },
+  "469524ebb6fc400aa2471db0594a31e6": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "0726c91089de80adb94112208ef083fe285da17eae954a1d8d60fac41e92f780"
+  },
+  "46b281d4fd2144bfb2d2c8b9d64f1aa3": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "3b18b15bc57dbc02fd9629f9939bf27d4341cdf284863976596194a79dac6f85"
+  },
+  "479d0daf5d514d36bb408f31f0f82750": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "d76bf7a636389f5d034c0b5a927a18580e24dc0fd96444c5e2b7e25a89f56808"
+  },
+  "4b6d2fde41054a61ac65d0e6e25f5a3e": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "d409b3d0bb7a6ea5cd2b958c2d9725162bb32fea0c2fed7edd990eb32cb3d39b"
+  },
+  "4c7e61f8bcde44baa2abb62f58944c6d": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "7544bd194a9d95df3c48c4e71f52e90572401b1dd06296c5eccea8c7fa5203d7"
+  },
+  "4c82dfe2e06c4c82b1d9410546715498": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "f1bf6b53f89a64fc0f21eae1ba842143a16a5124fbe99be658fa3f333c109c83"
+  },
+  "4d3b78b6973844aa92602c877bbf2359": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "24f8733072063bee8b5883428ec46cd0832a12ed2a1126c52acd703bb4410ea6"
+  },
+  "509f61b6472e49cd8eed69d908af82eb": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "40a98ce0635a3a34b52c1597b65dc2ef1bceb882488bb927b243d1534c3d6bd5"
+  },
+  "51539b06adc64040bfbb80c8a7335c09": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "bd9bbeec3acbde46165072850c8ef31046c2f9dbd816eeca1f6a36a4b5ef2140"
+  },
+  "530bba0de1bb4594a35b83a79d275267": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "fd51a6f793aea554d280e2b172ce259994e1fb088bc1f4a02202977ead0105b5"
+  },
+  "5466ebf3e7ce48f383fa40b6a65f66f2": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "d642d8ef6c552492718d9471459eed64ad5d91225619443bb8b13fa9817fb2f3"
+  },
+  "5ceb650bd96c4cac9c114c2f44110c54": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "ed8c5622967a9c1a780fb14e9a717d835ba5ebf8c0a855ab675afcc00135e283"
+  },
+  "5ea5ce6ef15c4859baee6f751f425de5": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "a0702468807ee4c66165cc36615a103cdf91936c80716c482f4797e88d6c0578"
+  },
+  "60b4bc2693bc46468510ef2487bdeb75": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "b3dba6bc0f29244de1b0bcdd02197551427a4c17483f6428609e76a73dabc9b2"
+  },
+  "664c7fe693ef490da070262613679867": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "24f3531fea5421c994cfe8bb0baf94a231b67f345790b41990d757d1a988a300"
+  },
+  "673210fb74254c7fbebbdffad37f3359": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "db9d2acdd762971916fa94020b93ca2c575bc93d5a486abda308fae185f5f8c0"
+  },
+  "6a94aae56b8f4c9e9faa4e6f3364da79": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "7c5c8418598fcd46d0369e3fc46fef4b1d5704eb2cbafed86f4480ef52a46b28"
+  },
+  "716effe6f157432daf93736912042a0d": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "28f5cc336e773459f87065583e22468e31488e4ce91d9afb217f83c145bf5a8b"
+  },
+  "7277cf5175724971a7388f0b78ec9d37": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "8b591f41bbc643ee68c74169896e295720b2ad794ab852bbcb9fd767ba38cfd0"
+  },
+  "79f28bdfba53463aa6d0b200d7322e43": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "18cf326f64affadd7544aacb144665882ef90b31b0bbe5ad3d0ab1c6f52d059d"
+  },
+  "79f97ded462142968d3a582ddcc6b059": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "aa3d4c2176a08a761a2d1d7e996273b477559781a59a8e63b8e4ed286cb97abd"
+  },
+  "8247eeb8be1f4ccd8aab0da89af3bf49": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "9af8388a3dbc20fefce457c2341fa909f2290b2b375b64b3c209f38759bb3de3"
+  },
+  "898b0acf4f0c4ad8a2aadd5a2b70670e": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "4fde9dd49c4659a959758cff1aa6987a91eade8cc173c586664f3768b9e8dddc"
+  },
+  "8b602bc83fa8473e9f8512d446879ce2": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "910bc14bb22d79015a8332eb46261946eb9d43ff0dd0fa65fd001a4d4e010026"
+  },
+  "8f0aebd3f7d6430eb50b61ae1780cbb0": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "32b6308626cc33d0b5fde06916046737458d5eda41e06fec59c2dfaea75dcb08"
+  },
+  "929ac7e58b65499f9a8c5f791b55fe8d": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "755b2d25f4114dd655e70f757ef3e53e7fba8fdc0c6e1ddb568b037afb4a70f9"
+  },
+  "936b28cf987a442e8f0584c2ed133933": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "e249914ab5ce2d532f6965981b66b8f994e9e8295ccddbcbfff8806da1689851"
+  },
+  "98a61254018f49d59168f85053b0127c": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "110fa1be565c4164e38a8c39189466f590042f6e762626f79825567250664bf1"
+  },
+  "9ff5dfca89d84180a058f5ff4f303272": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "2dd4e5d86193200a1bad182d733b73ed62e15f6181bf43e4200b5a2e877e7e7b"
+  },
+  "a20e01b73c0d4ca3aff1c78ebff542ab": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "dbb4d92a344116270a2f806547876c5c032e5dca64b1b5aa84d164fa8859f2ba"
+  },
+  "a27b79c6ddac433da1069e202b5a6881": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "fbefc1cf534988bed5cf023c2e6b3dc912e31b8220191eb3f9c9f8d3f6ea3dd2"
+  },
+  "a7c4a1e071c14a898b60a457aea05645": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "d00a5ca191379fdacc936253903a4862b65dfe58b05eaae28712dce28d4d1319"
+  },
+  "a874b82cb3d04e83ad05d55f1e3b2d45": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "19075af9b58fa61b8bed1f82f942b0b8b05a7fb939846be40410d0d6416b15d5"
+  },
+  "a96e4abe707a4091945d4be9238d5c60": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "0a0928b62ea23c90935bda91fdfa2a87936a9923095a9ede73d61acf45aa45e3"
+  },
+  "a99f4e6304f748759108d4e58c99011e": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "e477403260b725213df5621c220ef0e095dfd5cd39c6e41e795a496c21e1f676"
+  },
+  "ab620514023d46d6bf3924f74deb74e7": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "0f5837f7664b9c0ddcf9c435beee76694d6f44ab0f875ec1a12502da47706417"
+  },
+  "b5270f5083b2406a8405aa7958bbe878": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "34532d23149efc6082bede42301e03c57a18ffb57e96bb0976228bcb0a1b03f5"
+  },
+  "b742564e3d7e4ab789322c44eadb89f6": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "a3a38716c16db29504396e3d8351570d134eeed558f72532ac6f1a1c0fcf12e8"
+  },
+  "bd8fa617cdee4a35b86f27ddca54ede2": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "f727230b0bb5ac156df44951c5d131df52c878e72a7d6454d97753ce0bc8fb2b"
+  },
+  "c6769b3cbf0f4997935d5b33dbdaab64": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "c408ae21fbf07336954784358076fc22444c9c1dce513df298e97b4d3df3db43"
+  },
+  "cba83ddd85554ecca02a8ede3fcc0d8b": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "f8c7ecf255212f77fcf75f2872a1a4836e6563490e7eb7d7493e8d6d936a472a"
+  },
+  "ce694a800b2d46cdacc8be907adb38a7": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "530f8d62ae7666e4bd67b77c008ccfabc602760e44816aa0933b24eda722f373"
+  },
+  "cf7239ad7d5146e29d1d722b4e97d810": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "a0f7c8b1c04fa82e2d1c0dcaeaa5e801c081241dbb8720aad647fa2ab9cb9979"
+  },
+  "d165ddc9b2ea4b0a89114725f6307564": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "cb4a346d40fcd9670d5ac1f97a7a28602f431dc1e07fda1df3d81cfa13b3044b"
+  },
+  "d27a08ffe5fc441bb10e993a60130e4c": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "4e2955272ce04cc1116365983e775a333785bf4a1a48dc16da83f13bf3eadf80"
+  },
+  "d3e336f360314788ac7a5219da8f26ca": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "259898ffdc292d520fd9eb9b076d17b50bc9019465ca06c89ba0d137143b89cc"
+  },
+  "dd6cb309fe794789a7682d369ed9f260": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "eaf84262ec9c959fa23cfd18b2418d06522618be00a777d73eb7240fce2783e3"
+  },
+  "e5e3f907d59e45ed96d95cf3433cbea2": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "2b19b2a607c9337073b4ec483a3cd5f03c77cedbc74b8f3f51effe87d1b3d218"
+  },
+  "e97c1eee343d4b61b0242ca3233928ca": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "8d3cd87373f61e066456cfeaececa9588fd2f53b726de59210d394ae35ea40c1"
+  },
+  "ea950520337441b59996df43ed880de5": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "af249b2394b69c47aa5e58d67ec50aaf81c905dc0b5d628a31c20147192ced9d"
+  },
+  "eda749a83f6148e5845751756bfc8aaf": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "b59953d3d7538b095225001741fad433a28ed8e998ef6260975fbaaec735c096"
+  },
+  "edd40bf563784c069af1746fc1dd4da1": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "4ed0aee6f5d0a9029fa2c2193f062dc6d4a881bf6666ea2af7a713b751c36f04"
+  },
+  "f0ee4a62505b485d82d6097492743cbb": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "5a85c0ac11937b11698c2940f8e61a1406508024368731d27ed922ee3388fb48"
+  },
+  "f4eaf72f3aa34bad87209b3d93468fdd": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "614f44a98953332c236d3a4f4b5c4557c1fd0f3e8c5f74c6205b7ee6c83ee5dc"
+  },
+  "f66bd42059564bb8896244c2fff02253": {
+   "experiment": "sentinel_credit_baseline",
+   "status": 3,
+   "content_sha256": "b4c71c5e16e68b3c41b33fa0ded000d65efc9dac7a977493f5ccbbc504a268b4"
+  }
+ },
+ "key_metrics": {
+  "model_version": "v1.1",
+  "feature_set": "13_features_v1_1",
+  "training_run_id": "5466ebf3e7ce48f383fa40b6a65f66f2",
+  "dataset_version": "full_horizon_2025_v1",
+  "gini": 0.5618,
+  "auc": 0.7809,
+  "brier": 0.0254,
+  "ece": 0.0015,
+  "business_cutoff": 0.0657
+ }
+}

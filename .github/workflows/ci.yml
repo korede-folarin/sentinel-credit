@@ -1,0 +1,82 @@
+# Sentinel Credit — continuous integration (v2 V2-01).
+#
+# Plain English: on every push and pull request, check that
+#   1. new code passes lint (v2/ and tests/ only; v1 files are never linted),
+#   2. the tests pass, with honest coverage reported,
+#   3. nothing that defines the finished v1 platform has changed
+#      (the v1 manifest taken at tag v1.0-evaluated),
+#   4. the scoring API still builds as a container and answers correctly.
+# GitHub's machines have no PostgreSQL, MLflow store or git-ignored model
+# package, so tests needing them are skipped there (and say why); they run
+# locally. No secrets are used.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff==0.7.4
+      - name: Lint new code only (v2/, tests/)
+        run: ruff check v2 tests
+
+  v1-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install PyYAML==6.0.1
+      - name: Fail if any committed v1 artefact or v1 config section changed
+        run: python v2/tools/v1_manifest.py verify --repo
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - run: pip install -r requirements-ci.txt
+      - name: Tests with coverage
+        run: >
+          pytest -q --cov=serving --cov=pipeline --cov=data_generator --cov=models --cov=v2
+          --cov-report=term --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the scoring API image
+        run: docker build -f v2/docker/api.Dockerfile -t sentinel-api:ci .
+      - name: Smoke test the container
+        run: |
+          docker run -d --name api -p 8000:8000 sentinel-api:ci
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 1; done
+          body='{"order_value_gbp":500,"n_instalments":6,"merchant_category":"Electronics","monthly_income_gbp":2200,"existing_monthly_obligations_gbp":300,"savings_balance_gbp":150,"credit_score":610,"months_credit_history":18,"num_credit_accounts":2,"num_defaults_24m":0}'
+          pd=$(curl -sf -X POST http://127.0.0.1:8000/score -H "Content-Type: application/json" -d "$body" \
+               | python -c "import json,sys; print(json.load(sys.stdin)['calibrated_probability'])")
+          echo "probability of default: $pd"
+          test "$pd" = "0.0318"
+      - if: always()
+        run: docker rm -f api || true

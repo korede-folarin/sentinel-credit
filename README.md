@@ -4,7 +4,7 @@
 
 **[▶ Try the live demo](https://korede-folarin.github.io/sentinel-credit/)** · [Read the case study](https://koredefolarin.com/sentinel-credit.html) · [Engineering Decision Log](docs/engineering_decision_log.md) · [Model results](docs/model_results_summary.md)
 
-![Python 3.11](https://img.shields.io/badge/Python-3.11-17233a) ![XGBoost](https://img.shields.io/badge/model-XGBoost%20v1.1-17233a) ![Decisions](https://img.shields.io/badge/engineering%20decisions-35%20documented-17233a) ![Data](https://img.shields.io/badge/data-100%25%20synthetic-565a62)
+[![CI](https://github.com/korede-folarin/sentinel-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/korede-folarin/sentinel-credit/actions/workflows/ci.yml) ![Python 3.11](https://img.shields.io/badge/Python-3.11-17233a) ![XGBoost](https://img.shields.io/badge/model-XGBoost%20v1.1-17233a) ![Decisions](https://img.shields.io/badge/engineering%20decisions-35%20documented-17233a) ![Data](https://img.shields.io/badge/data-100%25%20synthetic-565a62)
 
 ---
 
@@ -115,6 +115,7 @@ streamlit run dashboard/Home.py                       # risk officer dashboard
 - **Settings:** everything is configured in `config.yaml`.
 - **Database password:** set `SENTINEL_DB_PASSWORD` in the environment. It is never written into code.
 - **Shared scoring:** the API, the dashboard and the demo site share one scoring path (`serving/features.py`, `serving/reasons.py`), so they give identical answers.
+- **Tests:** `pytest`. What is and isn't covered, honestly: [TESTING.md](TESTING.md).
 - **No database?** The Streamlit dashboard also runs from a published snapshot: see *Public Streamlit demo* below.
 
 <details>

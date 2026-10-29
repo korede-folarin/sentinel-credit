@@ -81,3 +81,10 @@ models/artifacts_*/
 # model files only, no customer records; see dashboard/demo_data/MANIFEST.json
 !dashboard/demo_data/
 !dashboard/demo_data/**
+# v2: the v1 integrity manifest (V2-01) is committed
+!v2/manifests/v1_manifest.json
+# test outputs
+.coverage
+coverage.xml
+.pytest_cache/
+.ruff_cache/

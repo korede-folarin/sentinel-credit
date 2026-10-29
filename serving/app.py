@@ -80,6 +80,11 @@ ARTIFACTS_DIR = os.path.join(
     PROJECT_ROOT,
     CONFIG["model_governance"].get("artifacts_dir", "models/artifacts"),
 )  # the governed champion package; see config.yaml model_governance
+# Optional override for CI and containers (v2 V2-01): point at a copy of the
+# same champion package, e.g. dashboard/demo_data/model. Unset = the default
+# above, unchanged; tests/test_api.py proves both give identical answers.
+if os.environ.get("SENTINEL_MODEL_DIR"):
+    ARTIFACTS_DIR = os.path.abspath(os.environ["SENTINEL_MODEL_DIR"])
 
 DB_CFG = CONFIG["database"]
 GOV_CFG = CONFIG["model_governance"]
