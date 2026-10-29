@@ -1,0 +1,52 @@
+# Sentinel Credit v2 settings (v2 Engineering Decision Log).
+# Separate from config.yaml so v1's sections are never edited; v2 READS the
+# v1 values it must share (business cutoff, splits, features) from config.yaml
+# and the frozen v1 model package.
+
+phase1:
+  # Plain English: one MLflow experiment per v2 phase, every run tagged with
+  # the dataset it used.
+  mlflow_experiment: "sentinel_v2_phase1_pytorch"
+  # The challenger is trained and judged on the v1 dataset (the same data
+  # as the champion), so it carries the champion's dataset_version value.
+  dataset_version: "full_horizon_2025_v1"
+  model_version: "v2-phase1"
+  # Separate registry entry: the v1 entry (sentinel_credit_champion) is
+  # never touched.
+  registered_model_name: "sentinel_credit_v2_challengers"
+  results_schema: "v2_results"
+  artifacts_dir: "v2/artifacts/phase1"
+  reports_dir: "v2/reports/phase1"
+  random_seed: 42
+
+  mlp:
+    # Small, fixed search (owner's choice: avoid heavy tuning, overfitting
+    # risk). Chosen by 5-fold cross-validated AUC on the TRAINING partition
+    # only; test and out-of-time data are untouched until final evaluation.
+    candidates:
+      - {hidden: [32], dropout: 0.1}
+      - {hidden: [64, 32], dropout: 0.2}
+      - {hidden: [128, 64], dropout: 0.3}
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    batch_size: 256
+    max_epochs: 100
+    # Early stopping on a stratified 15% slice of the data each fit sees.
+    validation_fraction: 0.15
+    patience: 8
+
+  autoencoder:
+    # Trained on non-defaulters in the training partition only ("normal
+    # behaviour"); reconstruction error is then compared with default.
+    hidden: [8, 4]
+    learning_rate: 0.001
+    batch_size: 256
+    max_epochs: 100
+    validation_fraction: 0.15
+    patience: 8
+
+  explain:
+    # Captum Integrated Gradients on the uncalibrated network, over a fixed
+    # sample of the stratified test set, baseline = the training mean.
+    sample_size: 2000
+    n_steps: 50

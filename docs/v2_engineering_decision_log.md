@@ -118,6 +118,145 @@ read-only. Aligning the two MLflow versions would change v1, so it is left for a
 | CI workflow | Tested locally; running once pushed |
 | API container image | Tested locally |
 
+## V2-02 — Phase 1: PyTorch Challenger, Autoencoder, Approval Gate (No Promotion)
+
+### Challenge
+Build a neural-network challenger to the v1.1 XGBoost champion and judge it fairly. Also test
+whether an anomaly detector adds anything. None of this may promote a model or change v1.
+
+Two traps in v1's own tooling had to be avoided:
+- `pipeline/promote_champion.py`, run as a script, would register the challenger under the **v1**
+  registered model and overwrite v1's promotion record;
+- v1's promotion threshold (`min_gini_delta`) is unset on purpose, so that script can never
+  recommend a promotion at all.
+
+### Decision (owner-approved, 29th October 2026)
+1. **Same footing as the champion.** The challenger uses:
+   - the champion's 13 features (v1 Decision 27);
+   - the same 41,604 customers;
+   - the champion's stratified split, rebuilt from the frozen ID files;
+   - the out-of-time split, rebuilt by the same date rule;
+   - v1's median fill;
+   - the same Platt calibration (5-fold sigmoid);
+   - the 0.0657 cutoff;
+   - v1's own metric code (`models/evaluate_models.py`, imported read-only).
+
+   Four checks confirmed the rebuilt splits match v1 exactly. Recomputing the champion through
+   v2's code reproduced its published Gini, 0.5618 and 0.5611.
+2. **Model** (`v2/phase1/torch_models.py`). A small MLP (multilayer perceptron) wrapped as a
+   scikit-learn estimator:
+   - inputs standardised;
+   - the rare default class weighted, as XGBoost's `scale_pos_weight` does;
+   - early stopping on a held-back slice;
+   - fixed seeds.
+
+   Size was chosen by 5-fold CV AUC on the training partition only, from three fixed options (the
+   owner asked for light tuning, because of overfitting risk).
+3. **Autoencoder** trained on training-partition non-defaulters only, one per split, so the
+   out-of-time test never leaks into training.
+4. **Explainability.** Captum Integrated Gradients on the uncalibrated network, set beside the
+   champion's v1 SHAP ranking.
+5. **Logging.** MLflow experiment `sentinel_v2_phase1_pytorch`, with the champion's tag keys and
+   `dataset_version = full_horizon_2025_v1`. Models are registered under a separate name,
+   `sentinel_credit_v2_challengers` (versions 1 and 2). v1's `sentinel_credit_champion` entry is
+   untouched.
+6. **Results in PostgreSQL**, in a new `v2_results` schema (`v2/sql/phase1_results.sql`):
+   - `model_comparison`, `segment_metrics`, `anomaly_deciles`, `feature_attributions`,
+     `gate_outcomes`;
+   - append-only, keyed by run label;
+   - the writer refuses any other schema;
+   - `gate_outcomes.promoted` has `CHECK (promoted = false)`, so Phase 1 cannot record a
+     promotion.
+7. **Promotion evaluation** (`v2/phase1/evaluate_challenger.py`). It calls v1's
+   `find_champion_run`, `get_run_metrics`, `evaluate_promotion`, `load_monitoring_evidence` and
+   `evaluate_gate` read-only, and never their writers. It logs the outcome whatever it is.
+
+### Evidence (run `phase1_20261029T225916`, real runs)
+| Held-out | Champion (XGBoost) | Challenger (MLP) |
+|---|---:|---:|
+| Stratified Gini / AUC | 0.5618 / 0.7809 | 0.5329 / 0.7664 |
+| Stratified ECE / Brier | 0.0015 / 0.0254 | 0.0008 / 0.0255 |
+| Stratified recall at cutoff / sent to review | 57.96% / 15.90% | 47.35% / 13.92% |
+| Out-of-time Gini / AUC | 0.5611 / 0.7806 | 0.5700 / 0.7850 |
+| Out-of-time recall at cutoff / sent to review | 40.32% / 11.90% | 40.32% / 10.93% |
+
+**Paired bootstrap** (2,000 resamples of the held-out customers), Gini difference, challenger
+minus champion:
+
+| Split | Difference | 95% CI | Reading |
+|---|---:|---|---|
+| Stratified | -0.0289 | [-0.0521, -0.0042] | Challenger genuinely worse |
+| Out-of-time | +0.0089 | [-0.0205, +0.0374] | Not distinguishable from zero (challenger ahead in 72.8% of resamples) |
+
+**Architecture search** (CV AUC on training data):
+- the three options were within about 0.004 of each other on both splits;
+- chosen: one hidden layer of 32 (stratified) and 64 to 32 (out-of-time);
+- training time: 207 s and 217 s on CPU; 459 s in total.
+
+**Same blind spot, different model.** At the cutoff, the challenger also misses **100%** of
+established-file defaulters on both splits. So v1's blind spot (v1 Decision 31) comes from the data
+and the shared probability scale, not from XGBoost. On thin files, the challenger misses more
+defaulters than the champion on the stratified split (false-negative rate 35.2% against 20.6%) and
+the same share out of time (44.4%).
+
+**Explainability.** Captum's ranking against the champion's SHAP ranking: Spearman 0.758.
+- **Same top feature:** thin file, ranked 1 by both.
+- **Same last feature:** existing obligations, ranked 13 by both.
+- **Main disagreements:** the MLP leans more on order value (rank 2 against 4) and on number of
+  credit accounts (6 against 12), and less on the affordability ratio (11 against 7).
+
+**Autoencoder: unusual customers do not default more.**
+- **On its own as a default signal:** AUC 0.461 (stratified) and 0.420 (out-of-time), *below*
+  0.5. Higher reconstruction error goes with slightly *lower* default.
+- **Against the champion's score:** Spearman -0.24 on both splits.
+- **Among customers the champion does not send to review:** the most unusual decile defaulted at
+  1.65% against 1.32% for the rest (stratified), but 1.49% against 1.76% (out-of-time). So it
+  does not consistently catch the champion's misses.
+- **Conclusion:** in this synthetic population, "unusual" means extreme but often safe profiles,
+  not risk. The detector is reported, not used.
+- **Not fully converged:** it stopped at 97 and 100 epochs against a limit of 100.
+
+**Approval Gate and outcome.**
+- **Gate: PASS.** Monitoring evidence was 23.1 hours old, with no drift alerts. The Airflow drift
+  run had executed that day.
+- **Recorded outcome:** *"challenger did not win: no promotion threshold is set (v1
+  champion_promotion.min_gini_delta is unset on purpose), so no Gini difference can count as a
+  material win. Gini difference: stratified -0.0289, temporal +0.0089. Approval Gate: PASS."*
+- **Independently of the threshold,** the bootstrap shows the challenger is worse on the stratified
+  split, so it would not merit promotion even with a threshold.
+- **Nothing promoted.**
+
+**v1 unchanged:** `v1_manifest.py verify --full` passed after all Phase 1 writes. 57 tests pass
+locally (7 new Phase 1 tests); lint is clean.
+
+### Findings
+1. **On Windows, PyTorch must be imported before MLflow, XGBoost and pandas.** Otherwise its DLLs
+   fail to initialise (WinError 1114). The first training run failed at import and wrote nothing;
+   the scripts now import PyTorch first.
+2. **MLflow could not infer pip requirements** for the logged models and fell back to
+   `scikit-learn==1.5.0, cloudpickle==3.1.2`. The PyTorch dependency is not recorded in the logged
+   model's environment. Anyone loading it must install torch 2.13.0 themselves.
+
+### Limits
+- **One run, one seed.** Seed variance was not measured; the bootstrap covers sampling variance of
+  the test set only.
+- **The out-of-time model trains on 36,747 customers,** some of whom are in the stratified test
+  set. This is v1's design (audit A2), kept for comparability.
+- **Power BI is not yet pointed at `v2_results`.** The tables are ready. The owner hasn't yet
+  described pages 2 and 4, so their shape follows the documented Fairness and Segments page and a
+  model-comparison view.
+
+### Component status
+| Component | Status |
+|---|---|
+| MLP challenger, calibration, evaluation | Tested locally (real run) |
+| Autoencoder | Tested locally (real run) |
+| Captum explanations | Tested locally (real run) |
+| `v2_results` schema and rows | Running (local PostgreSQL) |
+| MLflow experiment and v2 registry entry | Running (local MLflow) |
+| Promotion evaluation and Approval Gate | Tested locally; outcome logged, nothing promoted |
+| Power BI on `v2_results` | Designed only |
+
 ---
 
 ## Version History
@@ -125,3 +264,4 @@ read-only. Aligning the two MLflow versions would change v1, so it is left for a
 | Version | Date | Changes |
 |---|---|---|
 | 0.1 | 29th October 2026 | Log created, separate from the v1 log. Ground rules and plan recorded. Added V2-01: v1 frozen at tag `v1.0-evaluated` and fingerprinted (25 committed artefacts, 16 model files, row counts, 12 schemas, 103 MLflow runs, key metrics). 50 pytest tests. CI (lint new code, tests with coverage, v1 integrity, API container smoke test). One approved, additive change to `serving/app.py` (`SENTINEL_MODEL_DIR`), proven identical to the default. Honest coverage of 16% with its gaps listed. Finding: monitoring runs written by the Airflow container's MLflow are unreadable by the project's MLflow 2.13. |
+| 0.2 | 29th October 2026 | Added V2-02 (Phase 1). PyTorch MLP challenger on the champion's 13 features, splits, calibration and cutoff; the splits were proven identical to v1. Stratified Gini 0.5329 against 0.5618, worse, with a 95% CI excluding zero. Out-of-time 0.5700 against 0.5611, a CI including zero. The challenger shares the champion's 100% established-file miss rate. The autoencoder is not a default signal (AUC 0.46/0.42). Captum against SHAP: Spearman 0.758. Approval Gate PASS. Outcome: challenger did not win, nothing promoted. Results are in the new v2_results schema; models in a separate registry entry. v1 is verified unchanged. Findings: PyTorch DLL import order on Windows; MLflow did not record torch in the logged model's requirements. |

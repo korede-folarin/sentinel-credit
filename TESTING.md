@@ -40,14 +40,15 @@ python v2/tools/v1_manifest.py verify --full   # also database, MLflow, model fi
 | Drift calculation | `tests/test_drift.py` | PSI is about 0 for identical distributions, grows with the size of the shift, is never negative, handles categorical features and missing values, and bands at the configured thresholds |
 | Approval Gate | `tests/test_approval_gate.py` | Passes only with recent evidence and no drift alerts; missing, stale or alerting evidence blocks; the bad-rate shift is reported but never blocks; older timestamps without a UTC offset are read correctly |
 | FastAPI endpoints | `tests/test_api.py` | `/health`, `/model/info`, `/score` for a new applicant, the scoring page; missing fields and wrong types are rejected (422); an existing customer is scored from the feature store (local); **the optional `SENTINEL_MODEL_DIR` gives identical answers to the default** (local) |
+| v2 Phase 1 building blocks | `tests/test_v2_phase1.py` | The PyTorch MLP learns, returns valid probabilities, repeats exactly with a fixed seed and works inside the champion's Platt calibration; the autoencoder gives unusual rows a higher error; v2 metrics use v1's definitions; v2 can write only to `v2_results`; `gate_outcomes` can never record a promotion (local only: PyTorch is not in the CI image) |
 | v1 integrity | `tests/test_v1_integrity.py` | Nothing in the v1 manifest has changed: committed artefacts and config everywhere; database row counts and schemas, MLflow runs, model files and key metrics locally |
 
 ## Where the tests run
 
 | Where | Tests | Skipped, and why |
 |---|---|---|
-| Your machine (database running, `SENTINEL_DB_PASSWORD` set) | 50 pass | none |
-| GitHub Actions CI | 46 pass | 4: they need the local PostgreSQL database or the git-ignored model package `models/artifacts_v1_1` |
+| Your machine (database running, `SENTINEL_DB_PASSWORD` set) | 57 pass | none |
+| GitHub Actions CI | 46 pass | 4 need the local PostgreSQL database or the git-ignored model package `models/artifacts_v1_1`; the Phase 1 file is skipped because PyTorch is not in the slim CI image |
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request:
 lint, tests with coverage, the v1 integrity check, and a container build plus smoke test of the

@@ -88,3 +88,6 @@ models/artifacts_*/
 coverage.xml
 .pytest_cache/
 .ruff_cache/
+# v2 run outputs: models and raw run reports stay local (results go to v2_results and MLflow)
+v2/artifacts/
+v2/reports/
