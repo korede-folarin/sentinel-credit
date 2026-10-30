@@ -93,3 +93,5 @@ v2/artifacts/
 v2/reports/
 # v2 Phase 4: streaming audit files (local stand-in for an S3 bucket) stay local
 v2/streaming/audit/
+# v2 Phase 2: scaled synthetic datasets (large, regenerable) stay local
+v2/data/

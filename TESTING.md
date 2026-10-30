@@ -42,14 +42,15 @@ python v2/tools/v1_manifest.py verify --full   # also database, MLflow, model fi
 | FastAPI endpoints | `tests/test_api.py` | `/health`, `/model/info`, `/score` for a new applicant, the scoring page; missing fields and wrong types are rejected (422); an existing customer is scored from the feature store (local); **the optional `SENTINEL_MODEL_DIR` gives identical answers to the default** (local) |
 | v2 Phase 1 building blocks | `tests/test_v2_phase1.py` | The PyTorch MLP learns, returns valid probabilities, repeats exactly with a fixed seed and works inside the champion's Platt calibration; the autoencoder gives unusual rows a higher error; v2 metrics use v1's definitions; v2 can write only to `v2_results`; `gate_outcomes` can never record a promotion (local only: PyTorch is not in the CI image) |
 | v2 Phase 4 streaming features | `tests/test_v2_stream.py` | The streaming feature state uses the champion's 13 features in order and the same merchant tiers as the API; final features follow `sql/02_feature_store.sql` (maximum affordability over all applications; averages and category shares over approved ones; PostgreSQL rounding, half away from zero; NULL with no approved application); a point-in-time score sees history plus the candidate order but never its outcome; a first application gets exactly the v1 API's new-customer features; an application that arrives before the profile is held, then scored; the final state is the same in any arrival order; 200 real customers replayed in a shuffled order equal the v1 feature store (local) |
+| v2 Phase 2 feature store at scale | `tests/test_v2_phase2.py` | v1's feature-store SQL is only ever run against v2 schemas, and the rewrite refuses SQL that still names a v1 schema (its first statement drops `feature_store.customer_features`); the pandas engine rounds half away from zero exactly as PostgreSQL does (75.125 becomes 75.13); counts and sums become 0 and averages stay NULL as in the SQL; the Spark SQL and pandas produce v1's 63 columns in v1's order. Full-scale parity (0 of 126 million cells different at 2 million customers) is checked by `v2/phase2/benchmark.py` and recorded in V2-04 |
 | v1 integrity | `tests/test_v1_integrity.py` | Nothing in the v1 manifest has changed: committed artefacts and config everywhere; database row counts and schemas, MLflow runs, model files and key metrics locally |
 
 ## Where the tests run
 
 | Where | Tests | Skipped, and why |
 |---|---|---|
-| Your machine (database running, `SENTINEL_DB_PASSWORD` set) | 66 pass | none |
-| GitHub Actions CI | 54 expected to pass | 5 need the local PostgreSQL database or the git-ignored model package `models/artifacts_v1_1`; the Phase 1 file is skipped because PyTorch is not in the slim CI image |
+| Your machine (database running, `SENTINEL_DB_PASSWORD` set) | 71 pass | none |
+| GitHub Actions CI | 59 expected to pass | 5 need the local PostgreSQL database or the git-ignored model package `models/artifacts_v1_1`; the Phase 1 file is skipped because PyTorch is not in the slim CI image |
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request:
 lint, tests with coverage, the v1 integrity check, and a container build plus smoke test of the

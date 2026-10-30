@@ -499,6 +499,149 @@ locally (9 new); lint is clean.
 
 ---
 
+## V2-04 — Phase 2: The Feature Store at Scale (PostgreSQL, pandas, Spark)
+
+### Challenge
+v1 builds its feature store with one SQL script over 50,000 customers. Three questions follow
+for a lender with more customers:
+- Does the same logic hold up at millions of rows?
+- Can Spark, the usual answer to scale, give exactly the same features?
+- At what size does Spark start to pay off on one machine?
+
+### Decision (owner-approved, 30th October 2026)
+1. **Features at scale only.** No model is trained on the scaled data. A new dataset would mean
+   re-deriving the feature set and cutoff under new V2 decisions (ground rule: v1 Decisions 18
+   and 19 apply to v1 data only), which is a separate, larger piece of work.
+2. **Scaled datasets made by v1's own generator, unchanged.**
+   - `v2/phase2/generate_scaled.py` imports `data_generator/bnpl_data_generator.py` read-only. It
+     changes two settings in memory only: the number of customers (50,000, 250,000, 1 million,
+     2 million) and the random seed (2026, the owner's choice, so the data is clearly new and
+     not a superset of v1's customers).
+   - v1's `config.yaml`, code and save step are never touched.
+   - **In chunks.** The generator holds each repayment row as a Python dictionary (about 40 GB
+     for 2 million customers in one go, against 15.4 GB of RAM). So applications and repayments
+     are generated in chunks of 100,000 customers, in 4 parallel processes. Chunk k uses seed
+     2026 + 1000k, and chunk 0 uses exactly the single-run seed. The 50,000-customer dataset was
+     checked identical to a single run (175,103 applications, 485,952 repayments).
+   - Each dataset has a `dataset_version` (`scaled_synthetic_v2_seed2026_n<N>`) and a manifest.
+   - **The data lives outside the repository and outside OneDrive** (`SENTINEL_V2_DATA_DIR`): about
+     1 GB of Parquet.
+3. **Three engines, one definition.**
+   - **PostgreSQL (the reference):** v1's own `sql/02_feature_store.sql`, read-only, pointed at the
+     dataset's own schema (`v2_scale_raw_n<N>`, with v1's column types via `CREATE TABLE (LIKE
+     raw.*)`). That script begins with `DROP TABLE feature_store.customer_features`, so the
+     rewrite refuses to run if any v1 schema name survives it (unit-tested).
+   - **pandas:** one Python process (`pandas_engine.py`).
+   - **Spark 3.5:** local mode in Docker, 8 cores, a 6 GB container (`spark_engine.py`,
+     `feature_store_spark.sql`). The Spark SQL is a transcription of v1's SQL with five marked
+     differences, all about getting PostgreSQL's exact answers (exact decimal inputs, averages
+     over high-precision decimals, `DATEDIFF` for date subtraction).
+4. **Exactness is the bar, not "close".** Every engine's table is compared with PostgreSQL's for
+   every customer and all 63 columns (`compare.py`):
+   - counts, dates, flags and text must be equal;
+   - decimals within 1e-9;
+   - NULL must match NULL.
+
+   pandas computes every rounded average in whole units with integer arithmetic, rounding half
+   away from zero as PostgreSQL does. Ordinary float rounding would round ties such as 75.125
+   the other way.
+5. **The proof first.** Before any timing counts, Spark and pandas must rebuild v1's own feature
+   store exactly from v1's raw data (copied to Parquet with SELECTs only).
+6. **Fair timing.**
+   - **What is timed:** for pandas and Spark, read Parquet, compute, write Parquet. For
+     PostgreSQL, the `CREATE TABLE AS`.
+   - **Fixed costs are recorded separately:** loading into PostgreSQL, staging files into
+     Spark's Docker volume, starting a Spark session.
+   - **Local disk for every engine:** Spark reads a Docker volume, not a Windows folder share.
+   - **Repeats:** 3 runs per engine and size; the median is reported.
+   - **Quiet machine:** the fraud-detection stack was stopped during the runs.
+7. **Results:** `v2_scale.benchmark_runs`, `.setup_costs` and `.parity`; MLflow experiment
+   `sentinel_v2_phase2_spark` (one run per engine and size, tagged `dataset_version`);
+   `v2/reports/phase2/`.
+
+### Evidence (real runs `phase2_20261030T201352` and `phase2_20261030T213930`)
+**Proof on v1's own data:** Spark and pandas each reproduced `feature_store.customer_features`
+with 0 of 3,150,000 cells different.
+
+**Parity on the scaled data:** every engine matched PostgreSQL at every size, with no cell
+different.
+
+| Customers | Applications | Repayment rows | Cells compared per engine | Cells different |
+|---:|---:|---:|---:|---:|
+| 50,000 | 175,103 | 485,952 | 3,150,000 | 0 |
+| 250,000 | 874,990 | 2,424,729 | 15,750,000 | 0 |
+| 1,000,000 | 3,501,153 | 9,710,535 | 63,000,000 | 0 |
+| 2,000,000 | 6,998,911 | 19,431,048 | 126,000,000 | 0 |
+
+**Time to build the feature store** (median of 3, seconds; the three runs in brackets):
+
+| Customers | PostgreSQL | pandas (1 core) | Spark (8 cores) | pandas peak memory |
+|---:|---:|---:|---:|---:|
+| 50,000 | **2.7** (2.73–2.92) | **2.2** (1.75–2.52) | 24.6 (16.3–39.2) | 1.0 GB |
+| 250,000 | 18.9 (18.3–20.4) | **12.9** (12.8–13.4) | 49.2 (45.8–84.7) | 3.5 GB |
+| 1,000,000 | 82.5 (77.8–129.7) | **69.9** (52.6–73.3) | 190.7 (178.5–238.3) | 7.7 GB |
+| 2,000,000 | **211** (197–321) | 302 (299–372) | 354 (288–385) | 9.1 GB |
+
+**Fixed costs at 2 million customers:** loading into PostgreSQL took 354 s; staging for Spark
+16 s; starting a Spark session 3.4 s.
+
+**Where Spark pays off — the honest answer on this machine: not yet, by 2 million customers.**
+- **Spark was slowest at every size.** At 50,000 its fixed overhead (scheduling, shuffles, a JVM)
+  dominates: 24.6 s against 2.2 s for pandas.
+- **Spark scales best.** From 1 to 2 million customers its time rose 1.9×, PostgreSQL's 2.6× and
+  pandas' 4.3×. At 2 million it is within 17% of pandas, and pandas needed 9.1 GB of the
+  machine's 15.4 GB.
+- **On these trends,** pandas runs out of memory and Spark overtakes it somewhere beyond 2
+  million customers. That point was not measured (owner's size limit) and is not claimed.
+- **PostgreSQL, the existing v1 tool, was fastest at 2 million.** On one machine the database
+  already scales further than either alternative here.
+- **Spark's real advantages lie outside this test:** it would add machines, and it ran inside a
+  fixed 6 GB container.
+
+### Findings
+1. **Spark could not read the first scaled datasets.** pandas had written `registration_date`
+   as nanosecond timestamps, which Spark 3.5 rejects ("Illegal Parquet type: INT64
+   (TIMESTAMP(NANOS,false))"). pandas and PostgreSQL had read it without complaint, so only
+   Spark's first runs at 50,000, 250,000 and 1 million failed. They are recorded as failed in
+   `v2_scale.benchmark_runs`.
+   - **Fix:** the generator now writes dates as dates, matching v1's raw `date` type. The four
+     existing customer files were rewritten with the same function (only the column type
+     changes; values do not).
+   - **Rerun:** Spark was rerun for those three sizes. At 2 million it had already picked up the
+     corrected file.
+2. **A common pandas pitfall cost most of its time.** Parquet dates arrive as Python `date`
+   objects, so `min`/`max` on them run as a pure-Python loop: 24 of 27 seconds under the
+   profiler on v1's data. Converted to datetime64, the build went from 21 s to 6 s.
+3. **The generated data first landed inside OneDrive.** It was moved out before the benchmark,
+   and the location is now set by `SENTINEL_V2_DATA_DIR`.
+4. **The first run of each engine is slower** (cold caches): PostgreSQL 130 s against 78–83 s at
+   1 million. Hence medians of 3.
+
+### Limits
+- **One machine, and the engines get different resources.** pandas uses 1 core, PostgreSQL its
+  own parallel workers, and Spark 8 cores in a 6 GB Docker container on an 8 GB VM shared with
+  the v1 Airflow stack. That is a realistic laptop comparison, not a tuned cluster benchmark.
+- **Spark was not tuned** beyond 24 shuffle partitions and 4 GB of driver memory. Its exactness
+  work (decimal averages) has a cost that was not measured separately.
+- **pandas' peak memory is sampled every 50 ms,** so short peaks can be missed.
+- **Three runs per size;** identical runs varied by up to 60% (PostgreSQL at 1 million).
+- **Synthetic data from v1's generator,** with the same behaviour at every size. Real data would
+  have skew (heavy customers, hot keys) that changes Spark's picture.
+- **No model was trained on the scaled data.**
+
+### Component status
+| Component | Status |
+|---|---|
+| Scaled datasets (50k to 2M customers, seed 2026) | Running (local Parquet, outside the repo) |
+| PostgreSQL build from v1's SQL (`v2_scale_raw_n*`, `v2_scale.customer_features_n*`) | Tested locally (real runs) |
+| pandas engine, exact to PostgreSQL | Tested locally (0 cells different at every size) |
+| Spark engine, exact to PostgreSQL | Tested locally (0 cells different at every size) |
+| Benchmark results in `v2_scale` and MLflow | Running (local) |
+| Spark on more than one machine | Designed only (Phase 3 territory) |
+| Model training at scale | Not in scope (owner's decision) |
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
@@ -506,3 +649,4 @@ locally (9 new); lint is clean.
 | 0.1 | 29th October 2026 | Log created, separate from the v1 log. Ground rules and plan recorded. Added V2-01: v1 frozen at tag `v1.0-evaluated` and fingerprinted (25 committed artefacts, 16 model files, row counts, 12 schemas, 103 MLflow runs, key metrics). 50 pytest tests. CI (lint new code, tests with coverage, v1 integrity, API container smoke test). One approved, additive change to `serving/app.py` (`SENTINEL_MODEL_DIR`), proven identical to the default. Honest coverage of 16% with its gaps listed. Finding: monitoring runs written by the Airflow container's MLflow are unreadable by the project's MLflow 2.13. |
 | 0.2 | 29th October 2026 | Added V2-02 (Phase 1). PyTorch MLP challenger on the champion's 13 features, splits, calibration and cutoff; the splits were proven identical to v1. Stratified Gini 0.5329 against 0.5618, worse, with a 95% CI excluding zero. Out-of-time 0.5700 against 0.5611, a CI including zero. The challenger shares the champion's 100% established-file miss rate. The autoencoder is not a default signal (AUC 0.46/0.42). Captum against SHAP: Spearman 0.758. Approval Gate PASS. Outcome: challenger did not win, nothing promoted. Results are in the new v2_results schema; models in a separate registry entry. v1 is verified unchanged. Findings: PyTorch DLL import order on Windows; MLflow did not record torch in the logged model's requirements. |
 | 0.3 | 30th October 2026 | Added V2-03 (Phase 4, PyFlink streaming, shadow mode). Kafka 3.8 and Flink 1.20 in Docker replay v1's synthetic history at 10, 100 and 1,000 events/s, with 1% duplicates and 2% late events (up to 10 minutes). Per-customer keyed state, event-time lateness, de-duplication, micro-batched scoring with the unchanged champion. Every run processed every event once, dropped every duplicate, and matched the v1 feature store for every customer (50,000 / 50,000 at 1,000/s); scores within 1.0e-8 of the host, no decision differed. It kept up at 10 and 100/s (p50 3.1 and 4.3 s), not at 1,000/s (about 360/s sustained, caught up without loss). It recovered from a killed TaskManager (checkpoint restore) and a killed sink with no loss or double counting. Point-in-time category features show a moderate shift against training (PSI 0.10–0.13). The design was revised on measured evidence (per-event timers replaced); the failed runs are recorded. New schema v2_stream; new DAG sentinel_v2_stream_replay. v1 verified unchanged. |
+| 0.4 | 30th October 2026 | Added V2-04 (Phase 2, features at scale). v1's generator (unchanged, in-memory overrides, seed 2026) made 50k, 250k, 1M and 2M-customer datasets (up to 19.4M repayment rows). The feature store was built by PostgreSQL (v1's own SQL, guarded against touching v1), pandas and Spark 3.5. Spark and pandas rebuilt v1's feature store exactly, and every engine matched PostgreSQL in every cell at every size (126M cells at 2M). Median build at 2M: PostgreSQL 211 s, pandas 302 s (9.1 GB), Spark 354 s (8 cores). Spark was slowest at every size but scaled best (1.9× from 1M to 2M against 4.3× for pandas); it did not pay off by 2M on one machine. Findings: nanosecond Parquet timestamps that Spark cannot read (fixed, Spark rerun), a pandas date pitfall, data moved out of OneDrive. v1 verified unchanged. |

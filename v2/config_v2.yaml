@@ -91,3 +91,17 @@ phase4:
     - {rate: 1000, customers: 50000}
   parity_tolerance: 1.0e-9
   audit_dir: "v2/streaming/audit"
+
+phase2:
+  # Plain English: rebuild the feature store with Spark on bigger synthetic
+  # data, check it gives the same answers as the SQL, and time it against
+  # pandas and PostgreSQL to find where Spark starts to pay off. Features at
+  # scale only: no model is trained on this data (owner, 30 Oct 2026).
+  seed: 2026                      # new seed: a new dataset, not a superset of v1
+  dataset_prefix: "scaled_synthetic_v2"
+  sizes: [50000, 250000, 1000000, 2000000]   # customers
+  # Fallback only: set SENTINEL_V2_DATA_DIR to a folder outside OneDrive or
+  # any synced folder (several GB of generated data).
+  data_dir: "v2/data"
+  results_schema: "v2_scale"
+  mlflow_experiment: "sentinel_v2_phase2_spark"
