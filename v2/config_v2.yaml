@@ -50,3 +50,44 @@ phase1:
     # sample of the stratified test set, baseline = the training mean.
     sample_size: 2000
     n_steps: 50
+
+phase4:
+  # Plain English: replay the v1 synthetic history as a live event stream
+  # (Kafka), keep each customer's features up to date inside Flink, and
+  # score every application with the unchanged v1.1 champion. Simulated
+  # stream only: no real customers, no live traffic.
+  dataset_version: "full_horizon_2025_v1"   # the events come from v1's raw tables
+  model_version: "v2-phase4-stream"
+  results_schema: "v2_stream"
+  # Shadow mode: decisions are logged, never returned to anyone. The v1 API
+  # stays the system of record (ground rule: consumers read v1 until v2 is
+  # validated).
+  mode: "shadow"
+  kafka:
+    events_topic: "sentinel.v2.events"
+    scores_topic: "sentinel.v2.scores"
+    partitions: 4
+  flink:
+    # = the TaskManager's slots (flink-conf/config.yaml). Chosen by measured
+    # throughput (V2-03); run stream_1000eps_r1 used 2 and fell behind.
+    parallelism: 8
+    checkpoint_interval_ms: 10000
+    # Event time: an event may arrive up to this late and still be put in
+    # order. Anything later is applied straight away and flagged "late".
+    watermark_out_of_orderness_ms: 2000
+  simulator:
+    seed: 42
+    duplicate_rate: 0.01        # 1% of events are sent twice
+    late_rate: 0.02             # 2% of events are delivered late...
+    late_min_s: 1
+    late_max_s: 600             # ...by up to 10 minutes
+    duplicate_max_delay_s: 5
+  # Runs reported in V2-03: rate (events per second) and how many customers'
+  # full histories are replayed (every event for each chosen customer, so the
+  # final state can be compared with the v1 feature store).
+  runs:
+    - {rate: 10, customers: 400}
+    - {rate: 100, customers: 4000}
+    - {rate: 1000, customers: 50000}
+  parity_tolerance: 1.0e-9
+  audit_dir: "v2/streaming/audit"

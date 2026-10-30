@@ -91,3 +91,5 @@ coverage.xml
 # v2 run outputs: models and raw run reports stay local (results go to v2_results and MLflow)
 v2/artifacts/
 v2/reports/
+# v2 Phase 4: streaming audit files (local stand-in for an S3 bucket) stay local
+v2/streaming/audit/

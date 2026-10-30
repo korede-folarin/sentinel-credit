@@ -1,0 +1,6 @@
+# Simulator and sink image (V2-03).
+confluent-kafka==2.5.3
+psycopg2-binary==2.9.9
+pandas==2.2.2
+numpy==1.26.4
+PyYAML==6.0.2

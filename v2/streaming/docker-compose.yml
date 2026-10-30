@@ -1,0 +1,116 @@
+# Sentinel Credit v2, Phase 4: local streaming stack (V2-03).
+# Plain English: one Kafka broker, a Flink cluster (one JobManager, one
+# TaskManager) running the PyFlink job, a sink that stores results, and a
+# replay agent that runs simulations on request. Ports are bound to
+# 127.0.0.1 only. The PostgreSQL database stays on the host; containers
+# reach it at host.docker.internal. The password is passed through from the
+# host's SENTINEL_DB_PASSWORD environment variable, never written here.
+#
+# Use v2/streaming/stream.ps1 (start, submit, replay, status, stop, teardown).
+
+name: sentinel_v2_stream
+
+# Each container mounts, read-only: the streaming code, the v1 and v2 settings,
+# the v2 SQL and the committed copy of the v1.1 champion.
+x-db-env: &db-env
+  SENTINEL_DB_HOST: host.docker.internal
+  SENTINEL_DB_PASSWORD: ${SENTINEL_DB_PASSWORD:?set SENTINEL_DB_PASSWORD in your shell first}
+  KAFKA_BOOTSTRAP: kafka:9092
+
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+    hostname: kafka
+    ports:
+      - "127.0.0.1:29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      # Each check starts a JVM (about 2 CPU cores for a few seconds), so not too often.
+      interval: 30s
+      timeout: 20s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  jobmanager:
+    build: {context: ., dockerfile: flink.Dockerfile}
+    image: sentinel-v2-flink:1.20.0
+    hostname: jobmanager
+    command: ["jobmanager.sh", "start-foreground"]
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./:/opt/sentinel/streaming:ro
+      - ../config_v2.yaml:/opt/sentinel/config_v2.yaml:ro
+      - ../../config.yaml:/opt/sentinel/config.yaml:ro
+      - ../sql:/opt/sentinel/sql:ro
+      - ../../dashboard/demo_data/model:/opt/sentinel/model:ro
+      - flink-checkpoints:/checkpoints
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      kafka: {condition: service_healthy}
+    restart: unless-stopped
+
+  taskmanager:
+    image: sentinel-v2-flink:1.20.0
+    hostname: taskmanager
+    command: ["taskmanager.sh", "start-foreground", "-Dtaskmanager.host=taskmanager"]
+    volumes:
+      - ./:/opt/sentinel/streaming:ro
+      - ../config_v2.yaml:/opt/sentinel/config_v2.yaml:ro
+      - ../../config.yaml:/opt/sentinel/config.yaml:ro
+      - ../sql:/opt/sentinel/sql:ro
+      - ../../dashboard/demo_data/model:/opt/sentinel/model:ro
+      - flink-checkpoints:/checkpoints
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on: [jobmanager]
+    restart: unless-stopped
+
+  sink:
+    build: {context: ., dockerfile: tools.Dockerfile}
+    image: sentinel-v2-stream-tools:1
+    command: ["python", "sink.py"]
+    volumes:
+      - ./:/opt/sentinel/streaming:ro
+      - ../config_v2.yaml:/opt/sentinel/config_v2.yaml:ro
+      - ../../config.yaml:/opt/sentinel/config.yaml:ro
+      - ../sql:/opt/sentinel/sql:ro
+      - ../../dashboard/demo_data/model:/opt/sentinel/model:ro
+      - ./audit:/audit
+    environment: *db-env
+    depends_on:
+      kafka: {condition: service_healthy}
+    restart: unless-stopped
+
+  replay-agent:
+    image: sentinel-v2-stream-tools:1
+    command: ["python", "simulator.py", "agent"]
+    volumes:
+      - ./:/opt/sentinel/streaming:ro
+      - ../config_v2.yaml:/opt/sentinel/config_v2.yaml:ro
+      - ../../config.yaml:/opt/sentinel/config.yaml:ro
+      - ../sql:/opt/sentinel/sql:ro
+      - ../../dashboard/demo_data/model:/opt/sentinel/model:ro
+    environment: *db-env
+    depends_on: [sink]
+    restart: unless-stopped
+
+volumes:
+  flink-checkpoints:

@@ -41,14 +41,15 @@ python v2/tools/v1_manifest.py verify --full   # also database, MLflow, model fi
 | Approval Gate | `tests/test_approval_gate.py` | Passes only with recent evidence and no drift alerts; missing, stale or alerting evidence blocks; the bad-rate shift is reported but never blocks; older timestamps without a UTC offset are read correctly |
 | FastAPI endpoints | `tests/test_api.py` | `/health`, `/model/info`, `/score` for a new applicant, the scoring page; missing fields and wrong types are rejected (422); an existing customer is scored from the feature store (local); **the optional `SENTINEL_MODEL_DIR` gives identical answers to the default** (local) |
 | v2 Phase 1 building blocks | `tests/test_v2_phase1.py` | The PyTorch MLP learns, returns valid probabilities, repeats exactly with a fixed seed and works inside the champion's Platt calibration; the autoencoder gives unusual rows a higher error; v2 metrics use v1's definitions; v2 can write only to `v2_results`; `gate_outcomes` can never record a promotion (local only: PyTorch is not in the CI image) |
+| v2 Phase 4 streaming features | `tests/test_v2_stream.py` | The streaming feature state uses the champion's 13 features in order and the same merchant tiers as the API; final features follow `sql/02_feature_store.sql` (maximum affordability over all applications; averages and category shares over approved ones; PostgreSQL rounding, half away from zero; NULL with no approved application); a point-in-time score sees history plus the candidate order but never its outcome; a first application gets exactly the v1 API's new-customer features; an application that arrives before the profile is held, then scored; the final state is the same in any arrival order; 200 real customers replayed in a shuffled order equal the v1 feature store (local) |
 | v1 integrity | `tests/test_v1_integrity.py` | Nothing in the v1 manifest has changed: committed artefacts and config everywhere; database row counts and schemas, MLflow runs, model files and key metrics locally |
 
 ## Where the tests run
 
 | Where | Tests | Skipped, and why |
 |---|---|---|
-| Your machine (database running, `SENTINEL_DB_PASSWORD` set) | 57 pass | none |
-| GitHub Actions CI | 46 pass | 4 need the local PostgreSQL database or the git-ignored model package `models/artifacts_v1_1`; the Phase 1 file is skipped because PyTorch is not in the slim CI image |
+| Your machine (database running, `SENTINEL_DB_PASSWORD` set) | 66 pass | none |
+| GitHub Actions CI | 54 expected to pass | 5 need the local PostgreSQL database or the git-ignored model package `models/artifacts_v1_1`; the Phase 1 file is skipped because PyTorch is not in the slim CI image |
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request:
 lint, tests with coverage, the v1 integrity check, and a container build plus smoke test of the
@@ -76,8 +77,9 @@ The total is low because most of the v1 code is one-off scripts with no tests at
 
 - **Training, evaluation and cutoff selection scripts** (`models/train_baseline_models.py`, `evaluate_models.py`, `select_business_cutoff.py`, `explain_models.py`, `govern_model_features.py` and others): 0%. Their outputs are frozen in the v1 manifest, but the code itself is untested.
 - **Champion promotion** (`pipeline/promote_champion.py`): 0%. Only the Approval Gate's decision logic is tested, not the promotion flow or the MLflow registry calls.
-- **The feature-store SQL** (`sql/02_feature_store.sql`): only checked to define every model feature. Its aggregation logic and point-in-time correctness are not tested against a database in CI.
+- **The feature-store SQL** (`sql/02_feature_store.sql`): only checked to define every model feature in CI. Its aggregation logic is now checked locally, indirectly: the streaming state, rebuilt from raw events, must equal it (`test_v2_stream.py`, and every Phase 4 replay).
 - **The generator's population sampling** (customers, transactions, calibration): only the repayment state machine and the affordability formula are tested.
 - **Drift monitoring's database and MLflow steps** (loading populations, writing logs): only the PSI maths and banding are tested.
 - **The Streamlit dashboard, Power BI report and Airflow DAGs**: not unit-tested. The dashboard has a separate local AppTest check; the demo site has its own deploy gate (`website/tests/browser_check.py`).
+- **The PyFlink job, simulator and sink** (`v2/streaming/`): no unit tests; they need Kafka and Flink. They are checked end to end by each replay's `stream_check.py` (completeness, parity, scoring parity), recorded in V2-03.
 - **Existing-customer scoring** runs only locally, because it needs the database.

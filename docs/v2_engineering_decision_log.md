@@ -259,9 +259,250 @@ locally (7 new Phase 1 tests); lint is clean.
 
 ---
 
+## V2-03 — Phase 4: Streaming Features and Scoring with PyFlink (Shadow Mode)
+
+### Challenge
+v1 scores from a batch feature store: `sql/02_feature_store.sql` rebuilds every customer's
+features from their whole history at once. A BNPL lender decides while the customer waits at
+checkout, so features must be current the moment an application arrives. Real event streams
+also misbehave:
+- events arrive twice;
+- events arrive late, or out of order;
+- machines fail mid-stream.
+
+The phase had to show this working without touching v1, and without implying real traffic.
+
+### Decision (owner-approved, 29th October 2026; design revised on measured evidence, 30th October)
+1. **A simulated stream of v1's own synthetic history.**
+   - `v2/streaming/simulator.py` reads chosen customers' profiles (`raw.customers`) and
+     applications (`raw.transactions`), read-only.
+   - It sends them to Kafka in the order they happened, at a fixed rate of 10, 100 or 1,000
+     events per second. Each event's time is the replay clock, so years of history play in
+     true order, compressed.
+   - **To test the misbehaviour:** 1% of events are sent twice, and 2% are delivered late, by 1
+     second to 10 minutes.
+   - **Watermark heartbeats:** it sends a heartbeat to every partition every 250 ms, so event
+     time keeps moving when no events are due.
+   - **Whole histories only:** each run replays every event of the chosen customers, so the
+     final state can be compared with the v1 feature store.
+2. **The PyFlink job** (`v2/streaming/flink_job.py`; Flink 1.20, Kafka 3.8, in Docker) has two
+   steps.
+   - **Step 1: features, per customer (keyed state).**
+     - Each customer's running totals live in Flink state (`stream_features.py`): profile,
+       maximum affordability ratio, approved count, and sums for the averages and category
+       shares.
+     - The features follow the SQL exactly, including PostgreSQL's rounding (exact decimals,
+       half away from zero).
+     - Every event is applied as soon as it arrives. Kafka keeps one customer's events in order
+       (one key, one partition).
+   - **Event time and watermarks decide lateness.** An event is flagged `late` when it is:
+     - behind the watermark (2 seconds behind the newest event time); or
+     - older than an event already applied for that customer.
+
+     Late events are still applied, because the final state is sums, counts and a maximum and
+     so does not depend on order. Only their own point-in-time score is marked.
+   - **Duplicates** are recognised by event id, dropped, and recorded.
+   - **An application that arrives before its customer's profile** is held, then scored when
+     the profile arrives (`delayed_profile`).
+   - **Step 2: scoring in micro-batches.**
+     - The unchanged champion (`dashboard/demo_data/model`, byte-identical to the governed
+       package) scores up to 500 applications or 100 ms at a time, over 8 bucket keys.
+     - It uses the 0.0657 cutoff and the API's decision labels.
+     - XGBoost runs on one thread per call, and the input is a plain array in the champion's
+       checked feature order. Both changes are faster, with identical probabilities (measured
+       below).
+   - **Revised design.** The first design buffered each on-time event until the watermark
+     passed it (one event-time timer per event). It was replaced after measurement:
+     - it topped out at about 340 events per second here;
+     - it added a fixed 2.4-second wait.
+3. **Point-in-time features.** When an application arrives, the model sees the profile,
+   everything before this application, and this order as the candidate.
+   - This is how the v1 API builds a first-time applicant's features (`serving/features.py`),
+     extended to customers with history. A unit test proves the two agree for a first
+     application.
+   - The historical approve/decline flag of the current application is never used to score it.
+4. **Failure handling.**
+   - **Checkpoints every 10 seconds** save all state and the Kafka read positions together.
+     Flink restarts from the last checkpoint after a failure (fixed delay, up to 10 attempts).
+   - **Output is at-least-once, and the sink's writes are idempotent:**
+     - `ON CONFLICT DO NOTHING` on (run, event);
+     - "update only if newer" on customer state;
+     - Kafka positions committed only after the database commit.
+5. **Storage.**
+   - **PostgreSQL:** a new `v2_stream` schema (`v2/sql/phase4_stream.sql`). Every row is keyed by
+     replay `run_id`, and per-event timestamps record each stage.
+   - **A local audit folder laid out like an S3 bucket**
+     (`bucket=sentinel-v2-audit/stream/run_id=…/dt=…/part-….jsonl`), git-ignored. It stands in
+     for S3 until Phase 3.
+   - **`replay_runs.mode` has `CHECK (mode = 'shadow')`,** so this phase cannot record a live
+     decision.
+6. **Checks** (`v2/streaming/stream_check.py`), per run:
+   - **completeness:** every event processed once, every duplicate dropped;
+   - **parity:** every customer's final state against `feature_store.customer_features`, feature
+     by feature, within 1e-9;
+   - **speed:** latency by stage, throughput and consumer lag;
+   - **scoring parity:** Flink's probability against the champion on the host;
+   - **drift:** PSI using v1's own function (`pipeline/monitor_drift.py`, read-only);
+   - **gate:** the v1 Approval Gate status, read-only.
+7. **Orchestration.** A new Airflow DAG, `sentinel_v2_stream_replay`, does four things:
+   - checks the Flink job is running;
+   - writes a replay request;
+   - waits for the replay agent to finish it;
+   - runs the checks.
+
+   Airflow never talks to Kafka, so its image needs no new packages. The v1 drift DAG is
+   unchanged.
+8. **Shadow mode whatever the gate says.** The gate governs promotion, which this phase never
+   attempts. The stream does not replace the v1 API, and Power BI, the API and Streamlit still
+   read v1.
+
+### Evidence (real runs, 30th October 2026; final design, 8 parallel workers)
+Every run used the configured 1% duplicates and 2% late deliveries (up to 10 minutes late).
+
+| Run | Events (customers) | Processed once | Duplicates dropped | Customers matching v1 | Scoring parity (max \|PD difference\|) |
+|---|---:|---:|---:|---:|---:|
+| `stream_10eps_final` | 1,803 (400) | 1,803 | 20 / 20 | 400 / 400 | 1.9e-10, 0 decisions differ |
+| `stream_100eps_final` | 17,872 (4,000) | 17,872 | 183 / 183 | 4,000 / 4,000 | 3.0e-9, 0 decisions differ |
+| `stream_1000eps_final` | 224,421 (50,000) | 224,421 | 2,191 / 2,191 | **50,000 / 50,000** | 1.0e-8, 0 decisions differ |
+| `stream_100eps_failure_r2` | 17,872 (4,000) | 17,872 | 183 / 183 | 4,000 / 4,000 | 3.0e-9, 0 decisions differ |
+
+**Speed.** These figures cover events delivered on schedule, excluding applications held for a
+late profile. Send-to-processed times are in seconds.
+
+| Rate | Kept up? | p50 | p95 | p99 | Last event processed |
+|---|---|---:|---:|---:|---|
+| 10/s | Yes | 3.1 | 5.7 | 6.2 | 7 s after the last send |
+| 100/s | Yes | 4.3 | 6.9 | 7.8 | 6 s after the last send |
+| 1,000/s | **No** | 220 | 367 | 379 | 382 s after the last send |
+
+- **At 1,000/s,** 216,819 events were sent in 224 seconds and fully processed by second 606:
+  about 360 events per second sustained, with a best 60-second rate of 549. The backlog peaked
+  at 158,654 events sent but not yet stored. Nothing was lost, and parity held for all 50,000
+  customers.
+- **Where the time goes at 10 and 100/s** (medians): 1.9 to 2.2 s reaching the feature step,
+  1.1 to 2.1 s from features to scored, and 0.3 s to storage. This is mostly PyFlink's default
+  bundle time (up to 1 s per Python step). Shortening it lowered throughput (experiment B
+  below), so throughput was chosen over latency.
+- **Late events:** 2% were delivered late, and 72–77% of those were flagged late (22/30,
+  276/359, 3,351/4,528). The rest arrived late but before any later event for the same customer
+  and ahead of the watermark, so their point-in-time score was unaffected.
+- **Applications held for a late profile:** 23, 226 and 3,110.
+
+**Failure test** (`stream_100eps_failure_r2`, 100/s, 4,000 customers):
+- **Flink worker:** the TaskManager container was killed 60 s into the stream. Flink restored
+  the job from checkpoint 334, with all 24 tasks running again 115 s after the kill. That
+  includes 15 s waiting for Docker before the script restarted the container.
+- **Sink:** the sink container was killed 3 minutes later and restarted.
+- **Result:** every event processed once, every duplicate dropped, and all 4,000 customers
+  matching v1. The cost was latency during recovery (p50 42.5 s).
+- **Restarts:** Docker's `unless-stopped` policy does not restart a container stopped with
+  `docker kill` (it counts as manual), so the script restarted both, as an orchestrator would.
+
+**Drift** (v1 PSI function and bands):
+- **Final state against the training population** (modelable customers only): PSI at most
+  0.0001 on the 50,000-customer run, which is expected given exact parity.
+- **Point-in-time features against the training population:** the category shares show a
+  *moderate shift* (`pct_high_risk_category` 0.126, `pct_medium_risk_category` 0.117 at 10/s;
+  0.10 and 0.08 at 100/s; 0.096 and 0.078 at 1,000/s). The champion was trained on
+  end-of-history aggregates, but at decision time a customer's share comes from fewer orders and
+  is more extreme. This is training/serving skew that the v1 batch design could not show (v1
+  already noted "true application-time underwriting is deferred").
+
+**Approval Gate:** PASS in every run. The mode stayed shadow.
+
+**Airflow:** the DAG ran end to end (run `manual__2026-10-30T03:09:07`, 16.8 minutes): it found
+the Flink job running, requested a 50-customer replay at 10/s, waited for the agent, then ran
+the checks inside Airflow. Every event was processed once, every duplicate dropped, and 50 of 50
+customers matched v1. Scoring parity was recorded as skipped there, because Airflow's image has
+scikit-learn 1.9.0 and XGBoost 3.4.0, not the champion's versions.
+
+**How the design was reached** (all runs real; the failures are kept in `v2_stream.replay_runs`
+with notes):
+
+| Step | What was run | Result | What it showed |
+|---|---|---|---|
+| Smoke test | 60 customers, 50/s | 140 of 241 events processed | The watermark stops when the stream stops, so the last 2 s of buffered events never left. Fixed with heartbeats. |
+| Scoring cost | Champion in the Flink image | 55 ms per single-row call | XGBoost thread start-up; 9 ms on one thread, 15 ms for 500 rows. Hence micro-batches. |
+| `stream_1000eps_r1` | First design, 2 workers | about 108 events/s; 181,124 of 224,421 processed when stopped | Fell behind. 47k events were judged late because the source's idleness timeout let the watermark run ahead of unread events under backpressure. Idleness removed. |
+| `stream_1000eps_r2`, `_r3` | 4 workers, larger state cache | 40–60 events/s; stopped | The scoring step re-read its whole waiting batch on every application (quadratic). Fixed with a running count; still slow. |
+| Experiment A | Burst of 22,255 events (5,000 customers at 1,000/s), first design, Flink defaults | 339 events/s, complete, parity 5,000/5,000 | — |
+| Experiment B | As A, with short bundles and buffers (20 ms, 10 ms) | 217 events/s | Low-latency settings cost throughput. Defaults kept. |
+| Experiment C | Process on arrival, no per-event timers | 436 events/s, complete, parity 5,000/5,000 | The per-event timers were the larger cost. Design adopted. |
+| Experiment H | C, 8 workers, 8 scoring keys, array input | 467 events/s | Final configuration. |
+
+- **Noise:** the same configuration run twice gave 297 and 442 events per second (experiments F
+  and G), so only large differences between experiments mean anything.
+- **The ceiling:** about 400–470 events per second, whatever the setting tried.
+- **Why:** every record crosses between Java and Python several times, and there is one Python
+  process per slot.
+
+**v1 unchanged:** `v1_manifest.py verify --full` passed after all Phase 4 runs. 66 tests pass
+locally (9 new); lint is clean.
+
+### Findings
+1. **PyFlink 1.20 needs numpy below 1.25** (its Apache Beam dependency), while the project uses
+   1.26.4. The Flink image uses 1.24.4. Scoring parity shows the effect on the champion:
+   - probabilities differ from the host by at most 1.0e-8;
+   - no decision differs.
+
+   (Earlier smoke runs, scoring one row at a time from a DataFrame, matched exactly. The batched
+   array path accounts for the last digits; it was not investigated further.)
+2. **The Flink configuration file replaces the image's default,** which carries the Java 17
+   module flags. Without them, job submission fails. They are copied into
+   `flink-conf/config.yaml`.
+3. **Flink's REST metrics refresh every 10 seconds.** I first read their 10-second jumps as a
+   PyFlink fault. The per-event timestamps stored in `v2_stream` are the reliable measure.
+4. **The first replay after a job starts is slower** (Python worker warm-up). Each reported set
+   began with a small warm-up run.
+5. **Windows tooling:**
+   - Windows PowerShell 5.1 treats Docker's progress output as an error when
+     `$ErrorActionPreference = "Stop"` (`stream.ps1` checks exit codes instead).
+   - Git Bash rewrites container paths unless `MSYS_NO_PATHCONV=1` is set.
+6. **The Kafka container keeps no volume.** `stream.ps1 stop` keeps topics; recreating the
+   container (`teardown`, or a changed setting) deletes them, and `start` creates them again.
+7. **The first version of the DAG failed on its first run.** A task argument named `run_id`
+   collides with a name Airflow reserves. The request and the replay itself worked; only the
+   waiting task failed. It was renamed `replay_id` and the DAG run again from the start.
+8. **The first failure test did not test anything.** It sent `kill -9` to PID 1 *inside* each
+   container, which Linux ignores, so nothing failed. It is recorded as a clean run, and the
+   test was redone from the host.
+
+### Limits
+- **1,000 events per second is not sustained** on this laptop: about 360 sustained, against
+  1,000 offered. The job falls behind and catches up without loss. Reaching it would need more
+  workers on more machines, or moving the per-customer step out of Python (Java/SQL operators).
+  That is designed only, not tested.
+- **Latency of 3 to 4 seconds at low rates** is a PyFlink default trade-off, not a tuned
+  real-time figure.
+- **One machine.** Docker has 8 GB shared with the v1 Airflow stack; the fraud-detection stack
+  was stopped during the runs.
+- **The stream is v1's own synthetic history** on a compressed replay clock: no real customers,
+  no live traffic. Rates are events per second of that replay.
+- **One run per rate.** Run-to-run variation was not measured for the final runs; the
+  experiments showed up to about 50% between identical bursts.
+- **Lag figures are coarse.** Flink commits Kafka positions only at checkpoints, so the
+  "committed" figure moves every 10 seconds; the "sent but not stored" figure is the better
+  guide.
+- **Power BI is not pointed at `v2_stream`.**
+
+### Component status
+| Component | Status |
+|---|---|
+| Kafka, Flink cluster, sink, replay agent (Docker) | Running (local) |
+| PyFlink job: keyed state, event time, de-duplication, micro-batched scoring | Tested locally (real runs) |
+| Checkpoint recovery after a lost TaskManager; idempotent sink after a crash | Tested locally (failure test) |
+| Parity with the v1 feature store | Tested locally (50,000 / 50,000 customers) |
+| `v2_stream` schema and audit folder | Running (local PostgreSQL and disk) |
+| Airflow DAG `sentinel_v2_stream_replay` | Tested locally (one successful run; manual trigger only, paused) |
+| 1,000 events per second sustained | Not achieved locally; scaling path designed only |
+| Power BI on `v2_stream` | Designed only |
+
+---
+
 ## Version History
 
 | Version | Date | Changes |
 |---|---|---|
 | 0.1 | 29th October 2026 | Log created, separate from the v1 log. Ground rules and plan recorded. Added V2-01: v1 frozen at tag `v1.0-evaluated` and fingerprinted (25 committed artefacts, 16 model files, row counts, 12 schemas, 103 MLflow runs, key metrics). 50 pytest tests. CI (lint new code, tests with coverage, v1 integrity, API container smoke test). One approved, additive change to `serving/app.py` (`SENTINEL_MODEL_DIR`), proven identical to the default. Honest coverage of 16% with its gaps listed. Finding: monitoring runs written by the Airflow container's MLflow are unreadable by the project's MLflow 2.13. |
 | 0.2 | 29th October 2026 | Added V2-02 (Phase 1). PyTorch MLP challenger on the champion's 13 features, splits, calibration and cutoff; the splits were proven identical to v1. Stratified Gini 0.5329 against 0.5618, worse, with a 95% CI excluding zero. Out-of-time 0.5700 against 0.5611, a CI including zero. The challenger shares the champion's 100% established-file miss rate. The autoencoder is not a default signal (AUC 0.46/0.42). Captum against SHAP: Spearman 0.758. Approval Gate PASS. Outcome: challenger did not win, nothing promoted. Results are in the new v2_results schema; models in a separate registry entry. v1 is verified unchanged. Findings: PyTorch DLL import order on Windows; MLflow did not record torch in the logged model's requirements. |
+| 0.3 | 30th October 2026 | Added V2-03 (Phase 4, PyFlink streaming, shadow mode). Kafka 3.8 and Flink 1.20 in Docker replay v1's synthetic history at 10, 100 and 1,000 events/s, with 1% duplicates and 2% late events (up to 10 minutes). Per-customer keyed state, event-time lateness, de-duplication, micro-batched scoring with the unchanged champion. Every run processed every event once, dropped every duplicate, and matched the v1 feature store for every customer (50,000 / 50,000 at 1,000/s); scores within 1.0e-8 of the host, no decision differed. It kept up at 10 and 100/s (p50 3.1 and 4.3 s), not at 1,000/s (about 360/s sustained, caught up without loss). It recovered from a killed TaskManager (checkpoint restore) and a killed sink with no loss or double counting. Point-in-time category features show a moderate shift against training (PSI 0.10–0.13). The design was revised on measured evidence (per-event timers replaced); the failed runs are recorded. New schema v2_stream; new DAG sentinel_v2_stream_replay. v1 verified unchanged. |

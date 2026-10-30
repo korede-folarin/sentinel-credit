@@ -1,0 +1,27 @@
+# Flink 1.20 configuration for the local Phase 4 cluster (V2-03).
+# Sized for a laptop: Docker has 8 GB shared with the v1 Airflow stack.
+jobmanager.rpc.address: jobmanager
+jobmanager.bind-host: 0.0.0.0
+jobmanager.memory.process.size: 1024m
+taskmanager.bind-host: 0.0.0.0
+taskmanager.numberOfTaskSlots: 8
+taskmanager.memory.process.size: 3072m
+parallelism.default: 2
+rest.address: 0.0.0.0
+rest.bind-address: 0.0.0.0
+# State lives in memory and is checkpointed to a Docker volume.
+state.backend.type: hashmap
+execution.checkpointing.dir: file:///checkpoints
+execution.checkpointing.num-retained: 3
+# Restart the job after a failure (e.g. a lost TaskManager), from the last checkpoint.
+restart-strategy.type: fixed-delay
+restart-strategy.fixed-delay.attempts: 10
+restart-strategy.fixed-delay.delay: 10 s
+python.executable: python
+# PyFlink bundle size, bundle time, network buffer timeout and state cache are
+# left at Flink's defaults. Measured (V2-03, 5,000 customers at 1,000 events/s):
+# shorter bundles and buffers (20 ms / 10 ms) cut throughput from 339 to 217
+# events/s, because every bundle is a round trip between Java and Python.
+python.client.executable: python
+# Java 17 module access Flink needs (copied from the official image's default config).
+env.java.opts.all: --add-exports=java.base/sun.net.util=ALL-UNNAMED --add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED --add-exports=java.security.jgss/sun.security.krb5=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.base/java.time=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.locks=ALL-UNNAMED
