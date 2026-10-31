@@ -1,19 +1,20 @@
 # Sentinel Credit
 
-**A research-informed production architecture demonstrating how synthetic data, explainability, monitoring, and governance can be connected into a closed-loop credit risk workflow for Buy Now, Pay Later (BNPL) lending.**
+**A credit risk platform for Buy Now, Pay Later (BNPL) lending, built end to end on a synthetic portfolio I generated: 50,000 simulated customers, no real customer data.** It connects data, explainability, monitoring and governance into one closed loop, informed by published UK research and regulation.
 
 **[▶ Try the live demo](https://korede-folarin.github.io/sentinel-credit/)** · [Read the case study](https://koredefolarin.com/sentinel-credit.html) · [Engineering Decision Log](docs/engineering_decision_log.md) · [Model results](docs/model_results_summary.md)
 
-[![CI](https://github.com/korede-folarin/sentinel-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/korede-folarin/sentinel-credit/actions/workflows/ci.yml) ![Python 3.11](https://img.shields.io/badge/Python-3.11-17233a) ![XGBoost](https://img.shields.io/badge/model-XGBoost%20v1.1-17233a) ![Decisions](https://img.shields.io/badge/engineering%20decisions-35%20documented-17233a) ![Data](https://img.shields.io/badge/data-100%25%20synthetic-565a62)
+[![CI](https://github.com/korede-folarin/sentinel-credit/actions/workflows/ci.yml/badge.svg)](https://github.com/korede-folarin/sentinel-credit/actions/workflows/ci.yml) ![Python 3.11](https://img.shields.io/badge/Python-3.11-17233a) ![XGBoost](https://img.shields.io/badge/model-XGBoost%20v1.1-17233a) ![Decisions](https://img.shields.io/badge/engineering%20decisions-35%20v1%20%2B%204%20v2-17233a) ![Data](https://img.shields.io/badge/data-100%25%20synthetic-565a62)
 
 ---
 
 ## In 30 seconds
 
-- **What it is:** an end-to-end credit risk platform for BNPL lending. It covers synthetic data, a feature store, model training and promotion, explanations, drift monitoring and audit evidence, all wired into one loop.
+- **What it is:** an end-to-end credit risk platform for BNPL lending, built on synthetic data. It covers data generation and validation, a feature store, model training and promotion, explanations, drift monitoring and audit evidence, all wired into one loop.
 - **What you can do right now:** [score an application in your browser](https://korede-folarin.github.io/sentinel-credit/). The governed champion model runs on the page and nothing you type leaves it. You get the decision an applicant would see, in plain English, and what would change it.
 - **Why it's different:** every consequential choice is written up with its evidence in an **[Engineering Decision Log](docs/engineering_decision_log.md)** of 35 decisions. That includes the mistakes I found in my own work and how I fixed them.
-- **Headline result:** a calibrated XGBoost with **Gini 0.56** that holds out of time (0.5618 → 0.5611). The browser copy of the model was checked against the Python original on **41,604 customers with zero decisions changed**.
+- **Headline result:** on the synthetic portfolio, a calibrated XGBoost with **Gini 0.56** that holds out of time (0.5618 → 0.5611). The browser copy of the model was checked against the Python original on **41,604 customers with zero decisions changed**.
+- **v2, in progress: judgement under evidence.** I tested a PyTorch challenger, live streaming features (Kafka, PyFlink) and Spark at 2 million customers. The challenger lost and was not promoted; the streaming target was missed and reported as missed; Spark lost to PostgreSQL and was not recommended. See [v2](#v2-extending-the-platform-without-touching-v1).
 
 ---
 
@@ -45,7 +46,9 @@ Champion **v1.1**: XGBoost, Platt-calibrated, 13 features. Trained on 33,283 cus
 | Brier score | 0.0254 | 0.0241 |
 | Defaults caught at the cutoff (recall) | 57.96% | 40.32% |
 | Applications sent to review | 15.9% | 11.9% |
+| Precision at the cutoff | 9.90% | 8.65% |
 
+- **How the cutoff was set:** a probability of default of 0.0657 or more sends an application to manual review. It was set on the training data (out-of-fold predictions) so that 15% of applications go to review, the workload of an assumed review team. On held-out data that becomes 15.9%, and 11.9% out of time. This synthetic lender has no loss or review-cost figures to price errors on, so the cutoff is tied to workload, and the 15% is itself a stated assumption (see *Honest limitations*). Where error costs can be estimated, pricing the threshold on them is the stronger method.
 - **Three models were benchmarked:** XGBoost (Gini 0.5618) against a decision tree (0.5486) and logistic regression (0.4896).
 - **The riskiest 10% of customers hold 39% of all defaults** (lift 3.93×).
 
@@ -98,7 +101,47 @@ Synthetic data ─► Validation ─► PostgreSQL feature store ─► Train & 
 | Modelling | scikit-learn · XGBoost · SHAP · Prophet (portfolio forecasting) |
 | MLOps | MLflow tracking and Model Registry · Apache Airflow (Astro, Docker) · evidence-gated promotion |
 | Serving | FastAPI · Streamlit dashboard · Power BI (DirectQuery) · ONNX Runtime Web (public demo) |
-| Quality | Headless-browser deploy gate (GitHub Actions) · parity checks · word-for-word explanation tests |
+| Quality | pytest suite and CI on every push · headless-browser deploy gate (GitHub Actions) · parity checks · word-for-word explanation tests |
+| v2 extensions | PyTorch · Kafka · Apache Flink (PyFlink) · Apache Spark · Docker |
+
+---
+
+## v2: extending the platform without touching v1
+
+v2 asks the questions a lender would ask next: would a neural network do better, can the features be computed live, and what happens at millions of customers? The interesting part is not the tools. It is what I decided when the evidence came back, including the three times it said "no". Each call is written up in the [v2 Engineering Decision Log](docs/v2_engineering_decision_log.md), failed runs included.
+
+### The judgement calls
+
+1. **I protected v1 before building anything on it.**
+   - It is easy to say "v2 changes nothing in v1" and hard to prove it. So before any v2 code, v1 was frozen at Git tag `v1.0-evaluated` and fingerprinted: hashes of its model files, feature definitions and code, the database's row counts and columns, and all 103 MLflow runs. CI checks the committed part on every push; the full check runs locally and passes.
+   - v2 writes only to its own schemas and MLflow experiments. The API, dashboard and Power BI still read v1. The one approved change to v1 code lets the API load its model from a chosen folder, for containers; when that setting is not used, it behaves exactly as before. *(V2-01)*
+2. **The PyTorch challenger lost, so XGBoost stays champion.**
+   - The challenger passed the Approval Gate's integrity checks. Passing the gate is not the same as winning.
+   - On the stratified test it was clearly worse (Gini 0.5329 against 0.5618, 95% CI excluding zero). Out of time it was slightly better (0.5700 against 0.5611), but that CI includes zero, so it is noise, not a win.
+   - It also misses every defaulter with an established credit file, exactly like the champion. A more complex model does not fix a problem that sits in the data. *(V2-02)*
+3. **I changed the streaming design when the measurements said so, and kept the target I missed in the write-up.**
+   - My first design (a timer per event) capped out at about 340 events/s. Processing each event on arrival reached 436/s on the same test, so the design changed. Settings that favour latency cost throughput, so I kept the throughput settings and wrote down why.
+   - The goal was 1,000 events/s. The laptop sustained about 360/s. That is reported as **not achieved**, with the scaling path marked designed only, rather than quietly lowering the target.
+   - Streaming scores run in **shadow mode**: they are recorded and compared, never used to decide. A new scoring path earns decision rights only after it is validated. *(V2-03)*
+4. **For Spark, I required exactness before I timed anything, and then reported that Spark lost.**
+   - Fast but slightly different features would quietly change credit decisions. So every engine had to reproduce v1's feature store exactly (0 values different) before its timings counted.
+   - At 2 million customers, PostgreSQL (the tool v1 already used) was fastest. Spark scaled best but did not pay off on one machine. The honest recommendation is not to adopt Spark at this size, and I did not claim a crossover point I never measured.
+   - I deliberately did **not** retrain on the scaled data. A new dataset needs its features and cutoff re-derived, so that is its own piece of work, not a side effect. *(V2-04)*
+5. **I priced the cloud deployment before building it, and paused it on cost.**
+   - Deploying the API to AWS was designed with a tear-down the same day, and access restricted to one IP. It was priced from AWS's published rates at about $0.08 an hour.
+   - It is paused until there is budget, and labelled designed only, not deployed.
+
+### Results so far
+
+All v2 data is synthetic or a simulated replay, and every number comes from a real run.
+
+| Step | What was done | Real result | Status |
+|---|---|---|---|
+| **V2-01**: protect v1 | v1 fingerprint check, a test suite, CI on every push, the scoring API packaged as a Docker image | 71 tests pass locally (59 run on CI, the rest need the local database or Docker); v1 verified unchanged | Running |
+| **V2-02**: PyTorch challenger | A neural network trained on the champion's 13 features and splits, put through the Approval Gate. Plus an autoencoder for unusual applicants | Challenger Gini 0.5329 against the champion's 0.5618 (worse, 95% CI excludes zero); out of time 0.5700 against 0.5611 (CI includes zero). **Not promoted: XGBoost stays champion.** The autoencoder is not a default signal (AUC 0.46) | Tested locally |
+| **V2-03**: streaming features (shadow mode) | Kafka and PyFlink rebuild features from a simulated event stream, with duplicate and late events, and score applications as they arrive. Scores are recorded, no decisions made | Features matched the v1 feature store for 50,000 of 50,000 customers; no decision differed. Kept up at 10 and 100 events/s (median latency 3.1 s and 4.3 s). At a 1,000 events/s target it sustained about 360/s, so 1,000/s was **not achieved** on one laptop. Recovered from killed workers with no loss or double counting | Tested locally |
+| **V2-04**: feature store at scale | The feature store rebuilt with PostgreSQL, pandas and Spark at 50k, 250k, 1M and 2M synthetic customers | Every engine matched exactly (0 of 126 million values different at 2M). At 2M: PostgreSQL 211 s, pandas 302 s, Spark 354 s. **Spark did not pay off by 2M customers on one machine**, though it scaled best | Tested locally |
+| **Phase 3**: AWS | The scoring API on ECS Fargate in London, behind a load balancer, deployed, tested and torn down the same day | Planned and priced at about $0.08 an hour from AWS's published prices; paused, nothing built | Designed only |
 
 ---
 
@@ -115,7 +158,7 @@ streamlit run dashboard/Home.py                       # risk officer dashboard
 - **Settings:** everything is configured in `config.yaml`.
 - **Database password:** set `SENTINEL_DB_PASSWORD` in the environment. It is never written into code.
 - **Shared scoring:** the API, the dashboard and the demo site share one scoring path (`serving/features.py`, `serving/reasons.py`), so they give identical answers.
-- **Tests:** `pytest`. What is and isn't covered, honestly: [TESTING.md](TESTING.md).
+- **Tests:** `pytest` (71 tests; 59 run on CI, the rest need the local database or Docker). What is and isn't covered, honestly: [TESTING.md](TESTING.md).
 - **No database?** The Streamlit dashboard also runs from a published snapshot: see *Public Streamlit demo* below.
 
 <details>
@@ -132,7 +175,10 @@ streamlit run dashboard/Home.py                       # risk officer dashboard
 | `dashboard/` | Streamlit risk officer dashboard, Power BI setup |
 | `forecasting/` | Prophet portfolio forecasts |
 | `website/` | Public demo site, its export tools and browser checks |
-| `docs/` | Decision log, results, audit findings, design and references |
+| `docs/` | Decision logs (v1 and v2), results, audit findings, design and references |
+| `tests/` | pytest suite, run by CI on every push |
+| `infra/` | Airflow (Astro) project and DAGs |
+| `v2/` | v2 work: challenger, streaming, Spark at scale, Docker image, v1 fingerprint |
 
 </details>
 
@@ -160,7 +206,9 @@ streamlit run dashboard/Home.py                       # risk officer dashboard
 | Plain-English reasons | Outcome (approved, declined over the 45% affordability limit, or manual review), reasons in the applicant's own figures, repayment plan, model-tested changes (D30, D31, D33–D35) | ✅ |
 | Adaptive explanation engine | Error-type checks, "risk officer review required" flag; applicant, risk officer and audit-record outputs (D7, D31). Approver identity not recorded (D23) | ✅ |
 | Public demo site | In-browser ONNX champion on GitHub Pages, gated on 25 browser checks (D29–D31) | ✅ |
-| Cloud deployment / AWS | BentoML · Docker · AWS RDS. The API, database and dashboard run locally (D3, D6) | ⬜ |
+| Container image | The scoring API as a Docker image, built and smoke-tested locally (V2-01) | ✅ |
+| Cloud deployment / AWS | ECS Fargate deployment planned and priced, not built. The API, database and dashboard run locally (D3, D6) | ⬜ |
+| v2 extensions | PyTorch challenger, PyFlink streaming, Spark at scale: see [v2](#v2-extending-the-platform-without-touching-v1) | ✅ tested locally |
 
 </details>
 
@@ -193,6 +241,7 @@ A model is only as trustworthy as what it admits about itself:
 - **The model leans on order size in ways a lender should question.** For 71 held-out customers, small orders alone keep them below the review line. This is flagged for the next model review (audit findings A31, A35).
 - **Approver identity is not yet recorded** in promotion or decision records (Decision 23).
 - **The platform runs locally.** Only the demo site and the dashboard snapshot are public.
+- **v2's streaming and scale results come from one laptop,** a simulated replay and synthetic data. They show the design works and where it stops, not production throughput.
 
 ---
 
@@ -200,7 +249,8 @@ A model is only as trustworthy as what it admits about itself:
 
 | Document | Purpose |
 |---|---|
-| [Engineering Decision Log](docs/engineering_decision_log.md) | Every consequential decision, its evidence and its outcome |
+| [Engineering Decision Log](docs/engineering_decision_log.md) | Every consequential v1 decision, its evidence and its outcome |
+| [v2 Engineering Decision Log](docs/v2_engineering_decision_log.md) | v2 decisions V2-01 to V2-04, with real run results and failed runs |
 | [Model Results Summary](docs/model_results_summary.md) | One-page results for the champion |
 | [Project Rationale](docs/project_rationale.md) | Why the project exists, plus its research and regulatory foundations |
 | [Database Design](docs/database_design.md) | Schema, integrity constraints, feature engineering |
